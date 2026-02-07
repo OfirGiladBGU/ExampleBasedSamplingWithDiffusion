@@ -21,32 +21,54 @@ def parse_indices(lst):
 
 def parse_model(model_params):
     from models.Denoiser import  DenoiserModel
+    import torch.nn as nn
+    
+    # Handle new one-hot conditioning parameters
+    use_conditioning = model_params.pop("use_conditioning", False)
+    cond_size = model_params.pop("cond_size", 0)
+    
+    # If using type-based conditioning, set up cond_features
+    if use_conditioning and cond_size > 0:
+        model_params["cond_features"] = cond_size
+        model_params["cond_emb_dim"] = 128  # Embedding dimension for conditions
+        # Pass an Identity instance as the conditioning model
+        model_params["cond_model"] = nn.Identity()
+    
     cond = model_params.get("cond", None)
     
     if cond is None:
-        return DenoiserModel(**model_params), Ellipsis, []
+        model = DenoiserModel(**model_params)
+        # Set flag for whether this model uses conditioning
+        model.has_cond = use_conditioning
+        return model, Ellipsis, []
     
     del model_params["cond"]
 
     if not cond["model"]:
-        return DenoiserModel(**model_params), Ellipsis, []
+        model = DenoiserModel(**model_params)
+        model.has_cond = use_conditioning
+        return model, Ellipsis, []
 
     selects = parse_indices(cond["select"])
     masks = [parse_indices(m) for m in cond.get("masks", [])]
     
     if len(selects) == 0:
-        return DenoiserModel(**model_params), Ellipsis, [[]]
+        model = DenoiserModel(**model_params)
+        model.has_cond = use_conditioning
+        return model, Ellipsis, [[]]
 
     if len(masks) == 0:
         masks = [[]]
 
     if cond["model"] == "id":
-        model = torch.nn.Identity()
+        model = nn.Identity()
     else:
         print("Unknown conditionnal model !")
 
     # Select subsequence for conditionning
-    return DenoiserModel(**model_params, cond_features=cond.get("model_out", None), cond_emb_dim=cond.get("embd_dim", None), cond_model=model), selects, masks
+    model = DenoiserModel(**model_params, cond_features=cond.get("model_out", None), cond_emb_dim=cond.get("embd_dim", None), cond_model=model)
+    model.has_cond = use_conditioning
+    return model, selects, masks
 
 def parse_train(train_params, select_cond, mask_cond):
     from data.Dataset import QMCDataset

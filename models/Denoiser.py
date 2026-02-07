@@ -135,7 +135,11 @@ class DenoiserModel(nn.Module):
         )
         if self.has_cond:
             print("Conditionning !")
-            self.cond_model = cond_model
+            # Ensure cond_model is an instance
+            if cond_model == nn.Identity:
+                self.cond_model = nn.Identity()
+            else:
+                self.cond_model = cond_model
             self.cond_norm  = nn.LayerNorm((cond_features))
             self.cond_layer = NIN(cond_features, cond_emb_dim)
             self.cond_activ = nonlinearity

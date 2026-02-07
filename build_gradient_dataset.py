@@ -5,16 +5,32 @@ This script:
 1. Loads target images (512x512 point patterns)
 2. Extracts black point coordinates using threshold
 3. Normalizes to [0, 1] range
-4. Groups by number of points
-5. Creates HDF5 database
+4. Groups by type (from filename) and number of points
+5. Creates HDF5 database with conditioning on gradient type
 """
 
 import numpy as np
 import os
+import re
 from PIL import Image
 from tqdm import tqdm
 from data.DatasetBuilder import QMCDatabaseBuilder
 from data.Transforms import to_image_optimal_transport
+
+# Gradient types in order of appearance
+GRADIENT_TYPES = [
+    'Radial_Cosine_Gradient',
+    'Noise',
+    'Wave',
+    'Radial_Wave',
+    'Cosine_Gradient',
+    'Sinusoidal_Gradient',
+    'Combined_Shape',
+    'Linear_Gradient',
+    'Radial_Sinusoidal_Gradient'
+]
+TYPE_TO_INDEX = {gtype: i for i, gtype in enumerate(GRADIENT_TYPES)}
+NUM_TYPES = len(GRADIENT_TYPES)
 
 
 def extract_points_from_image(image_path, threshold=128):
@@ -57,6 +73,44 @@ def extract_points_from_image(image_path, threshold=128):
     return points.astype(np.float32)
 
 
+def extract_gradient_type(filename):
+    """
+    Extract gradient type from filename.
+    
+    Filename format: gen_gray_<type>_<number>_<number>.png
+    
+    Args:
+        filename: Filename with gradient type
+    
+    Returns:
+        Gradient type string, or None if not recognized
+    """
+    # Extract the part between 'gen_gray_' and the trailing numbers
+    match = re.match(r'gen_gray_(.+?)_\d+_\d+\.png', filename)
+    if match:
+        return match.group(1)
+    return None
+
+
+def gradient_type_to_conditioning(gtype):
+    """
+    Convert gradient type to one-hot conditioning vector.
+    
+    Args:
+        gtype: Gradient type string (e.g., 'Linear_Gradient')
+    
+    Returns:
+        One-hot vector of shape (NUM_TYPES,)
+    """
+    if gtype not in TYPE_TO_INDEX:
+        print(f"Warning: Unknown gradient type '{gtype}', using zeros")
+        return np.zeros(NUM_TYPES, dtype=np.float32)
+    
+    vec = np.zeros(NUM_TYPES, dtype=np.float32)
+    vec[TYPE_TO_INDEX[gtype]] = 1.0
+    return vec
+
+
 def properties_func(group_name, points):
     """
     Return conditioning values (empty for unconditional model).
@@ -97,38 +151,57 @@ def normalize_point_count(num_points, target_sizes=[1024, 2025, 4096, 4096]):
 
 def build_gradient_dataset(
     source_dir,
-    output_file="gradient_dataset.hdf5",
+    output_file="data/datasets/gradient_dataset.hdf5",
     max_samples=None,
     threshold=128,
-    use_conditioning=False,
+    use_conditioning=True,
     target_point_sizes=[1024, 2025]
 ):
     """
-    Build HDF5 dataset from gradient images.
+    Build HDF5 dataset from gradient images with type-based conditioning.
     
     Args:
-        source_dir: Directory containing PNG images
+        source_dir: Directory containing PNG images (gen_gray_<type>_*.png)
         output_file: Output HDF5 file path
         max_samples: Limit number of samples (None = all)
         threshold: Pixel threshold for point detection
-        use_conditioning: Whether to add conditioning values
+        use_conditioning: Whether to add conditioning based on gradient type
         target_point_sizes: Valid point counts (perfect squares for 2D)
     """
     
     # Collect all image files
     image_files = []
     for fname in sorted(os.listdir(source_dir)):
-        if fname.endswith('.png'):
-            image_files.append(os.path.join(source_dir, fname))
+        if fname.endswith('.png') and fname.startswith('gen_gray_'):
+            image_files.append((fname, os.path.join(source_dir, fname)))
     
     if max_samples:
         image_files = image_files[:max_samples]
     
     print(f"Found {len(image_files)} images")
     
-    # Group by number of points (after normalization)
+    # Count types
+    type_counts = {}
+    for fname, _ in image_files:
+        gtype = extract_gradient_type(fname)
+        if gtype:
+            type_counts[gtype] = type_counts.get(gtype, 0) + 1
+    
+    print(f"\nGradient type distribution:")
+    for gtype in GRADIENT_TYPES:
+        count = type_counts.get(gtype, 0)
+        print(f"  {gtype}: {count}")
+    
+    # Group by number of points (after normalization) and optionally by type
+    # Structure: groups[num_points] = [(points, conditioning), ...]
     groups = {}
-    for image_path in tqdm(image_files, desc="Extracting points"):
+    
+    for fname, image_path in tqdm(image_files, desc="Extracting points"):
+        gtype = extract_gradient_type(fname)
+        if gtype is None:
+            print(f"Warning: Could not extract type from {fname}")
+            continue
+        
         points = extract_points_from_image(image_path, threshold=threshold)
         num_points = points.shape[0]
         
@@ -149,12 +222,23 @@ def build_gradient_dataset(
         if num_points not in groups:
             groups[num_points] = []
         
-        groups[num_points].append(points)
+        # Get conditioning vector for this type
+        if use_conditioning:
+            conditioning = gradient_type_to_conditioning(gtype)
+        else:
+            conditioning = np.zeros(NUM_TYPES, dtype=np.float32)
+        
+        groups[num_points].append((points, conditioning))
     
     print(f"\nPoint set distribution:")
     for num_points in sorted(groups.keys()):
         print(f"  {num_points} points: {len(groups[num_points])} samples")
     
+    # Ensure output directory exists
+    output_dir = os.path.dirname(output_file)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
     # Save to HDF5 using QMCDatabaseBuilder format
     import h5py
     
@@ -164,8 +248,9 @@ def build_gradient_dataset(
         for num_points in tqdm(sorted(groups.keys()), desc="Writing HDF5"):
             shape_group = group.create_group(f'scale_{num_points}')
             
-            # Stack all point sets for this size
-            point_sets = np.stack(groups[num_points])  # (N_samples, N_points, 2)
+            # Separate points and conditioning
+            point_sets = np.stack([p[0] for p in groups[num_points]])  # (N, N_points, 2)
+            conditions = np.stack([p[1] for p in groups[num_points]])  # (N, NUM_TYPES)
             
             # Transform to image space using optimal transport
             transformed = np.stack([
@@ -176,21 +261,10 @@ def build_gradient_dataset(
             # Store data
             shape_group.create_dataset('data', data=point_sets)
             shape_group.create_dataset('data_t', data=transformed)
-            
-            # Add properties (empty or classified)
-            if use_conditioning:
-                props = np.stack([
-                    properties_func_classified('gradients', points)
-                    for points in point_sets
-                ])
-            else:
-                # Create empty properties array that won't cause shape mismatch
-                # Shape should be (N_samples, num_classes) for compatibility
-                props = np.zeros((len(point_sets), 1), dtype=np.float32)
-            
-            shape_group.create_dataset('prop', data=props)
+            shape_group.create_dataset('prop', data=conditions)
     
     print(f"\nDataset saved to {output_file}")
+    print(f"Conditioning dimensions: {NUM_TYPES} (one-hot encoded gradient types)")
     
     return output_file
 
@@ -198,24 +272,24 @@ def build_gradient_dataset(
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Build gradient dataset")
+    parser = argparse.ArgumentParser(description="Build gradient dataset with type-based conditioning")
     parser.add_argument(
         "--source",
         type=str,
         default="/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_2048/target",
-        help="Source directory with target PNG images"
+        help="Source directory with target PNG images (gen_gray_<type>_*.png)"
     )
     parser.add_argument(
         "--output",
         type=str,
-        default="gradient_dataset.hdf5",
+        default="data/datasets/gradient_dataset.hdf5",
         help="Output HDF5 file"
     )
     parser.add_argument(
         "--max-samples",
         type=int,
-        default=1000,
-        help="Maximum number of samples to use (for testing)"
+        default=None,
+        help="Maximum number of samples to use (for testing). None = use all"
     )
     parser.add_argument(
         "--threshold",
@@ -224,9 +298,9 @@ if __name__ == "__main__":
         help="Pixel threshold for detecting black points"
     )
     parser.add_argument(
-        "--conditioning",
+        "--no-conditioning",
         action="store_true",
-        help="Add conditioning values based on point set size"
+        help="Disable type-based conditioning (default: enabled)"
     )
     parser.add_argument(
         "--point-sizes",
@@ -243,6 +317,6 @@ if __name__ == "__main__":
         args.output,
         max_samples=args.max_samples,
         threshold=args.threshold,
-        use_conditioning=args.conditioning,
+        use_conditioning=not args.no_conditioning,
         target_point_sizes=args.point_sizes
     )

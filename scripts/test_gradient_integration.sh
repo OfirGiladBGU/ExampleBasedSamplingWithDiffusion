@@ -5,14 +5,17 @@
 
 set -e
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
 echo "===== Gradient Dataset Integration Test ====="
 echo ""
 
 # Test 1: Build small dataset
 echo "[1/3] Testing dataset builder..."
-conda run -n qmcdiffusion python build_gradient_dataset.py \
+conda run -n qmcdiffusion python "$ROOT_DIR/build_gradient_dataset.py" \
     --source /groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_2048/target \
-    --output test_integration_dataset.hdf5 \
+    --output "$ROOT_DIR/data/datasets/test_integration_dataset.hdf5" \
     --max-samples 5 \
     --point-sizes 1024 2025
 
@@ -23,7 +26,7 @@ conda run -n qmcdiffusion python -c "
 import h5py
 import numpy as np
 
-f = h5py.File('test_integration_dataset.hdf5', 'r')
+f = h5py.File(r'${ROOT_DIR}/data/datasets/test_integration_dataset.hdf5', 'r')
 print('✓ HDF5 file created successfully')
 
 for group_name in f.keys():
@@ -63,4 +66,4 @@ echo ""
 echo "===== ✓ All Tests Passed ====="
 echo ""
 echo "You can now run training with:"
-echo "  bash train_gradient_quick.sh"
+echo "  bash scripts/train_gradient_quick.sh"

@@ -1,4 +1,7 @@
-output_dir=tmp # Output dir of the script
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+output_dir="$ROOT_DIR/outputs/sample_example" # Output dir of the script
 model=LDBN     # Name of the model (see: https://projet.liris.cnrs.fr/qmcdiffusion/models_/)   
                # Warning: this script does not work with 'cond'
 
@@ -13,7 +16,7 @@ then
 fi
 
 # Sample 1 example from model (1024 pts (= 32 * 32), using 100 timesteps)
-python sample.py -c $output_dir/$model.json -m $output_dir/$model.ckpt -s 1 2 32 32 -t 100 -o $output_dir/$model
+python "$ROOT_DIR/sample.py" -c $output_dir/$model.json -m $output_dir/$model.ckpt -s 1 2 32 32 -t 100 -o $output_dir/$model
 
 # Plot pts
 plot_code="import matplotlib.pyplot as plt; import numpy as np; data = np.load(\"$output_dir/$model.npy\")[0]; plt.gca().set_aspect(\"equal\"); plt.scatter(*data.T, s=2); plt.show()"

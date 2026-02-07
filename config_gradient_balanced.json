@@ -1,5 +1,5 @@
 {
-    "path": "outputs/models/gradient_models/",
+    "path": "outputs/models/gradient_models_balanced/",
     "model": 
     {
         "num_channels": 2,
@@ -26,7 +26,7 @@
     },
     "train": 
     {
-        "dataset": "data/datasets/gradient_dataset.hdf5",
+        "dataset": "data/datasets/gradient_dataset_balanced.hdf5",
         "samplers": ["gradients"],
         "batch_size": 32,
         "ema_decay": 0.995,

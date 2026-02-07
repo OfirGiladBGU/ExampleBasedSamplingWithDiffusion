@@ -9,6 +9,9 @@
 
 set -e
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
 # Activate conda environment
 source /opt/miniconda3/etc/profile.d/conda.sh 2>/dev/null || source /home/ofirgila/.bashrc
 conda activate qmcdiffusion
@@ -18,11 +21,11 @@ echo ""
 
 # Configuration
 DATASET_SIZE=1000
-CONFIG_FILE="config_gradient.json"
-DATABASE_FILE="gradient_dataset.hdf5"
+CONFIG_FILE="$ROOT_DIR/config_gradient.json"
+DATABASE_FILE="$ROOT_DIR/data/datasets/gradient_dataset.hdf5"
 TRAIN_STEPS=2000
 TRAIN_TIME=30  # minutes
-OUTPUT_DIR="results_gradients"
+OUTPUT_DIR="$ROOT_DIR/outputs/results_gradients"
 MODEL_DIR="$OUTPUT_DIR/models"
 EVAL_DIR="$OUTPUT_DIR/eval"
 RESULTS_DIR="$OUTPUT_DIR/samples"
@@ -34,7 +37,7 @@ mkdir -p $RESULTS_DIR
 
 echo "[2/4] Building HDF5 dataset from gradient images..."
 echo "      (extracting points from 1000 target images)"
-python build_gradient_dataset.py \
+python "$ROOT_DIR/build_gradient_dataset.py" \
     --source /groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_2048/target \
     --output $DATABASE_FILE \
     --max-samples $DATASET_SIZE \
@@ -58,7 +61,7 @@ with open('$CONFIG_TMP', 'w') as f:
     json.dump(cfg, f, indent=4)
 "
 
-python train.py \
+python "$ROOT_DIR/train.py" \
     --config $CONFIG_TMP \
     --its $TRAIN_STEPS \
     --time $TRAIN_TIME \
@@ -76,7 +79,7 @@ if [ -z "$LATEST_CKPT" ]; then
 fi
 
 echo "      Using checkpoint: $LATEST_CKPT"
-python sample.py \
+python "$ROOT_DIR/sample.py" \
     --config $CONFIG_TMP \
     --model $LATEST_CKPT \
     --shape 5 2 32 32 \

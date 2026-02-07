@@ -1,0 +1,46 @@
+{
+    "path": "outputs/models/single_image_models/",
+    "model": {
+        "num_channels": 2,
+        "ch": 64,
+        "out_ch": 2,
+        "ch_mult": [
+            1,
+            2
+        ],
+        "num_res": 2,
+        "attn_layers": [],
+        "attn_middle": false,
+        "dropout": 0.1,
+        "resamp_with_conv": true,
+        "use_conditioning": false,
+        "cond_size": 0
+    },
+    "diffusion": {
+        "betas": {
+            "min": 0.0001,
+            "max": 0.01,
+            "count": 1000,
+            "schedule": "linear"
+        },
+        "loss": "mse"
+    },
+    "train": {
+        "dataset": "data/datasets/single_image_dataset.hdf5",
+        "samplers": [
+            "single_image"
+        ],
+        "batch_size": 32,
+        "ema_decay": 0.995,
+        "ema_update_every": 25,
+        "lr": 0.0001
+    },
+    "eval": {
+        "directory": "eval/",
+        "freq": 5000,
+        "ts": [
+            100,
+            500
+        ]
+    }
+}
