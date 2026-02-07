@@ -161,6 +161,9 @@ class DenoiserModel(nn.Module):
             cond = self.cond_layer(cond)
             cond = self.cond_activ(cond)
             cond = cond.view((*cond.shape, 1, 1))
+        else:
+            # If no conditioning, create a dummy tensor to avoid issues
+            cond = None
 
         x = self.cat_cond(x, cond)
         x = self.conv1(x)

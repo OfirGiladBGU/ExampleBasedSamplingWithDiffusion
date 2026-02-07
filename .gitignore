@@ -1,0 +1,5 @@
+__pycache__/
+*.hdf5
+
+config/
+results*/

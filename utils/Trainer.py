@@ -103,8 +103,22 @@ class Trainer:
                 d = scale_data["data"].to(self.device)
                 c = scale_data["prop"].to(self.device)
                 
-                scale_loss = self.diffusion(d, ts, x_cond = c)
-                self.writer.add_scalar(f"Loss/{scale}", scale_loss / int(scale), i)
+                # Check if the model uses conditioning
+                has_cond = hasattr(self.diffusion.model, 'has_cond') and self.diffusion.model.has_cond
+                
+                if has_cond:
+                    scale_loss = self.diffusion(d, ts, x_cond=c)
+                else:
+                    # If no conditioning is configured, pass None
+                    scale_loss = self.diffusion(d, ts, x_cond=None)
+                
+                # Extract numeric scale name (e.g., "scale_1024" -> "1024")
+                scale_name = scale.replace("scale_", "") if "scale_" in scale else scale
+                try:
+                    scale_num = int(scale_name)
+                    self.writer.add_scalar(f"Loss/{scale_name}", scale_loss / scale_num, i)
+                except ValueError:
+                    self.writer.add_scalar(f"Loss/{scale_name}", scale_loss, i)
                 
                 loss += scale_loss
 
