@@ -1,6 +1,6 @@
 __pycache__/
-*.hdf5
 
+db*/
 config/
 results*/
 docs*/
