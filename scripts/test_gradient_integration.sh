@@ -15,7 +15,7 @@ echo ""
 echo "[1/3] Testing dataset builder..."
 conda run -n qmcdiffusion python "$ROOT_DIR/build_gradient_dataset.py" \
     --source /groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_2048/target \
-    --output "$ROOT_DIR/data/datasets/test_integration_dataset.hdf5" \
+    --output "$ROOT_DIR/db/test_integration_dataset.hdf5" \
     --max-samples 5 \
     --point-sizes 1024 2025
 
@@ -26,7 +26,7 @@ conda run -n qmcdiffusion python -c "
 import h5py
 import numpy as np
 
-f = h5py.File(r'${ROOT_DIR}/data/datasets/test_integration_dataset.hdf5', 'r')
+f = h5py.File(r'${ROOT_DIR}/db/test_integration_dataset.hdf5', 'r')
 print('✓ HDF5 file created successfully')
 
 for group_name in f.keys():

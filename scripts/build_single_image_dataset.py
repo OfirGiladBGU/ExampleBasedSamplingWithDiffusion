@@ -76,7 +76,7 @@ def build_single_image_dataset(image_path, output_file, repeats, threshold, grou
 def main():
     parser = argparse.ArgumentParser(description="Build a dataset from a single image")
     parser.add_argument("--image", required=True, help="Path to source PNG image")
-    parser.add_argument("--output", default="data/datasets/single_image_dataset.hdf5", help="Output HDF5 file")
+    parser.add_argument("--output", default="db/single_image_dataset.hdf5", help="Output HDF5 file")
     parser.add_argument("--repeats", type=int, default=100, help="Number of repeated samples")
     parser.add_argument("--threshold", type=int, default=128, help="Pixel threshold for points")
     parser.add_argument("--group-name", default="single_image", help="HDF5 group name")

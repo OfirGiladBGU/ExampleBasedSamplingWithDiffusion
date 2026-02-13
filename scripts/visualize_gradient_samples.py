@@ -10,7 +10,7 @@ import matplotlib.patches as patches
 from pathlib import Path
 
 
-def visualize_gradient_samples(dataset_file="data/datasets/test_gradient_dataset.hdf5", num_samples=5):
+def visualize_gradient_samples(dataset_file="db/test_gradient_dataset.hdf5", num_samples=5):
     """
     Load and visualize samples from gradient dataset.
     
@@ -100,7 +100,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset",
         type=str,
-        default="data/datasets/test_gradient_dataset.hdf5",
+        default="db/test_gradient_dataset.hdf5",
         help="HDF5 dataset file"
     )
     parser.add_argument(

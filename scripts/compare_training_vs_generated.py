@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def compare_samples(
-    dataset_file="data/datasets/gradient_dataset.hdf5",
+    dataset_file="db/gradient_dataset.hdf5",
     generated_file="outputs/results_gradients/samples/gradient_samples.npy",
     num_samples=5,
     output_file="outputs/comparison_training_vs_generated.png"
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset",
         type=str,
-        default="data/datasets/gradient_dataset.hdf5",
+        default="db/gradient_dataset.hdf5",
         help="Training dataset HDF5 file"
     )
     parser.add_argument(

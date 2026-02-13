@@ -113,7 +113,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--file",
         type=str,
-        default="data/datasets/gradient_dataset_conditioned_test.hdf5",
+        default="db/gradient_dataset_conditioned_test.hdf5",
         help="HDF5 file to verify"
     )
     

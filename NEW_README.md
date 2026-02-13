@@ -6,7 +6,7 @@ This document consolidates the gradient-data workflow, conditioning setup, visua
 
 - Core training/sampling: `build_gradient_dataset.py`, `train.py`, `sample.py`
 - Helper utilities: `scripts/`
-- Datasets: `data/datasets/`
+- Datasets: `db/`
 - Outputs (results, figures, checkpoints): `outputs/`
 
 ## Gradient Data Overview
@@ -27,7 +27,7 @@ Valid point counts (perfect squares for 2D):
 ```bash
 conda run -n qmcdiffusion python build_gradient_dataset.py \
   --source /groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_2048/target \
-  --output data/datasets/gradient_dataset.hdf5 \
+  --output db/gradient_dataset.hdf5 \
   --max-samples 1000
 ```
 
@@ -82,7 +82,7 @@ How conditioning works:
 ```bash
 conda run -n qmcdiffusion python build_gradient_dataset.py \
   --source /groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_2048/target \
-  --output data/datasets/gradient_dataset_conditioned.hdf5
+  --output db/gradient_dataset_conditioned.hdf5
 ```
 
 ### Train (Conditioned)
@@ -101,7 +101,7 @@ conda run -n qmcdiffusion python scripts/generate_samples_per_type.py
 ### Compare GT vs Generated Per Type
 ```bash
 conda run -n qmcdiffusion python scripts/compare_per_type_training_vs_generated.py \
-  --dataset data/datasets/gradient_dataset_balanced.hdf5 \
+  --dataset db/gradient_dataset_balanced.hdf5 \
   --config outputs/models/gradient_models_balanced/config.json \
   --model outputs/models/gradient_models_balanced/model.ckpt \
   --output outputs/results_balanced/compare_per_type
@@ -110,7 +110,7 @@ conda run -n qmcdiffusion python scripts/compare_per_type_training_vs_generated.
 ### Verify Conditioning Vectors
 ```bash
 conda run -n qmcdiffusion python scripts/verify_conditioning.py \
-  --file data/datasets/gradient_dataset_conditioned_test.hdf5
+  --file db/gradient_dataset_conditioned_test.hdf5
 ```
 
 Expected output:
@@ -192,4 +192,4 @@ All generated artifacts live under `outputs/`:
 - Conditioning implemented and verified
 - Per-type comparisons generated
 - Single-image sanity check passes
-- Repo reorganized (scripts/, outputs/, data/datasets/)
+- Repo reorganized (scripts/, outputs/, db/)

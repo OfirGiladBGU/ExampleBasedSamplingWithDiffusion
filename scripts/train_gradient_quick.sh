@@ -22,7 +22,7 @@ echo ""
 # Configuration
 DATASET_SIZE=1000
 CONFIG_FILE="$ROOT_DIR/config_gradient.json"
-DATABASE_FILE="$ROOT_DIR/data/datasets/gradient_dataset.hdf5"
+DATABASE_FILE="$ROOT_DIR/db/gradient_dataset.hdf5"
 TRAIN_STEPS=2000
 TRAIN_TIME=30  # minutes
 OUTPUT_DIR="$ROOT_DIR/outputs/results_gradients"

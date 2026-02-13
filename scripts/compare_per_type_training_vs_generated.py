@@ -129,7 +129,7 @@ def plot_comparison(output_path, train_samples, train_indices, gen_samples, titl
 
 def main():
     parser = argparse.ArgumentParser(description="Compare per-type training vs generated samples")
-    parser.add_argument("--dataset", default="data/datasets/gradient_dataset_balanced.hdf5", help="Training dataset HDF5 file")
+    parser.add_argument("--dataset", default="db/gradient_dataset_balanced.hdf5", help="Training dataset HDF5 file")
     parser.add_argument("--config", default="outputs/models/gradient_models_balanced/config.json", help="Model config file")
     parser.add_argument("--model", default="outputs/models/gradient_models_balanced/model.ckpt", help="Checkpoint file")
     parser.add_argument("--output", default="outputs/results_balanced/compare_per_type", help="Output directory")

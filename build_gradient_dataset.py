@@ -151,7 +151,7 @@ def normalize_point_count(num_points, target_sizes=[1024, 2025, 4096, 4096]):
 
 def build_gradient_dataset(
     source_dir,
-    output_file="data/datasets/gradient_dataset.hdf5",
+    output_file="db/gradient_dataset.hdf5",
     max_samples=None,
     threshold=128,
     use_conditioning=True,
@@ -282,7 +282,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output",
         type=str,
-        default="data/datasets/gradient_dataset.hdf5",
+        default="db/gradient_dataset.hdf5",
         help="Output HDF5 file"
     )
     parser.add_argument(

@@ -26,7 +26,7 @@
     },
     "train": 
     {
-        "dataset": "data/datasets/gradient_dataset_balanced.hdf5",
+        "dataset": "db/gradient_dataset_balanced.hdf5",
         "samplers": ["gradients"],
         "batch_size": 32,
         "ema_decay": 0.995,

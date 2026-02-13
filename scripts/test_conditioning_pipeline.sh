@@ -9,7 +9,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 SUBSET_DIR="/tmp/gradient_balanced_subset"
-DATASET_FILE="$ROOT_DIR/data/datasets/gradient_dataset_balanced.hdf5"
+DATASET_FILE="$ROOT_DIR/db/gradient_dataset_balanced.hdf5"
 MODEL_DIR="$ROOT_DIR/outputs/models/gradient_models_balanced"
 RESULTS_DIR="$ROOT_DIR/outputs/results_balanced"
 

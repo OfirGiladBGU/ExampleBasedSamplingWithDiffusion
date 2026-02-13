@@ -18,7 +18,7 @@ if [ -z "$IMAGE_PATH" ]; then
     exit 1
 fi
 
-DATASET_FILE="$ROOT_DIR/data/datasets/single_image_dataset.hdf5"
+DATASET_FILE="$ROOT_DIR/db/single_image_dataset.hdf5"
 CONFIG_FILE="$ROOT_DIR/config_single_image.json"
 MODEL_DIR="$ROOT_DIR/outputs/models/single_image_models"
 RESULTS_DIR="$ROOT_DIR/outputs/results_single_image"
