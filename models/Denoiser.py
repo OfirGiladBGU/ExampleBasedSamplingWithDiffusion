@@ -149,8 +149,7 @@ class DenoiserModel(nn.Module):
         self.conv1 = Conv2dSame(num_channels, ch_mult[0])
     
         
-    def forward(self, x, t, cond=None):
-        # t = torch.randint(0, 1000, (x.shape[0], ))
+    def forward(self, x, t, cond=None, controls=None):
         temb = get_timestep_embedding(t, self.ch * 4)
         temb = self.dense1(temb)
         temb = self.dense2(temb)
@@ -176,6 +175,13 @@ class DenoiserModel(nn.Module):
             x = dns(x, temb, self.exp_cond(x, cond))
         
         x = self.middle(x, temb, self.exp_cond(x, cond))
+
+        if controls is not None:
+            encoder_controls, middle_control = controls
+            x = x + middle_control
+            for i in range(len(encoders)):
+                for j in range(len(encoders[i])):
+                    encoders[i][j] = encoders[i][j] + encoder_controls[i][j]
         
         for layer, ups, tensors in zip(self.decoder_layers, self.upsamp_layers, reversed(encoders)):
             for sub_layers, enc in zip(layer, tensors):
