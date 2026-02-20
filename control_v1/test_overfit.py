@@ -3,15 +3,17 @@
 Trains on one example for many steps, periodically samples from the
 diffusion model, and saves comparison visualizations + weights.
 
-Usage:
-    python test_overfit.py --steps 2000
-    python test_overfit.py --steps 5000 --sample-index 42 --vis-every 200
+Usage (from project root):
+    python control_v1/test_overfit.py --steps 2000
+    python control_v1/test_overfit.py --steps 5000 --sample-index 42 --vis-every 200
 """
 
 import argparse
 import json
 import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import torch
@@ -35,7 +37,7 @@ except ImportError:
     HAS_WANDB = False
 
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
-from models.ControlNet import ControlNet, ControlledDenoiser
+from control_v1.ControlNet import ControlNet, ControlledDenoiser
 from utils.Config import ParseSampleConfig
 
 # ── paths ────────────────────────────────────────────────────────────
@@ -72,7 +74,6 @@ def extract_points_from_image(img_path, n_points):
     inv = 255 - img_np
     binary = (inv > 127).astype(np.uint8)
 
-    # Connected-component labelling to find centroids
     from scipy import ndimage
     labelled, n_labels = ndimage.label(binary)
     centroids = ndimage.center_of_mass(binary, labelled, range(1, n_labels + 1))
@@ -210,7 +211,7 @@ def main():
     if not os.path.exists(target_path):
         sys.exit(f"Target not found: {target_path}")
 
-    out_dir = os.path.join("overfit_outputs", stem)
+    out_dir = os.path.join("control_v1", "overfit_outputs", stem)
     os.makedirs(out_dir, exist_ok=True)
 
     # ── prepare GT offset tensor on the fly ──────────────────────────

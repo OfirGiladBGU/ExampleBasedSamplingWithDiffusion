@@ -1,22 +1,28 @@
-"""Convert stippled dot images into offset tensors for ControlNet training.
+"""Convert stippled dot images into offset tensors for V2 training.
+
+Same OT pipeline as V1 -- only the training architecture changed,
+not the ground-truth representation.
 
 For each stippled image (black dots on white background):
   1. Extract dot centroids via contour detection
   2. Map to the 32x32 offset grid using the repo's OT transform
   3. Save as a .npy file of shape (2, 32, 32)
 
-Usage:
-    python prepare_data.py \
+Usage (from project root):
+    python control_v2/prepare_data.py \
         --gt_images /groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/target \
         --output    /groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/processed_offsets \
         --grid_size 32
 """
 
 import os
+import sys
 import argparse
 import numpy as np
 import cv2
 from tqdm import tqdm
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.Transforms import to_image_optimal_transport
 
@@ -29,7 +35,6 @@ def extract_points_from_image(img_path, n_points):
     if img is None:
         raise FileNotFoundError(f"Could not read {img_path}")
 
-    # Dots are dark on light background -> invert so dots become bright
     inv = cv2.bitwise_not(img)
     _, thresh = cv2.threshold(inv, 127, 255, cv2.THRESH_BINARY)
     contours, _ = cv2.findContours(
@@ -49,13 +54,11 @@ def extract_points_from_image(img_path, n_points):
     points = np.array(points, dtype=np.float64)
 
     if len(points) > n_points:
-        # Keep the first n_points (arbitrary but deterministic)
         indices = np.random.RandomState(42).choice(
             len(points), n_points, replace=False
         )
         points = points[indices]
     elif len(points) < n_points:
-        # Pad with jittered grid points (fallback for under-detected dots)
         deficit = n_points - len(points)
         pad = np.random.RandomState(42).rand(deficit, 2)
         points = np.vstack([points, pad])
@@ -101,8 +104,6 @@ def main():
         pts = extract_points_from_image(
             os.path.join(args.gt_images, fname), n_points
         )
-        # to_image_optimal_transport expects (N, 2) in [0,1]
-        # and returns (2, grid_size, grid_size) in ~[-1, 1]
         offsets = to_image_optimal_transport(pts)
 
         stem = os.path.splitext(fname)[0]

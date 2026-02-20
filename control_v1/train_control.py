@@ -1,7 +1,7 @@
 """Train the ControlNet adapter for grayscale-conditioned stipple generation.
 
-Usage:
-    python train_control.py \
+Usage (from project root):
+    python control_v1/train_control.py \
         --config  config/GBN/config.json \
         --ckpt    config/GBN/model.ckpt \
         --cond    /groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/source \
@@ -9,19 +9,22 @@ Usage:
         --epochs  100 \
         --batch_size 16 \
         --lr 1e-4 \
-        --out control_out
+        --out control_v1/control_out
 """
 
 import os
+import sys
 import argparse
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from utils.Config import ParseSampleConfig
-from models.ControlNet import ControlNet
-from data.StippleDataset import StippleDataset
+from control_v1.ControlNet import ControlNet
+from control_v1.StippleDataset import StippleDataset
 
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
 
@@ -52,7 +55,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--out", default="control_out",
+    parser.add_argument("--out", default="control_v1/control_out",
                         help="Output directory for checkpoints and logs")
     parser.add_argument("--save_every", type=int, default=10,
                         help="Save checkpoint every N epochs")

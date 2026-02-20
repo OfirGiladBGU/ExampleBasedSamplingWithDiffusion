@@ -1,24 +1,28 @@
 """Generate stipple point sets conditioned on a grayscale image.
 
-Usage:
-    python sample_control.py \
+Usage (from project root):
+    python control_v1/sample_control.py \
         --config       config/GBN/config.json \
         --base_ckpt    config/GBN/model.ckpt \
-        --control_ckpt control_out/controlnet_ep100.pt \
+        --control_ckpt control_v1/control_out/controlnet_ep100.pt \
         --image        my_photo.png \
         --batch        16 \
         --timesteps    1000 \
         --output       stippled.npy
 """
 
+import os
+import sys
 import argparse
 import numpy as np
 import cv2
 import torch
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from data.Transforms import to_pointset_optimal_transport
 from utils.Config import ParseSampleConfig
-from models.ControlNet import ControlNet, ControlledDenoiser
+from control_v1.ControlNet import ControlNet, ControlledDenoiser
 
 
 def load_condition(image_path, grid_size, device):
