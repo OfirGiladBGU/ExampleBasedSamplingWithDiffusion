@@ -39,9 +39,11 @@ except ImportError:
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
 from control_v1.ControlNet import ControlNet, ControlledDenoiser
 from utils.Config import ParseSampleConfig
+from utils.stippling_metrics import visualize_overfit_metrics
 
 # ── paths ────────────────────────────────────────────────────────────
-DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024"
+# DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024"
+DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_taksim"
 SOURCE_DIR = os.path.join(DATA_ROOT, "source")
 TARGET_DIR = os.path.join(DATA_ROOT, "target")
 CONFIG_PATH = "config/GBN/config.json"
@@ -128,41 +130,6 @@ def sample_from_model(diffusion, control_net, denoiser, cond_img, device,
     return np.array(pointsets), raw_np
 
 
-def visualize(source_img, target_img, pointsets, save_path, step=None):
-    """Save a comparison figure: source | target GT | generated samples."""
-    if not HAS_MPL:
-        return None
-    n_samples = min(len(pointsets), 4)
-    fig, axes = plt.subplots(1, 2 + n_samples,
-                             figsize=(5 * (2 + n_samples), 5))
-
-    axes[0].imshow(source_img, cmap="gray", vmin=0, vmax=255)
-    axes[0].set_title("Source (condition)")
-    axes[0].axis("off")
-
-    axes[1].imshow(target_img, cmap="gray", vmin=0, vmax=255)
-    axes[1].set_title("Target GT (stippled)")
-    axes[1].axis("off")
-
-    for i in range(n_samples):
-        pts = pointsets[i]
-        axes[2 + i].scatter(pts[:, 0], 1 - pts[:, 1],
-                            c="black", s=0.5, alpha=0.8)
-        axes[2 + i].set_xlim(0, 1)
-        axes[2 + i].set_ylim(0, 1)
-        axes[2 + i].set_aspect("equal")
-        axes[2 + i].set_facecolor("white")
-        title = f"Sample {i}"
-        if step is not None:
-            title += f" (step {step})"
-        axes[2 + i].set_title(title)
-        axes[2 + i].axis("off")
-
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close()
-    return save_path
-
 
 # ── main ─────────────────────────────────────────────────────────────
 def main():
@@ -176,7 +143,7 @@ def main():
                         help="Visualise & sample every N steps")
     parser.add_argument("--sample-timesteps", type=int, default=200,
                         help="Diffusion timesteps when sampling")
-    parser.add_argument("--n-samples", type=int, default=4)
+    parser.add_argument("--n-samples", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--no-wandb", action="store_true",
@@ -294,7 +261,10 @@ def main():
                 diffusion, control_net, denoiser, cond_img, device,
                 n_samples=args.n_samples, timesteps=args.sample_timesteps)
             vis_path = os.path.join(out_dir, f"vis_step{step:05d}.png")
-            saved = visualize(source_np, target_np, pts, vis_path, step=step)
+            saved = visualize_overfit_metrics(
+                source_np, target_np, gt_points,
+                list(pts), vis_path, step=step,
+            )
             np.save(os.path.join(out_dir, f"points_step{step:05d}.npy"), pts)
             print(f"  -> saved visualisation: {vis_path}")
 
