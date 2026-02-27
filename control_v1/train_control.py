@@ -27,6 +27,7 @@ from control_v1.ControlNet import ControlNet
 from control_v1.StippleDataset import StippleDataset
 
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
+WANDB_ACTIVE = False
 
 
 def load_wandb_key():
@@ -60,15 +61,13 @@ def main():
     parser.add_argument("--save_every", type=int, default=10,
                         help="Save checkpoint every N epochs")
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--no-wandb", action="store_true",
-                        help="Disable wandb logging")
     args = parser.parse_args()
 
     device = torch.device(args.device)
     os.makedirs(args.out, exist_ok=True)
 
     # ---- wandb ----
-    use_wandb = not args.no_wandb
+    use_wandb = WANDB_ACTIVE
     if use_wandb:
         try:
             import wandb

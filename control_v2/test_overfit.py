@@ -51,6 +51,7 @@ CKPT_PATH = "config/GBN/model.ckpt"
 GRID_SIZE = 32
 N_POINTS = GRID_SIZE ** 2
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
+WANDB_ACTIVE = False
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -149,7 +150,6 @@ def main():
     parser.add_argument("--n-samples", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--no-wandb", action="store_true")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -157,7 +157,7 @@ def main():
     device = torch.device(args.device)
 
     # ── wandb init ───────────────────────────────────────────────────
-    use_wandb = HAS_WANDB and not args.no_wandb
+    use_wandb = HAS_WANDB and WANDB_ACTIVE
     if use_wandb:
         load_wandb_key()
         wandb.init(
