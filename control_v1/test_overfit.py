@@ -215,6 +215,7 @@ def main():
 
     for p in denoiser.parameters():
         p.requires_grad = False
+    denoiser.eval()
 
     control_net = ControlNet(denoiser).to(device)
     control_net.train()
@@ -274,6 +275,7 @@ def main():
                 }, step=step)
 
             control_net.train()
+            denoiser.eval()
 
     # ── save final weights ───────────────────────────────────────────
     ckpt_path = os.path.join(out_dir, "controlnet_overfit.pt")
