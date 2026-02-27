@@ -1,60 +1,59 @@
-# Control V3 (Wide-Bandwidth Dynamic ControlNet) flow:
+# Control V3.2 ("Shock the System") flow:
 
-Fixes 4 bottlenecks from V2 that caused the control signal to be ignored (loss flatlined ~0.17, outputs were uniform grids).
+Evolves from V3.0 through two critical fixes:
 
-**What changed from V2:**
+**V3.0 -> V3.1 "Static Anchor":** Removed GECCO-style dynamic feature sampling
+(`F.grid_sample` with a 5x5-receptive-field CNN). The chaotic per-step features
+acted as "poison" for high-frequency images, causing the optimizer to shut the
+adaptive gates and collapse output to the base model's uniform grid.
 
-1. **Hint Encoder:** 4ch -> 2ch (before conv1) became 21ch -> 128ch (after conv1).
-2. **GECCO Feature Extractor:** grid_sample now samples a learned 16ch feature map, not raw 1ch grayscale.
-3. **Gate Bias:** -4.0 -> 0.0 (sigmoid=0.5, control flows freely from step 1).
-4. **Coordinate Grid:** +2ch static meshgrid gives absolute spatial awareness.
+**V3.1 -> V3.2 "Shock the System":** Replaced zero-initialized `AdaptiveGateInjection`
+with `StandardInjection` (Kaiming-initialized 1x1 conv). The zero output at step 1
+let the frozen U-Net learn a uniform-grid shortcut before the ControlNet could
+influence it, trapping training in a local minimum (~0.18 MSE).
 
 ---
 
-**Dynamic Feature Computation (runs every step):**
-
-* **Noisy offsets:** `offsets_t` (B, 2, 32, 32) in cell-relative units ~[-1, 1].
-* **High-res features:** `high_res_feature_extractor(image)` -> (B, 16, 512, 512).
-  * 2-layer CNN: Conv2d(1->8, k=3, pad=1) + ReLU + Conv2d(8->16, k=3, pad=1) + ReLU.
-* **Position recovery:** `positions = grid_centers + offsets_t / 32` -> (B, 2, 32, 32) in [0, 1].
-* **Coordinate transform:** `coords = positions * 2 - 1` -> [-1, 1] for grid_sample.
-* **Feature sampling:** `dynamic_feats = F.grid_sample(high_res_feats, coords)` -> (B, 16, 32, 32).
-
-**Condition Flow (21ch -> 128ch hint):**
+**Condition Flow (5ch -> 128ch hint):**
 
 * **Channel breakdown:**
-  * offsets_t: 2ch
-  * target_density (area-downsampled): 1ch
-  * dynamic_feats (GECCO features): 16ch
-  * coord_grid (static [-1,1] meshgrid): 2ch
-  * **Total:** 21ch
-* **Concatenation:** `cat([offsets_t, target_density, dynamic_feats, coord_grid])` -> (B, 21, 32, 32).
-* **Hint Encoder:** 3-layer CNN (21ch -> 32 -> 64 -> 128ch) -> `hint` (B, 128, 32, 32).
+  * offsets_t: 2ch (current noisy offset grid)
+  * target_density (area-downsampled source image at 32x32): 1ch
+  * coord_grid (static [-1,1] meshgrid for spatial awareness): 2ch
+  * **Total:** 5ch
+* **No dynamic sampling** -- no `F.grid_sample`, no high-res feature extractor.
+* **Concatenation:** `cat([offsets_t, target_density, coord_grid])` -> (B, 5, 32, 32).
+* **Hint Encoder:** 3-layer CNN (5ch -> 32 -> 64 -> 128ch) with SiLU activations -> `hint` (B, 128, 32, 32).
 * **Injection point:** `x = ctrl_conv1(offsets_t) + hint` (B, 128, 32, 32) -- hint added AFTER initial conv.
 
 **Control Encoder Flow:**
 
 * Same deep-copied encoder structure as V1/V2 [128, 256, 384].
-* **Injection:** Uses `AdaptiveGateInjection` with gate bias = 0.0:
-  * `output = sigmoid(gate_conv(ctrl)) * transform_conv(ctrl)`.
-  * sigmoid(0) = 0.5 -- 50% of signal passes immediately, strong gradients from step 1.
+* **Injection:** Uses `StandardInjection` -- a plain `nn.Conv2d(ch, ch, 1)` with default
+  Kaiming initialization. Non-zero control signal from step 1 forces the U-Net to
+  account for the image condition immediately.
 
 **Injection into Frozen UNet:**
 
-* Same additive injection as V1/V2 -- signals are pre-gated inside the control branch.
+* Same additive injection as V1/V2 -- signals are transformed by `StandardInjection`
+  inside the control branch, then added to encoder skip connections and middle block.
 * Compatible with existing `controls` parameter in `DenoiserModel.forward`.
 
 **Training:**
 
-* **Frozen:** Base UNet (~27M params, locked).
-* **Trainable:** DynamicControlNet V3 (encoder copies + hint encoder + feature extractor + gates).
-* **Data:** Same `DynamicStippleDataset` as V2 returning `(high_res_img, target_density, gt_offsets)`.
+* **Frozen:** Base UNet (locked, set to `eval()` to disable dropout).
+* **Trainable:** DynamicControlNet V3.2 (encoder copies + hint encoder + injection layers).
+* **Data:** `DynamicStippleDataset` returning `(high_res_img, target_density, gt_offsets)`.
+  `high_res_img` is passed through for call-signature compatibility but unused internally.
 * **Loss:** MSE(noise_pred, noise).
+* **Default LR:** 5e-4 (bumped from 1e-4 to help escape local minima with non-zero init).
 
 ---
 
 # Sampling:
 
-* `DynamicControlledDenoiser` wraps frozen denoiser + DynamicControlNet V3.
+* `DynamicControlledDenoiser` wraps frozen denoiser + DynamicControlNet V3.2.
 * Call `set_condition(high_res_img, target_density)` once.
-* At **every** reverse-diffusion step, `compute_dynamic_features` re-queries the learned feature map at current point positions -- the condition evolves as denoising progresses.
+* The condition is **static** -- same density map and coordinate grid at every
+  reverse-diffusion step. The frozen U-Net's wide internal receptive field handles
+  spatial routing from the 32x32 density map.
