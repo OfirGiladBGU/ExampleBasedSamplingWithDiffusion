@@ -87,6 +87,8 @@ def main():
     parser.add_argument("--skip-threshold", type=float, default=0.5)
     parser.add_argument("--n-samples", type=int, default=2,
                         help="Number of independent samples to generate")
+    parser.add_argument("--point-size", type=float, default=1.0,
+                        help="Scatter point size in output plots")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
@@ -228,6 +230,7 @@ def main():
     saved = visualize_overfit_metrics(
         source_np, target_np, gt_points,
         pred_pointsets, vis_path, step=None,
+        point_size=args.point_size,
     )
     print(f"  Saved: {vis_path}")
 

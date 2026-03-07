@@ -136,6 +136,7 @@ def visualize_overfit_metrics(
     pred_pointsets,
     save_path,
     step=None,
+    point_size=0.5,
 ):
     """Create 3-row comparison figure with metrics.
 
@@ -175,7 +176,7 @@ def visualize_overfit_metrics(
     ax.axis("off")
 
     ax = axes[0, 1]
-    ax.scatter(gt_points[:, 0], 1 - gt_points[:, 1], c="black", s=0.5, alpha=0.8)
+    ax.scatter(gt_points[:, 0], 1 - gt_points[:, 1], c="black", s=point_size, alpha=0.8)
     ax.set_xlim(0, 1); ax.set_ylim(0, 1)
     ax.set_aspect("equal"); ax.set_facecolor("white")
     ax.set_title("GT (Target)")
@@ -184,7 +185,7 @@ def visualize_overfit_metrics(
     for i in range(n_preds):
         ax = axes[0, 2 + i]
         pts = pred_pointsets[i]
-        ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=0.5, alpha=0.8)
+        ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
         ax.set_aspect("equal"); ax.set_facecolor("white")
         ax.set_title(f"Predict {i}{step_label}")
@@ -232,7 +233,7 @@ def visualize_overfit_metrics(
         nn = spa["nn_distances"]
         sc = ax.scatter(
             pts[:, 0], 1 - pts[:, 1],
-            c=nn, cmap="RdYlBu", s=1.5, alpha=0.8, vmin=vmin, vmax=vmax,
+            c=nn, cmap="RdYlBu", s=point_size * 3, alpha=0.8, vmin=vmin, vmax=vmax,
         )
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
         ax.set_aspect("equal"); ax.set_facecolor("white")

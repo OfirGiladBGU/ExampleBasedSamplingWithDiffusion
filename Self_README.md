@@ -37,3 +37,11 @@
 * UNet: `ch=128`, `ch_mult=[1,2,3]`, `num_res=2`, no attention. ~27M params.
 * Diffusion: 1000 steps, linear beta, MSE loss.
 * Trained unconditionally on GBN (Greedy Blue Noise) point sets.
+
+---
+
+# NOTE:
+
+- The model works on a discrete input grid of size 32x32.
+- The model predicts 1024 continuous points (some points can fall in the same grid cell).
+- To see all points in the final discrete image, a grid size larger than 32x32 is required.

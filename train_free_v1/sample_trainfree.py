@@ -48,7 +48,8 @@ def load_image(path: str) -> np.ndarray:
 
 
 def visualize_result(image: np.ndarray, points: np.ndarray,
-                     save_path: str, title: str = "") -> None:
+                     save_path: str, title: str = "",
+                     point_size: float = 1.0) -> None:
     """Plot stipple points over the source image."""
     if not HAS_MPL:
         return
@@ -61,7 +62,7 @@ def visualize_result(image: np.ndarray, points: np.ndarray,
     axes[0].axis("off")
 
     axes[1].scatter(points[:, 0] * W, points[:, 1] * H,
-                    s=0.3, c="black", edgecolors="none")
+                    s=point_size, c="black", edgecolors="none")
     axes[1].set_xlim(0, W)
     axes[1].set_ylim(H, 0)
     axes[1].set_aspect("equal")
@@ -70,7 +71,7 @@ def visualize_result(image: np.ndarray, points: np.ndarray,
 
     axes[2].imshow(image, cmap="gray", vmin=0, vmax=255, alpha=0.3)
     axes[2].scatter(points[:, 0] * W, points[:, 1] * H,
-                    s=0.3, c="black", edgecolors="none")
+                    s=point_size, c="black", edgecolors="none")
     axes[2].set_xlim(0, W)
     axes[2].set_ylim(H, 0)
     axes[2].set_aspect("equal")
@@ -108,6 +109,8 @@ def main():
                         help="Skip cells with budget below this")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--point-size", type=float, default=1.0,
+                        help="Scatter point size in output plots")
     parser.add_argument("--output", type=str, default=None,
                         help="Output directory (default: train_free_v1/outputs/<stem>)")
 
@@ -235,6 +238,7 @@ def main():
         os.path.join(out_dir, "result.png"),
         title=f"Train-Free V1 | {len(points)} pts | "
               f"λ={args.lambda_scale} | T={args.timesteps}",
+        point_size=args.point_size,
     )
     print(f"  Saved visualisation: {out_dir}/result.png")
 
