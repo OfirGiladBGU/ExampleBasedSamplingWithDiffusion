@@ -105,6 +105,66 @@ def load_condition(img_path, grid_size, device):
     return high_res, target_density
 
 
+def export_gt_offset_artifacts(out_dir, gt_offsets):
+    """Save GT offset diagnostics inside out_dir/gt_offset/."""
+    gt_dir = os.path.join(out_dir, "gt_offset")
+    os.makedirs(gt_dir, exist_ok=True)
+
+    # 1) Raw target tensor view: offset magnitude on the 32x32 grid.
+    mag = np.sqrt(gt_offsets[0] ** 2 + gt_offsets[1] ** 2)
+    if mag.max() > 0:
+        mag_u8 = np.round((mag / mag.max()) * 255.0).astype(np.uint8)
+    else:
+        mag_u8 = np.zeros_like(mag, dtype=np.uint8)
+    Image.fromarray(mag_u8).save(os.path.join(gt_dir, "gt_offsets_magnitude_32x32.png"))
+
+    # 2) Inverse OT mapping then exact 32x32 occupancy (no interpolation).
+    pts_grid = to_pointset_optimal_transport(gt_offsets)
+    pts = pts_grid.reshape(2, -1).T
+
+    n = gt_offsets.shape[-1]
+    clipped = np.clip(pts, 0.0, 1.0 - 1e-12)
+    ij = np.floor(clipped * n).astype(np.int64)
+    counts = np.zeros((n, n), dtype=np.int32)
+    for x_idx, y_idx in ij:
+        counts[y_idx, x_idx] += 1
+
+    Image.fromarray(((counts > 0).astype(np.uint8) * 255), mode="L").save(
+        os.path.join(gt_dir, "gt_points_binary_32x32.png")
+    )
+
+    # 3) Quiver view of offset vectors for intuitive direction/magnitude reading.
+    if HAS_MPL:
+        dx, dy = gt_offsets[0], gt_offsets[1]
+        yy, xx = np.mgrid[0:n, 0:n]
+        fig, ax = plt.subplots(figsize=(7, 7), dpi=160)
+        q = ax.quiver(
+            xx,
+            yy,
+            dx,
+            dy,
+            np.sqrt(dx * dx + dy * dy),
+            angles="xy",
+            scale_units="xy",
+            scale=1.0,
+            cmap="viridis",
+            width=0.004,
+        )
+        ax.invert_yaxis()
+        ax.set_aspect("equal")
+        ax.set_xlabel("grid x")
+        ax.set_ylabel("grid y")
+        ax.set_title("Offset Vector Field")
+        fig.colorbar(q, ax=ax, label="|offset|")
+        plt.tight_layout()
+        plt.savefig(os.path.join(gt_dir, "offset_quiver.png"))
+        plt.close()
+    else:
+        print("  WARNING: matplotlib unavailable, skipping offset_quiver.png")
+
+    print(f"  -> saved gt_offset artifacts: {gt_dir}/")
+
+
 def sample_from_model(diffusion, control_net, denoiser, high_res, target_density,
                       device, n_samples=2, timesteps=200):
     """Run the full reverse diffusion loop and return point sets."""
@@ -149,6 +209,12 @@ def main():
     parser.add_argument("--n-samples", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--export-gt-offset",
+        type=bool,
+        default=True,
+        help="Export GT offset diagnostics into out_dir/gt_offset",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -199,6 +265,9 @@ def main():
     Image.fromarray(source_np).save(os.path.join(out_dir, "source.png"))
     Image.fromarray(target_np).save(os.path.join(out_dir, "target.png"))
     np.save(os.path.join(out_dir, "gt_offsets.npy"), gt_offsets)
+
+    if args.export_gt_offset:
+        export_gt_offset_artifacts(out_dir, gt_offsets)
 
     if use_wandb:
         wandb.log({

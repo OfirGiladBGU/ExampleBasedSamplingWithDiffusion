@@ -39,3 +39,14 @@ Adds a trainable ControlNet adapter to the frozen base UNet. Given a grayscale i
 - Call `set_condition(img)` once, then run standard `p_sample_loop`.
 - ControlNet runs in parallel with frozen encoder at every denoising step.
 
+---
+
+# NOTE:
+
+- The input image is resized to a size of 32x32 and passed to a CNN feature extractor.
+- The extracted features (`hint`) are added to the noisy diffusion input: `fused_noise = x_t + hint`.
+- A trainable copy of the baseline encoder + middle blocks runs on `fused_noise` (with timestep embedding, no class/property `cond`) and produces control tensors through zero-initialized 1x1 convolutions.
+- These control tensors are injected into the frozen baseline UNet as additive residuals on encoder skip features and the middle feature map.
+- The ControlNet outputs are used as `controls` (feature-level residual injections) to the baseline model.
+- The diffusion target `x_0` is the GT point set in Optimal Transport offset format (`gt_offsets`, shape `(2, 32, 32)`).
+- `Overall flow`: `cond_img` + `x_t` -> ControlNet controls -> frozen baseline UNet -> predicted noise -> reverse diffusion loop `(x_t -> ... -> x_0)` -> inverse OT -> final points.

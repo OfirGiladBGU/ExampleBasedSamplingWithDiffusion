@@ -57,3 +57,14 @@ influence it, trapping training in a local minimum (~0.18 MSE).
 * The condition is **static** -- same density map and coordinate grid at every
   reverse-diffusion step. The frozen U-Net's wide internal receptive field handles
   spatial routing from the 32x32 density map.
+
+--- 
+
+# NOTE:
+
+- V3 keeps the same frozen baseline UNet and the same diffusion objective as V2: `MSE(noise_pred, noise)`.
+- Main change 1: the condition is now **static** during denoising (no per-step `dynamic_density`, no `F.grid_sample`).
+- Main change 2: hint input changed from 4 channels (V2) to 5 channels in V3: `[offsets_t(2), target_density(1), coord_grid(2)]`.
+- Main change 3: control injection changed from `AdaptiveGateInjection` (sigmoid-gated) to `StandardInjection` (plain 1x1 conv with non-zero Kaiming init).
+- Main change 4: hint is fused **after** the first conv in the control branch: `x = ctrl_conv1(offsets_t) + hint`.
+- Control tensors are still injected into the baseline as `controls` (additive residuals on encoder skips + middle), and final points are obtained only after the full reverse diffusion loop (`x_t -> ... -> x_0 ->` inverse OT -> `(N, 2)`).

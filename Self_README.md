@@ -40,6 +40,16 @@
 
 ---
 
+# LOCAL RUN:
+
+```
+python sample.py -c /groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/config/GBN/config.json -m /groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/config/GBN/model.ckpt -s 1 2 32 32 -t 100 -o /groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/outputs/output.npy
+
+python sample.py -c config/GBN/config.json -m config/GBN/model.ckpt -s 1 2 32 32 -t 100 -o outputs/output.npy
+
+python -c "import matplotlib.pyplot as plt; import numpy as np; data = np.load(\"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/outputs/output.npy\")[0]; plt.gca().set_aspect(\"equal\"); plt.scatter(*data.T, s=2); plt.show(); plt.savefig(\"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/outputs/output.png\")"
+```
+
 # NOTE:
 
 - The model works on a discrete input grid of size 32x32.

@@ -45,3 +45,14 @@ Key difference from V1: instead of a static 32x32 condition, V2 **dynamically re
 * `DynamicControlledDenoiser` wraps frozen denoiser + DynamicControlNet.
 * Call `set_condition(high_res_img, target_density)` once.
 * At **every** reverse-diffusion step, `compute_dynamic_density` re-queries the high-res image at current point positions -- the condition evolves as denoising progresses.
+
+---
+
+# NOTE:
+
+- V2 keeps the same baseline UNet and the same diffusion loss as V1: `MSE(noise_pred, noise)`.
+- Main change 1: the condition is now dynamic. At every denoising step, V2 computes `dynamic_density` by sampling the high-resolution image at the current estimated point positions.
+- Main change 2: the hint encoder input is 4 channels instead of 1: `[offsets_t(2), target_density(1), dynamic_density(1)]`.
+- Main change 3: `ZeroConv2d` is replaced with `AdaptiveGateInjection` (sigmoid-gated control), so the model can learn how much control to inject per location.
+- The control outputs are still injected as `controls` (additive residuals on encoder skips + middle), exactly like V1 at the UNet interface.
+- Final points are obtained only after the reverse diffusion loop: predict noise at each step -> update `x_t` down to `x_0` -> inverse OT -> `(N, 2)` points.
