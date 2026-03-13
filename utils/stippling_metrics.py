@@ -137,13 +137,14 @@ def visualize_overfit_metrics(
     save_path,
     step=None,
     point_size=0.5,
+    gt_offsets=None,
 ):
     """Create 3-row comparison figure with metrics.
 
     Layout (columns: INPUT | GT | Pred0 | Pred1 | ...):
       Row 0  Point clouds (INPUT shows source image, others show scatter)
-      Row 1  Grid Capacity  (skip INPUT column)
-      Row 2  Spacing Quality (skip INPUT column)
+      Row 1  GT binary occupancy (32x32) | Grid Capacity per column
+      Row 2  GT offset quiver           | Spacing Quality per column
 
     Parameters
     ----------
@@ -197,7 +198,25 @@ def visualize_overfit_metrics(
     all_spa = [compute_spacing_quality(p) for p in all_points]
 
     # ── Row 1: grid capacity ─────────────────────────────────────────
-    axes[1, 0].axis("off")
+    if gt_offsets is not None:
+        try:
+            from data.Transforms import to_pointset_optimal_transport
+            pts_grid = to_pointset_optimal_transport(gt_offsets)
+            pts_ot = pts_grid.reshape(2, -1).T
+            n = gt_offsets.shape[-1]
+            clipped = np.clip(pts_ot, 0.0, 1.0 - 1e-12)
+            ij = np.floor(clipped * n).astype(np.int64)
+            counts = np.zeros((n, n), dtype=np.int32)
+            for x_idx, y_idx in ij:
+                counts[y_idx, x_idx] += 1
+            binary_img = (counts > 0).astype(np.uint8) * 255
+            axes[1, 0].imshow(binary_img, cmap="gray", vmin=0, vmax=255, origin="upper")
+            axes[1, 0].set_title("GT Binary\n(32×32 OT grid)", fontsize=9)
+            axes[1, 0].axis("off")
+        except Exception:
+            axes[1, 0].axis("off")
+    else:
+        axes[1, 0].axis("off")
 
     col_labels = ["GT (Target)"] + [f"Predict {i}{step_label}" for i in range(n_preds)]
     for j, (cap, label) in enumerate(zip(all_cap, col_labels)):
@@ -220,7 +239,29 @@ def visualize_overfit_metrics(
         ax.axis("off")
 
     # ── Row 2: spacing quality ───────────────────────────────────────
-    axes[2, 0].axis("off")
+    if gt_offsets is not None:
+        try:
+            n = gt_offsets.shape[-1]
+            yy, xx = np.mgrid[0:n, 0:n]
+            dx, dy = gt_offsets[0], gt_offsets[1]
+            mag = np.sqrt(dx * dx + dy * dy)
+            ax = axes[2, 0]
+            q = ax.quiver(
+                xx, yy, dx, dy, mag,
+                angles="xy", scale_units="xy", scale=1.0,
+                cmap="viridis", width=0.004,
+            )
+            ax.invert_yaxis()
+            ax.set_aspect("equal")
+            ax.set_title("GT Offset Quiver", fontsize=9)
+            ax.set_xlabel("grid x", fontsize=8)
+            ax.set_ylabel("grid y", fontsize=8)
+            ax.tick_params(labelsize=7)
+            fig.colorbar(q, ax=ax, shrink=0.7, label="|offset|")
+        except Exception:
+            axes[2, 0].axis("off")
+    else:
+        axes[2, 0].axis("off")
 
     all_nn = [s["nn_distances"] for s in all_spa]
     vmin = min(d.min() for d in all_nn)

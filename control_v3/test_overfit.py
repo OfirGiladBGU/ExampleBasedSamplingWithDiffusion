@@ -42,8 +42,9 @@ from utils.Config import ParseSampleConfig
 from utils.stippling_metrics import visualize_overfit_metrics
 
 # ── paths ────────────────────────────────────────────────────────────
+DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/small_target_image"
 # DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024"
-DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_taksim"
+# DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_taksim"
 SOURCE_DIR = os.path.join(DATA_ROOT, "source")
 TARGET_DIR = os.path.join(DATA_ROOT, "target")
 CONFIG_PATH = "config/GBN/config.json"
@@ -204,7 +205,7 @@ def main():
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--vis-every", type=int, default=500,
                         help="Visualise & sample every N steps")
-    parser.add_argument("--sample-timesteps", type=int, default=200,
+    parser.add_argument("--sample-timesteps", type=int, default=1000,
                         help="Diffusion timesteps when sampling")
     parser.add_argument("--n-samples", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
@@ -336,6 +337,7 @@ def main():
             saved = visualize_overfit_metrics(
                 source_np, target_np, gt_points,
                 list(pts), vis_path, step=step,
+                gt_offsets=gt_offsets,
             )
             np.save(os.path.join(out_dir, f"points_step{step:05d}.npy"), pts)
             print(f"  -> saved visualisation: {vis_path}")
