@@ -106,6 +106,24 @@ def load_condition(img_path, grid_size, device):
     return high_res, target_density
 
 
+def compute_sdf(target_density_tensor):
+    """Compute normalised distance-to-nearest-dot SDF of empty space.
+
+    Returns a (B, 1, H, W) float32 tensor on the same device as the input,
+    where 0 = occupied cell and 1 = maximally far from all dots.
+    """
+    from scipy import ndimage as ndi
+    binary = (target_density_tensor.cpu().numpy() > 0.5).astype(np.float32)
+    sdf_batch = []
+    for i in range(binary.shape[0]):
+        empty_mask = 1.0 - binary[i, 0]
+        dist = ndi.distance_transform_edt(empty_mask)
+        max_dist = dist.max() if dist.max() > 0 else 1.0
+        sdf_batch.append(dist / max_dist)
+    sdf_np = np.array(sdf_batch, dtype=np.float32)[:, np.newaxis]
+    return torch.from_numpy(sdf_np).to(target_density_tensor.device)
+
+
 def export_gt_offset_artifacts(out_dir, gt_offsets):
     """Save GT offset diagnostics inside out_dir/gt_offset/."""
     gt_dir = os.path.join(out_dir, "gt_offset")
@@ -167,10 +185,11 @@ def export_gt_offset_artifacts(out_dir, gt_offsets):
 
 
 def sample_from_model(diffusion, control_net, denoiser, high_res, target_density,
-                      device, n_samples=2, timesteps=200):
+                      device, n_samples=2, timesteps=200, sdf=None, resample_jumps=0):
     """Run the full reverse diffusion loop and return point sets."""
+    from tqdm import tqdm as _tqdm
     controlled = DynamicControlledDenoiser(denoiser, control_net)
-    controlled.set_condition(high_res, target_density)
+    controlled.set_condition(high_res, target_density, sdf_map=sdf)
 
     orig_model = diffusion.model
     diffusion.model = controlled
@@ -179,8 +198,26 @@ def sample_from_model(diffusion, control_net, denoiser, high_res, target_density
 
     shape = [n_samples, 2, GRID_SIZE, GRID_SIZE]
     with torch.no_grad():
-        raw = diffusion.p_sample_loop(shape, img=None, cond=None,
-                                      with_tqdm=True, with_sampling=True)
+        if resample_jumps == 0:
+            raw = diffusion.p_sample_loop(shape, img=None, cond=None,
+                                          with_tqdm=True, with_sampling=True)
+        else:
+            img = diffusion.noise_fn(shape).to(device)
+            for i in _tqdm(reversed(range(diffusion.num_timesteps - 1)),
+                           total=diffusion.num_timesteps - 1,
+                           desc="sampling"):
+                t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
+                for u in range(resample_jumps + 1):
+                    img = diffusion.p_sample(img, cond=None, t=t_tensor,
+                                             clip_denoised=diffusion.sample_clip,
+                                             with_sampling=True)
+                    if u == resample_jumps or i == 0:
+                        break
+                    # Re-noise: bring x_{i-1} back to x_i
+                    beta_i = diffusion.betas[i]
+                    noise = torch.randn_like(img)
+                    img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
+            raw = img
     raw_np = raw.cpu().numpy()
 
     diffusion.model = orig_model
@@ -205,7 +242,7 @@ def main():
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--vis-every", type=int, default=500,
                         help="Visualise & sample every N steps")
-    parser.add_argument("--sample-timesteps", type=int, default=2000,
+    parser.add_argument("--sample-timesteps", type=int, default=1000,
                         help="Diffusion timesteps when sampling")
     parser.add_argument(
         "--min-snr-gamma",
@@ -218,6 +255,12 @@ def main():
         type=float,
         default=0.5,
         help="Threshold used to binarize 32x32 target density",
+    )
+    parser.add_argument(
+        "--resample-jumps",
+        type=int,
+        default=2,
+        help="RePaint-style micro-loops per timestep during sampling (0=disabled)",
     )
     parser.add_argument("--n-samples", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
@@ -272,6 +315,7 @@ def main():
 
     high_res, target_density = load_condition(source_path, GRID_SIZE, device)
     target_density = (target_density > args.binary_threshold).float()
+    sdf = compute_sdf(target_density)
 
     source_np = np.array(Image.open(source_path).convert("L"))
     target_np = np.array(Image.open(target_path).convert("L"))
@@ -310,6 +354,7 @@ def main():
     print(f"  DynamicControlNet V3 trainable params: {trainable:,}")
     print(f"  Min-SNR gamma: {args.min_snr_gamma}")
     print(f"  Target density binarization threshold: {args.binary_threshold}")
+    print(f"  Resample jumps (RePaint): {args.resample_jumps}")
 
     optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
 
@@ -323,7 +368,7 @@ def main():
         noise = torch.randn_like(x_0)
         offsets_t = diffusion.q_sample(x_0, t, noise)
 
-        controls = control_net(offsets_t, t, high_res, target_density)
+        controls = control_net(offsets_t, t, high_res, target_density, sdf)
         noise_pred = denoiser(offsets_t, t, controls=controls)
 
         per_sample_mse = F.mse_loss(noise_pred, noise, reduction="none")
@@ -355,6 +400,7 @@ def main():
                 diffusion, control_net, denoiser, high_res, target_density,
                 device, n_samples=args.n_samples,
                 timesteps=args.sample_timesteps,
+                sdf=sdf, resample_jumps=args.resample_jumps,
             )
             vis_path = os.path.join(out_dir, f"vis_step{step:05d}.png")
             saved = visualize_overfit_metrics(

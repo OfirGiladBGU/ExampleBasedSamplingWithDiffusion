@@ -43,6 +43,20 @@ def load_condition(image_path, grid_size, device):
     return high_res, target_density
 
 
+def compute_sdf(target_density_tensor):
+    """Compute normalised distance-to-nearest-dot SDF of empty space."""
+    from scipy import ndimage as ndi
+    binary = (target_density_tensor.cpu().numpy() > 0.5).astype(np.float32)
+    sdf_batch = []
+    for i in range(binary.shape[0]):
+        empty_mask = 1.0 - binary[i, 0]
+        dist = ndi.distance_transform_edt(empty_mask)
+        max_dist = dist.max() if dist.max() > 0 else 1.0
+        sdf_batch.append(dist / max_dist)
+    sdf_np = np.array(sdf_batch, dtype=np.float32)[:, np.newaxis]
+    return torch.from_numpy(sdf_np).to(target_density_tensor.device)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="config/GBN/config.json")
@@ -57,6 +71,10 @@ def main():
     parser.add_argument("--output", default="stippled.npy")
     parser.add_argument("--no_ot", action="store_true",
                         help="Skip inverse OT (save raw offset grids)")
+    parser.add_argument("--binary-threshold", type=float, default=0.5,
+                        help="Threshold to binarize target density (default: 0.5)")
+    parser.add_argument("--resample-jumps", type=int, default=2,
+                        help="RePaint micro-loops per timestep (0=disabled)")
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
 
@@ -79,7 +97,9 @@ def main():
     # ── wire up DynamicControlledDenoiser ─────────────────────────────
     controlled = DynamicControlledDenoiser(denoiser, control_net)
     high_res, target_density = load_condition(args.image, args.grid_size, device)
-    controlled.set_condition(high_res, target_density)
+    target_density = (target_density > args.binary_threshold).float()
+    sdf = compute_sdf(target_density)
+    controlled.set_condition(high_res, target_density, sdf_map=sdf)
 
     diffusion.model = controlled
     diffusion.set_num_timesteps(args.timesteps)
@@ -88,12 +108,29 @@ def main():
     # ── sample ───────────────────────────────────────────────────────
     shape = [args.batch, 2, args.grid_size, args.grid_size]
     print(f"Sampling {args.batch} point sets  |  shape {shape}  |  "
-            f"T={args.timesteps}")
+          f"T={args.timesteps}  |  resample_jumps={args.resample_jumps}")
 
     with torch.no_grad():
-        samples_raw = diffusion.p_sample_loop(
-            shape, img=None, cond=None, with_tqdm=True, with_sampling=True
-        )
+        if args.resample_jumps == 0:
+            samples_raw = diffusion.p_sample_loop(
+                shape, img=None, cond=None, with_tqdm=True, with_sampling=True
+            )
+        else:
+            from tqdm import tqdm
+            img = diffusion.noise_fn(shape).to(device)
+            for i in tqdm(reversed(range(diffusion.num_timesteps - 1)),
+                          total=diffusion.num_timesteps - 1, desc="sampling"):
+                t_tensor = torch.full((args.batch,), i, dtype=torch.int64, device=device)
+                for u in range(args.resample_jumps + 1):
+                    img = diffusion.p_sample(img, cond=None, t=t_tensor,
+                                             clip_denoised=diffusion.sample_clip,
+                                             with_sampling=True)
+                    if u == args.resample_jumps or i == 0:
+                        break
+                    beta_i = diffusion.betas[i]
+                    noise = torch.randn_like(img)
+                    img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
+            samples_raw = img
 
     samples_raw = samples_raw.cpu().numpy()
 

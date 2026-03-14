@@ -10,7 +10,7 @@ conv using PyTorch's default Kaiming initialization.  The non-zero control
 signal from step 1 forces the U-Net to immediately account for the image
 condition, preventing the uniform-grid trap.
 
-Hint input channels: offsets_t(2) + target_density(1) + coord_grid(2) = 5
+Hint input channels: offsets_t(2) + target_density(1) + sdf(1) + coord_grid(2) = 6
 """
 
 import copy
@@ -42,7 +42,7 @@ class DynamicControlNet(nn.Module):
     """Trainable control branch with static conditioning (V3.2).
 
     At each denoising step the module:
-      1. Concatenates [offsets_t(2), target_density(1), coord_grid(2)] = 5
+      1. Concatenates [offsets_t(2), target_density(1), sdf(1), coord_grid(2)] = 6
          channels and passes through a 3-layer hint encoder to produce a
          128-channel tensor.
       2. Passes offsets_t through the copied conv1, adds the 128ch hint,
@@ -88,16 +88,16 @@ class DynamicControlNet(nn.Module):
         self.ctrl_downsamp_layers = copy.deepcopy(denoiser.downsamp_layers)
         self.ctrl_middle = copy.deepcopy(denoiser.middle)
 
-        # ── hint encoder: 5ch -> ch_mult[0] (128) ───────────────────
-        #    offsets_t(2) + target_density(1) + coord_grid(2) = 5
-        hint_in_ch = 2 + 1 + 2  # = 5
+        # ── hint encoder: 6ch -> ch_mult[0] (128) ───────────────────
+        #    offsets_t(2) + target_density(1) + sdf(1) + coord_grid(2) = 6
+        hint_in_ch = 2 + 1 + 1 + 2  # = 6
         first_hidden = denoiser.conv1.net[1].weight.shape[0]  # ch_mult[0] = 128
         self.input_hint_block = nn.Sequential(
             nn.Conv2d(hint_in_ch, 32, 3, padding=1),
             nn.SiLU(),
-            nn.Conv2d(32, 64, 3, padding=1),
+            nn.Conv2d(32, 64, 3, padding=2, dilation=2),   # ~13px receptive field
             nn.SiLU(),
-            nn.Conv2d(64, first_hidden, 3, padding=1),
+            nn.Conv2d(64, first_hidden, 3, padding=4, dilation=4),  # ~29px
         )
 
         # ── injection layers (standard Kaiming init, NOT zero) ───────
@@ -114,7 +114,7 @@ class DynamicControlNet(nn.Module):
         middle_ch = middle_first_resblock.conv2.net[1].weight.shape[0]
         self.inject_middle = StandardInjection(middle_ch)
 
-    def forward(self, offsets_t, t, high_res_image, target_density_map):
+    def forward(self, offsets_t, t, high_res_image, target_density_map, sdf_map=None):
         """Run control encoder and return injection-ready control signals.
 
         Parameters
@@ -124,6 +124,9 @@ class DynamicControlNet(nn.Module):
         high_res_image : Tensor (B, 1, Himg, Wimg)
             Accepted for call-signature compatibility; unused internally.
         target_density_map : Tensor (B, 1, 32, 32)
+        sdf_map : Tensor (B, 1, 32, 32) or None
+            SDF of empty space (0=occupied, 1=far from dots). If None,
+            a zero-filled channel is used.
 
         Returns
         -------
@@ -133,11 +136,16 @@ class DynamicControlNet(nn.Module):
 
         batch_coords = self.coord_grid.expand(B, -1, -1, -1)
 
+        if sdf_map is None:
+            sdf_map = torch.zeros(B, 1, offsets_t.shape[2], offsets_t.shape[3],
+                                  device=offsets_t.device, dtype=offsets_t.dtype)
+
         hint_input = torch.cat([
             offsets_t,           # 2ch
             target_density_map,  # 1ch
+            sdf_map,             # 1ch
             batch_coords,        # 2ch
-        ], dim=1)  # -> 5ch
+        ], dim=1)  # -> 6ch
         hint = self.input_hint_block(hint_input)  # -> 128ch
 
         # Pass offsets through conv1 first, THEN add the hint
@@ -183,10 +191,12 @@ class DynamicControlledDenoiser(nn.Module):
         self.control = dynamic_control_net
         self._high_res_image = None
         self._target_density = None
+        self._sdf = None
 
-    def set_condition(self, high_res_image, target_density_map):
+    def set_condition(self, high_res_image, target_density_map, sdf_map=None):
         self._high_res_image = high_res_image
         self._target_density = target_density_map
+        self._sdf = sdf_map
 
     def forward(self, x, t, cond=None):
         assert self._high_res_image is not None, (
@@ -195,10 +205,13 @@ class DynamicControlledDenoiser(nn.Module):
 
         hrs = self._high_res_image
         tgt = self._target_density
+        sdf = self._sdf
         if hrs.shape[0] != x.shape[0]:
             hrs = hrs.expand(x.shape[0], -1, -1, -1)
         if tgt.shape[0] != x.shape[0]:
             tgt = tgt.expand(x.shape[0], -1, -1, -1)
+        if sdf is not None and sdf.shape[0] != x.shape[0]:
+            sdf = sdf.expand(x.shape[0], -1, -1, -1)
 
-        controls = self.control(x, t, hrs, tgt)
+        controls = self.control(x, t, hrs, tgt, sdf_map=sdf)
         return self.locked(x, t, cond=cond, controls=controls)
