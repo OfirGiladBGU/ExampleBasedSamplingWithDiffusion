@@ -88,7 +88,7 @@ def main():
     # ── sample ───────────────────────────────────────────────────────
     shape = [args.batch, 2, args.grid_size, args.grid_size]
     print(f"Sampling {args.batch} point sets  |  shape {shape}  |  "
-          f"T={args.timesteps}")
+            f"T={args.timesteps}")
 
     with torch.no_grad():
         samples_raw = diffusion.p_sample_loop(

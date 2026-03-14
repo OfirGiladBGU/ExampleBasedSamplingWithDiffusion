@@ -178,7 +178,7 @@ def sample_from_model(diffusion, control_net, denoiser, cond_img, device,
     shape = [n_samples, 2, GRID_SIZE, GRID_SIZE]
     with torch.no_grad():
         raw = diffusion.p_sample_loop(shape, img=None, cond=None,
-                                      with_tqdm=False, with_sampling=True)
+                                      with_tqdm=True, with_sampling=True)
     raw_np = raw.cpu().numpy()
 
     diffusion.model = orig_model

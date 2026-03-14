@@ -1,9 +1,11 @@
-# Dynamic ControlNet V3.2 for Stipple Generation
+# Dynamic ControlNet V3.4 for Stipple Generation
 
-This is the third-generation control module for grayscale-conditioned stipple generation. It evolves from V2 through two refinement stages:
+This is the third-generation control module for grayscale-conditioned stipple generation. It evolves from V2 through four refinement stages:
 
 - **V3.1 "Static Anchor"** -- removed the GECCO-style dynamic feature sampling (`F.grid_sample` with a small CNN) that produced chaotic features for high-frequency images, causing the optimizer to shut the gates and collapse to uniform grids.
 - **V3.2 "Shock the System"** -- replaced the zero-initialized `AdaptiveGateInjection` with `StandardInjection` (Kaiming-initialized 1×1 conv). Zero output at step 1 had allowed the frozen U-Net to learn a uniform-grid shortcut before the ControlNet could exert any influence.
+- **V3.3 "CFG Override" (retired)** -- tested and removed for coordinate diffusion due to unstable extrapolation artifacts on large offsets.
+- **V3.4 "Training Boosts"** -- adds Min-SNR-gamma weighted denoising loss and binary target-density conditioning in overfit training to improve macro layout on hard shapes.
 
 ## Key Differences from V2
 
@@ -113,10 +115,16 @@ python control_v3/sample_control.py \
 ### 4. Quick overfit test (single example)
 
 ```bash
-python control_v3/test_overfit.py --steps 5000 --sample-index 0
+python control_v3/test_overfit.py \
+    --steps 5000 \
+    --sample-index 0 \
+    --min-snr-gamma 5.0 \
+    --binary-threshold 0.5
 ```
 
 Default learning rate is `5e-4` (higher than V2's `1e-4` to help the Kaiming-initialized injections escape local minima faster).
+
+V3.4 overfit training uses Min-SNR-gamma loss weighting and binarized target density to prioritize macro point movement on extreme layouts.
 
 ## Files
 
@@ -128,7 +136,7 @@ Default learning rate is `5e-4` (higher than V2's `1e-4` to help the Kaiming-ini
 | `train_control.py` | Training script with static conditioning loop |
 | `sample_control.py` | Conditioned inference script |
 | `test_overfit.py` | Single-example overfit debugging |
-| `Self_README.md` | Compact technical reference for the V3.2 data flow |
+| `Self_README.md` | Compact technical reference for the V3.x data flow |
 
 ## Dataset
 
@@ -145,3 +153,5 @@ V3 uses the same `DynamicStippleDataset` as V2, returning three items per sample
 | V3.0 | -- | Added GECCO CNN feature extractor, 21ch hint encoder, AdaptiveGateInjection (bias=0.0), coordinate grid |
 | V3.1 | Static Anchor | Removed GECCO CNN and `F.grid_sample`; 5ch hint encoder (static conditioning only) |
 | V3.2 | Shock the System | Replaced AdaptiveGateInjection with StandardInjection (Kaiming init); bumped default LR to 5e-4 |
+| V3.3 | CFG Override (retired) | Experimental wrapper-level CFG tested then removed for coordinate-diffusion instability |
+| V3.4 | Training Boosts | Added Min-SNR-gamma weighted denoising loss and target-density binarization in overfit training |

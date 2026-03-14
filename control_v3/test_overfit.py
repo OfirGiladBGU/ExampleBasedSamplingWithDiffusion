@@ -180,7 +180,7 @@ def sample_from_model(diffusion, control_net, denoiser, high_res, target_density
     shape = [n_samples, 2, GRID_SIZE, GRID_SIZE]
     with torch.no_grad():
         raw = diffusion.p_sample_loop(shape, img=None, cond=None,
-                                      with_tqdm=False, with_sampling=True)
+                                      with_tqdm=True, with_sampling=True)
     raw_np = raw.cpu().numpy()
 
     diffusion.model = orig_model
@@ -205,8 +205,20 @@ def main():
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--vis-every", type=int, default=500,
                         help="Visualise & sample every N steps")
-    parser.add_argument("--sample-timesteps", type=int, default=1000,
+    parser.add_argument("--sample-timesteps", type=int, default=2000,
                         help="Diffusion timesteps when sampling")
+    parser.add_argument(
+        "--min-snr-gamma",
+        type=float,
+        default=5.0,
+        help="Gamma for Min-SNR loss weighting",
+    )
+    parser.add_argument(
+        "--binary-threshold",
+        type=float,
+        default=0.5,
+        help="Threshold used to binarize 32x32 target density",
+    )
     parser.add_argument("--n-samples", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cuda")
@@ -259,6 +271,7 @@ def main():
     x_0 = torch.from_numpy(gt_offsets).float().unsqueeze(0).to(device)
 
     high_res, target_density = load_condition(source_path, GRID_SIZE, device)
+    target_density = (target_density > args.binary_threshold).float()
 
     source_np = np.array(Image.open(source_path).convert("L"))
     target_np = np.array(Image.open(target_path).convert("L"))
@@ -295,6 +308,8 @@ def main():
     trainable = sum(p.numel() for p in control_net.parameters()
                     if p.requires_grad)
     print(f"  DynamicControlNet V3 trainable params: {trainable:,}")
+    print(f"  Min-SNR gamma: {args.min_snr_gamma}")
+    print(f"  Target density binarization threshold: {args.binary_threshold}")
 
     optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
 
@@ -311,7 +326,14 @@ def main():
         controls = control_net(offsets_t, t, high_res, target_density)
         noise_pred = denoiser(offsets_t, t, controls=controls)
 
-        loss = F.mse_loss(noise_pred, noise)
+        per_sample_mse = F.mse_loss(noise_pred, noise, reduction="none")
+        per_sample_mse = per_sample_mse.mean(dim=(1, 2, 3))
+
+        alphas_cumprod_t = diffusion.alphas_cumprod.gather(0, t)
+        snr = alphas_cumprod_t / torch.clamp(1.0 - alphas_cumprod_t, min=1e-8)
+        min_snr_weight = torch.clamp(snr, max=args.min_snr_gamma) / torch.clamp(snr, min=1e-8)
+
+        loss = (per_sample_mse * min_snr_weight).mean()
 
         optimizer.zero_grad()
         loss.backward()
@@ -332,7 +354,8 @@ def main():
             pts, raw = sample_from_model(
                 diffusion, control_net, denoiser, high_res, target_density,
                 device, n_samples=args.n_samples,
-                timesteps=args.sample_timesteps)
+                timesteps=args.sample_timesteps,
+            )
             vis_path = os.path.join(out_dir, f"vis_step{step:05d}.png")
             saved = visualize_overfit_metrics(
                 source_np, target_np, gt_points,

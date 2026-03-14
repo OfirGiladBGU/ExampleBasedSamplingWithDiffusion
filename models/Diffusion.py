@@ -23,8 +23,15 @@ class DiffusionModel(torch.nn.Module):
         self.set_num_timesteps(self.trained_betas.shape[0])
 
     def set_num_timesteps(self, T): 
-        T = min(T, self.trained_betas.shape[0])
-        self.set_subsequence(np.linspace(0, self.trained_betas.shape[0], T, endpoint=False).astype(int))
+        requested_T = int(T)
+        trained_T = int(self.trained_betas.shape[0])
+        if requested_T > trained_T:
+            print(
+                f"[DiffusionModel] Requested timesteps={requested_T} exceeds "
+                f"trained schedule length={trained_T}; clamping to {trained_T}."
+            )
+        T = min(requested_T, trained_T)
+        self.set_subsequence(np.linspace(0, trained_T, T, endpoint=False).astype(int))
 
     def set_subsequence(self, subsequence = None):
         if subsequence is None:
@@ -174,8 +181,7 @@ class DiffusionModel(torch.nn.Module):
         if cond is not None:
             cond = cond.to(self.device)
 
-        # if with_tqdm and True:
-        if True:
+        if with_tqdm:
             from tqdm import tqdm
             iterator = tqdm(reversed(range(self.num_timesteps - 1)), total=self.num_timesteps-1)
         else:
