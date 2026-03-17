@@ -1,70 +1,66 @@
-# Control V3.2 ("Shock the System") flow:
+# Control V3.6 Flow (V3.4 Baseline + Optional Attention)
 
-Evolves from V3.0 through two critical fixes:
+Current behavior is intentionally split into two modes:
 
-**V3.0 -> V3.1 "Static Anchor":** Removed GECCO-style dynamic feature sampling
-(`F.grid_sample` with a 5x5-receptive-field CNN). The chaotic per-step features
-acted as "poison" for high-frequency images, causing the optimizer to shut the
-adaptive gates and collapse output to the base model's uniform grid.
+- Baseline mode (default): exact V3.4 path.
+- Attention mode (opt-in): V3.6 spatial cross-attention at bottleneck.
 
-**V3.1 -> V3.2 "Shock the System":** Replaced zero-initialized `AdaptiveGateInjection`
-with `StandardInjection` (Kaiming-initialized 1x1 conv). The zero output at step 1
-let the frozen U-Net learn a uniform-grid shortcut before the ControlNet could
-influence it, trapping training in a local minimum (~0.18 MSE).
+Use `--enable-spatial-attn` in `test_overfit.py` and `sample_control.py` to activate V3.6.
 
----
+## Baseline (V3.4)
 
-**Condition Flow (5ch -> 128ch hint):**
+Condition channels (6 total):
+- offsets_t: 2ch
+- target_density: 1ch (binarized)
+- sdf: 1ch
+- coord_grid: 2ch
 
-* **Channel breakdown:**
-  * offsets_t: 2ch (current noisy offset grid)
-  * target_density (area-downsampled source image at 32x32): 1ch
-  * coord_grid (static [-1,1] meshgrid for spatial awareness): 2ch
-  * **Total:** 5ch
-* **No dynamic sampling** -- no `F.grid_sample`, no high-res feature extractor.
-* **Concatenation:** `cat([offsets_t, target_density, coord_grid])` -> (B, 5, 32, 32).
-* **Hint Encoder:** 3-layer CNN (5ch -> 32 -> 64 -> 128ch) with SiLU activations -> `hint` (B, 128, 32, 32).
-* **Injection point:** `x = ctrl_conv1(offsets_t) + hint` (B, 128, 32, 32) -- hint added AFTER initial conv.
+Hint path:
+- `cat([offsets_t, target_density, sdf, coord_grid])`
+- 3-layer dilated hint encoder:
+  - 6 -> 32 (k3, p1)
+  - 32 -> 64 (k3, p2, d2)
+  - 64 -> 128 (k3, p4, d4)
 
-**Control Encoder Flow:**
+Control path:
+- `x = ctrl_conv1(offsets_t) + hint`
+- trainable copied encoder + middle
+- StandardInjection 1x1 conv per control output
 
-* Same deep-copied encoder structure as V1/V2 [128, 256, 384].
-* **Injection:** Uses `StandardInjection` -- a plain `nn.Conv2d(ch, ch, 1)` with default
-  Kaiming initialization. Non-zero control signal from step 1 forces the U-Net to
-  account for the image condition immediately.
+Training loss in overfit:
+- Min-SNR-gamma weighted denoising MSE
+- binary target density + SDF conditioning
 
-**Injection into Frozen UNet:**
+Sampling:
+- Full reverse diffusion
+- Optional RePaint-style micro-loops (`--resample-jumps`)
 
-* Same additive injection as V1/V2 -- signals are transformed by `StandardInjection`
-  inside the control branch, then added to encoder skip connections and middle block.
-* Compatible with existing `controls` parameter in `DenoiserModel.forward`.
+## V3.6 Spatial Cross-Attention
 
-**Training:**
+Location:
+- Applied after the control middle block output.
 
-* **Frozen:** Base UNet (locked, set to `eval()` to disable dropout).
-* **Trainable:** DynamicControlNet V3.2 (encoder copies + hint encoder + injection layers).
-* **Data:** `DynamicStippleDataset` returning `(high_res_img, target_density, gt_offsets)`.
-  `high_res_img` is passed through for call-signature compatibility but unused internally.
-* **Loss:** MSE(noise_pred, noise).
-* **Default LR:** 5e-4 (bumped from 1e-4 to help escape local minima with non-zero init).
+Mechanism:
+- Query (Q): deep middle feature map.
+- Key/Value (K/V): hint tensor.
+- Spatial flattening to sequences (`HW` tokens), multi-head attention, reshape back.
+- Residual output: `x + attn_out`.
 
----
+Safety constraint (critical):
+- Final attention projection is zero-initialized (weights and bias = 0.0).
+- This guarantees identity behavior at step 1 when enabling attention.
 
-# Sampling:
+## Checkpoint compatibility
 
-* `DynamicControlledDenoiser` wraps frozen denoiser + DynamicControlNet V3.2.
-* Call `set_condition(high_res_img, target_density)` once.
-* The condition is **static** -- same density map and coordinate grid at every
-  reverse-diffusion step. The frozen U-Net's wide internal receptive field handles
-  spatial routing from the 32x32 density map.
+When attention is enabled but loading an older checkpoint:
+- `sample_control.py` uses `strict=False` and reports missing/unexpected key counts.
+- This is expected because V3.6 adds attention parameters.
 
---- 
+## Practical toggle guide
 
-# NOTE:
-
-- V3 keeps the same frozen baseline UNet and the same diffusion objective as V2: `MSE(noise_pred, noise)`.
-- Main change 1: the condition is now **static** during denoising (no per-step `dynamic_density`, no `F.grid_sample`).
-- Main change 2: hint input changed from 4 channels (V2) to 5 channels in V3: `[offsets_t(2), target_density(1), coord_grid(2)]`.
-- Main change 3: control injection changed from `AdaptiveGateInjection` (sigmoid-gated) to `StandardInjection` (plain 1x1 conv with non-zero Kaiming init).
-- Main change 4: hint is fused **after** the first conv in the control branch: `x = ctrl_conv1(offsets_t) + hint`.
-- Control tensors are still injected into the baseline as `controls` (additive residuals on encoder skips + middle), and final points are obtained only after the full reverse diffusion loop (`x_t -> ... -> x_0 ->` inverse OT -> `(N, 2)`).
+- Stable baseline run:
+  - omit `--enable-spatial-attn`
+- V3.6 run:
+  - include `--enable-spatial-attn`
+- Recommended first experiment:
+  - overfit edge cases (rings/rectangles) with full training horizon.

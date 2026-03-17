@@ -43,20 +43,6 @@ def load_condition(image_path, grid_size, device):
     return high_res, target_density
 
 
-def compute_sdf(target_density_tensor):
-    """Compute normalised distance-to-nearest-dot SDF of empty space."""
-    from scipy import ndimage as ndi
-    binary = (target_density_tensor.cpu().numpy() > 0.5).astype(np.float32)
-    sdf_batch = []
-    for i in range(binary.shape[0]):
-        empty_mask = 1.0 - binary[i, 0]
-        dist = ndi.distance_transform_edt(empty_mask)
-        max_dist = dist.max() if dist.max() > 0 else 1.0
-        sdf_batch.append(dist / max_dist)
-    sdf_np = np.array(sdf_batch, dtype=np.float32)[:, np.newaxis]
-    return torch.from_numpy(sdf_np).to(target_density_tensor.device)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="config/GBN/config.json")
@@ -98,8 +84,7 @@ def main():
     controlled = DynamicControlledDenoiser(denoiser, control_net)
     high_res, target_density = load_condition(args.image, args.grid_size, device)
     target_density = (target_density > args.binary_threshold).float()
-    sdf = compute_sdf(target_density)
-    controlled.set_condition(high_res, target_density, sdf_map=sdf)
+    controlled.set_condition(high_res, target_density)
 
     diffusion.model = controlled
     diffusion.set_num_timesteps(args.timesteps)
