@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -49,8 +50,26 @@ SOURCE_DIR = os.path.join(DATA_ROOT, "source")
 TARGET_DIR = os.path.join(DATA_ROOT, "target")
 CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH = "config/GBN/model.ckpt"
+OUTPUT_DIR = "control_v3/overfit_outputs"
 GRID_SIZE = 32
 N_POINTS = GRID_SIZE ** 2
+
+# ── default run parameters (edit here for quick experiments) ───────
+STEPS = 1000
+SAMPLE_INDEX = 0
+LR = 5e-4
+VIS_EVERY = 500
+SAMPLE_TIMESTEPS = 1000
+
+ENABLE_GECCO = True
+MIN_SNR_GAMMA = 5.0
+RESAMPLE_JUMPS = 2
+
+N_SAMPLES = 2
+SEED = 42
+DEVICE = "cuda"
+EXPORT_GT_OFFSET = True
+
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
 WANDB_ACTIVE = False
 
@@ -219,38 +238,38 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--steps", type=int, default=2000)
-    parser.add_argument("--sample-index", type=int, default=0)
-    parser.add_argument("--lr", type=float, default=5e-4)
-    parser.add_argument("--vis-every", type=int, default=500,
+    parser.add_argument("--steps", type=int, default=STEPS)
+    parser.add_argument("--sample-index", type=int, default=SAMPLE_INDEX)
+    parser.add_argument("--lr", type=float, default=LR)
+    parser.add_argument("--vis-every", type=int, default=VIS_EVERY,
                         help="Visualise & sample every N steps")
-    parser.add_argument("--sample-timesteps", type=int, default=1000,
+    parser.add_argument("--sample-timesteps", type=int, default=SAMPLE_TIMESTEPS,
                         help="Diffusion timesteps when sampling")
     parser.add_argument(
         "--enable-gecco",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=ENABLE_GECCO,
         help="Enable GECCO dynamic feature sampling in the control hint path",
     )
     parser.add_argument(
         "--min-snr-gamma",
         type=float,
-        default=5.0,
+        default=MIN_SNR_GAMMA,
         help="Gamma for Min-SNR loss weighting (0 disables)",
     )
     parser.add_argument(
         "--resample-jumps",
         type=int,
-        default=2,
+        default=RESAMPLE_JUMPS,
         help="RePaint-style micro-loops per timestep during sampling (0=disabled)",
     )
-    parser.add_argument("--n-samples", type=int, default=2)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--device", default=DEVICE)
     parser.add_argument(
         "--export-gt-offset",
         type=bool,
-        default=True,
+        default=EXPORT_GT_OFFSET,
         help="Export GT offset diagnostics into out_dir/gt_offset",
     )
     args = parser.parse_args()
@@ -263,11 +282,13 @@ def main():
     use_wandb = HAS_WANDB and WANDB_ACTIVE
     if use_wandb:
         load_wandb_key()
+        run_name = datetime.now().strftime("v3-overfit-%Y%m%d-%H%M%S")
         wandb.init(
-            project="dynamic-controlnet-overfit",
+            project="Stipple-ControlNet",
             config=vars(args),
-            name=f"v3-overfit-idx{args.sample_index}-{args.steps}steps",
+            name=run_name,
         )
+        print(f"wandb run name: {run_name}")
 
     # ── pick the single example ──────────────────────────────────────
     source_files = sorted(os.listdir(SOURCE_DIR))
@@ -283,7 +304,7 @@ def main():
     if not os.path.exists(target_path):
         sys.exit(f"Target not found: {target_path}")
 
-    out_dir = os.path.join("control_v3", "overfit_outputs", stem)
+    out_dir = os.path.join(OUTPUT_DIR, stem)
     os.makedirs(out_dir, exist_ok=True)
 
     # ── prepare GT offset tensor on the fly ──────────────────────────

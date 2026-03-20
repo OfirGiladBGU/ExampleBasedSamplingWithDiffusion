@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -224,11 +225,13 @@ def main():
     use_wandb = HAS_WANDB and WANDB_ACTIVE
     if use_wandb:
         load_wandb_key()
+        run_name = datetime.now().strftime("v1-overfit-%Y%m%d-%H%M%S")
         wandb.init(
-            project="controlnet-stipple-overfit",
+            project="Stipple-ControlNet",
             config=vars(args),
-            name=f"overfit-idx{args.sample_index}-{args.steps}steps",
+            name=run_name,
         )
+        print(f"wandb run name: {run_name}")
 
     # ── pick the single example ──────────────────────────────────────
     source_files = sorted(os.listdir(SOURCE_DIR))

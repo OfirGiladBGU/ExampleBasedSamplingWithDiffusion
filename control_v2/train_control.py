@@ -19,6 +19,7 @@ Usage (from project root):
 import os
 import sys
 import argparse
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -73,7 +74,13 @@ def main():
         try:
             import wandb
             load_wandb_key()
-            wandb.init(project="dynamic-controlnet-stipple", config=vars(args))
+            run_name = datetime.now().strftime("v2-train-%Y%m%d-%H%M%S")
+            wandb.init(
+                project="Stipple-ControlNet",
+                name=run_name,
+                config=vars(args),
+            )
+            print(f"wandb run name: {run_name}")
         except ImportError:
             print("wandb not installed, logging disabled")
             use_wandb = False

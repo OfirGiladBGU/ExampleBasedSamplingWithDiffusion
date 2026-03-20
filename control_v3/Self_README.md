@@ -1,66 +1,65 @@
-# Control V3.6 Flow (V3.4 Baseline + Optional Attention)
+# Control V3.7 (GECCO + AdaptiveGate + Min-SNR) flow:
 
-Current behavior is intentionally split into two modes:
+Key differences from earlier V3 variants:
+- SDF conditioning is removed.
+- Target density is continuous (not binarized).
+- GECCO dynamic features are used in overfit by default (`--enable-gecco`).
+- Injection uses `AdaptiveGateInjection` (V3.2 revert).
+- Overfit and train use Min-SNR-gamma weighted denoising loss.
+- Sampling uses full reverse diffusion with optional RePaint micro-loops (`--resample-jumps`).
 
-- Baseline mode (default): exact V3.4 path.
-- Attention mode (opt-in): V3.6 spatial cross-attention at bottleneck.
+**GECCO Dynamic Feature Computation (when enabled, runs every step):**
 
-Use `--enable-spatial-attn` in `test_overfit.py` and `sample_control.py` to activate V3.6.
+- **Noisy offsets:** `offsets_t` (B, 2, 32, 32).
+- **Position recovery:** `positions = grid_centers + offsets_t / grid_size` -> (B, 2, 32, 32) in [0, 1].
+- **Coordinate transform:** `sample_coords = positions * 2 - 1` -> [-1, 1] for `grid_sample`.
+- **Feature extraction:** `gecco_feats_hr = gecco_extractor(high_res_img)` -> (B, 16, H, W) by default.
+- **Sampling:** `gecco_dynamic = F.grid_sample(gecco_feats_hr, sample_coords)` -> (B, 16, 32, 32).
 
-## Baseline (V3.4)
+**Condition Flow:**
 
-Condition channels (6 total):
-- offsets_t: 2ch
-- target_density: 1ch (binarized)
-- sdf: 1ch
-- coord_grid: 2ch
+- **Input 1:** Noisy offsets `offsets_t` -> (B, 2, 32, 32).
+- **Input 2:** Continuous target density `target_density` -> (B, 1, 32, 32).
+- **Input 3:** Static coordinate grid `coord_grid` -> (B, 2, 32, 32).
+- **Input 4 (optional):** GECCO dynamic features -> (B, 16, 32, 32).
+- **Concatenation:**
+  - GECCO on: `cat([offsets_t, target_density, coord_grid, gecco_dynamic])` -> (B, 21, 32, 32).
+  - GECCO off: `cat([offsets_t, target_density, coord_grid])` -> (B, 5, 32, 32).
+- **Hint Encoder:** 3-layer dilated CNN -> `32 -> 64(d=2) -> 128(d=4)`.
+- **Fusion:** `x = ctrl_conv1(offsets_t) + hint`.
 
-Hint path:
-- `cat([offsets_t, target_density, sdf, coord_grid])`
-- 3-layer dilated hint encoder:
-  - 6 -> 32 (k3, p1)
-  - 32 -> 64 (k3, p2, d2)
-  - 64 -> 128 (k3, p4, d4)
+**Control Encoder Flow:**
 
-Control path:
-- `x = ctrl_conv1(offsets_t) + hint`
-- trainable copied encoder + middle
-- StandardInjection 1x1 conv per control output
+- Same deep-copied control encoder + middle from the frozen denoiser.
+- **Injection:** `AdaptiveGateInjection` per skip + middle:
+  - `inj = sigmoid(gate(ctrl)) * transform(ctrl)`.
+  - Current init in V3.7 sets transform/gate weights to zero, so startup injection is near-zero.
 
-Training loss in overfit:
-- Min-SNR-gamma weighted denoising MSE
-- binary target density + SDF conditioning
+**Training (overfit and full training sync):**
 
-Sampling:
-- Full reverse diffusion
-- Optional RePaint-style micro-loops (`--resample-jumps`)
+- **Frozen:** Base denoiser.
+- **Trainable:** DynamicControlNet branch.
+- **Loss:** Min-SNR-gamma weighted denoising MSE:
+  - unreduced MSE -> per-sample mean
+  - `snr = alpha_bar_t / (1 - alpha_bar_t)`
+  - `weight = clamp(snr, max=gamma) / snr`
+  - final loss = mean(per-sample-mse * weight)
+- `gamma` is configurable (`--min-snr-gamma`, default 5.0; 0 disables weighting).
 
-## V3.6 Spatial Cross-Attention
+---
 
-Location:
-- Applied after the control middle block output.
+# Sampling:
 
-Mechanism:
-- Query (Q): deep middle feature map.
-- Key/Value (K/V): hint tensor.
-- Spatial flattening to sequences (`HW` tokens), multi-head attention, reshape back.
-- Residual output: `x + attn_out`.
+- `DynamicControlledDenoiser` wraps frozen denoiser + DynamicControlNet.
+- Call `set_condition(high_res_img, target_density)` once.
+- Reverse diffusion runs on the 32x32 offset grid.
+- RePaint-style resampling is available via `--resample-jumps` and runs across the full schedule.
 
-Safety constraint (critical):
-- Final attention projection is zero-initialized (weights and bias = 0.0).
-- This guarantees identity behavior at step 1 when enabling attention.
+---
 
-## Checkpoint compatibility
+# NOTE:
 
-When attention is enabled but loading an older checkpoint:
-- `sample_control.py` uses `strict=False` and reports missing/unexpected key counts.
-- This is expected because V3.6 adds attention parameters.
-
-## Practical toggle guide
-
-- Stable baseline run:
-  - omit `--enable-spatial-attn`
-- V3.6 run:
-  - include `--enable-spatial-attn`
-- Recommended first experiment:
-  - overfit edge cases (rings/rectangles) with full training horizon.
+- V3.7 active stack = GECCO (optional, default-on in overfit), AdaptiveGateInjection, Min-SNR, full resampling.
+- No SDF channel in conditioning.
+- No target-density binarization in overfit/train synced path.
+- High-res source image can be any spatial size; conditioning is projected to the 32x32 diffusion grid domain.
