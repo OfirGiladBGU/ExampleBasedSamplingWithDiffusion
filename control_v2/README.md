@@ -102,13 +102,7 @@ python control_v2/sample_control.py \
 ### 4. Quick overfit test (single example)
 
 ```bash
-sbatch control_v2/run_overfit.sh
-```
-
-Or directly:
-
-```bash
-python control_v2/test_overfit.py --steps 2000 --sample-index 0
+python control_v2/test_overfit.py --steps 10000 --sample-index 0
 ```
 
 ## Files

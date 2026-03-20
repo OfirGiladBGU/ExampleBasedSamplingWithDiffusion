@@ -140,6 +140,12 @@ python sample_control.py \
 
 The output `.npy` contains point sets of shape `(batch, 1024, 2)` with coordinates in `[0, 1]^2`.
 
+### 4. Quick overfit test (single example)
+
+```bash
+python test_overfit.py --steps 10000 --sample-index 0
+```
+
 ## Files added / modified
 
 | File                      | Type     | Purpose                                          |

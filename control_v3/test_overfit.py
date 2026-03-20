@@ -233,6 +233,12 @@ def main():
         help="Enable GECCO dynamic feature sampling in the control hint path",
     )
     parser.add_argument(
+        "--min-snr-gamma",
+        type=float,
+        default=5.0,
+        help="Gamma for Min-SNR loss weighting (0 disables)",
+    )
+    parser.add_argument(
         "--resample-jumps",
         type=int,
         default=2,
@@ -327,6 +333,7 @@ def main():
                     if p.requires_grad)
     print(f"  DynamicControlNet V3 trainable params: {trainable:,}")
     print(f"  GECCO dynamic features enabled: {args.enable_gecco}")
+    print(f"  Min-SNR gamma: {args.min_snr_gamma}")
     print(f"  Resample jumps (RePaint): {args.resample_jumps}")
 
     optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
@@ -344,7 +351,14 @@ def main():
         controls = control_net(offsets_t, t, high_res, target_density)
         noise_pred = denoiser(offsets_t, t, controls=controls)
 
-        loss = F.mse_loss(noise_pred, noise)
+        per_sample_mse = F.mse_loss(noise_pred, noise, reduction="none")
+        per_sample_mse = per_sample_mse.mean(dim=(1, 2, 3))
+
+        alphas_cumprod_t = diffusion.alphas_cumprod.gather(0, t)
+        snr = alphas_cumprod_t / torch.clamp(1.0 - alphas_cumprod_t, min=1e-8)
+        min_snr_weight = torch.clamp(snr, max=args.min_snr_gamma) / torch.clamp(snr, min=1e-8)
+
+        loss = (per_sample_mse * min_snr_weight).mean()
 
         optimizer.zero_grad()
         loss.backward()
