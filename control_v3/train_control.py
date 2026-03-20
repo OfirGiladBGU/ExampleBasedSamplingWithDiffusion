@@ -54,18 +54,18 @@ CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH = "config/GBN/model.ckpt"
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/target"
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3/target"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_1024/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_1024/target"
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
 OFFSETS_DIR = ""
 OUTPUT_DIR = "control_v3/train_outputs"
 GRID_SIZE = 32
 
 # EPOCHS = 100
-EPOCHS = 2
+EPOCHS = 10
 BATCH_SIZE = 16
 LR = 1e-4
-SAVE_EVERY = 10
+SAVE_EVERY = 1
 DEVICE = "cuda"
 
 ENABLE_GECCO = True
@@ -401,7 +401,12 @@ def main():
                         help="RePaint micro-loops per timestep during eval sampling")
     parser.add_argument("--out", default=OUTPUT_DIR,
                         help="Output directory for checkpoints and logs")
-    parser.add_argument("--save_every", type=int, default=SAVE_EVERY)
+    parser.add_argument(
+        "--save_every",
+        type=int,
+        default=SAVE_EVERY,
+        help="Retained for compatibility; epoch checkpoints are now saved every epoch",
+    )
     parser.add_argument("--val-split", type=float, default=VAL_SPLIT,
                         help="Validation split ratio in [0,1). Example: 0.1 = 10% val")
     parser.add_argument("--device", default=DEVICE)
@@ -650,15 +655,14 @@ def main():
                 wandb.log({"eval/sample_path": eval_path}, step=global_step)
             control_net.train()
 
-        if (epoch + 1) % args.save_every == 0 or epoch == args.epochs - 1:
-            save_path = os.path.join(args.out, f"dynamic_controlnet_v3_ep{epoch+1}.pt")
-            torch.save({
-                "control_net": control_net.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "epoch": epoch,
-                "global_step": global_step,
-            }, save_path)
-            print(f"  -> saved {save_path}")
+        save_path = os.path.join(args.out, f"dynamic_controlnet_v3_ep{epoch+1}.pt")
+        torch.save({
+            "control_net": control_net.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "epoch": epoch,
+            "global_step": global_step,
+        }, save_path)
+        print(f"  -> saved {save_path}")
 
     if use_wandb:
         wandb.finish()

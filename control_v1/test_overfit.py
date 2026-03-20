@@ -45,6 +45,7 @@ from utils.stippling_metrics import visualize_overfit_metrics
 # ── paths ────────────────────────────────────────────────────────────
 DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/small_target_image"
 # DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024"
+# DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_1024"
 # DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_taksim"
 SOURCE_DIR = os.path.join(DATA_ROOT, "source")
 TARGET_DIR = os.path.join(DATA_ROOT, "target")
