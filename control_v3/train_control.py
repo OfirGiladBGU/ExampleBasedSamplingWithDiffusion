@@ -366,6 +366,26 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch):
     return True
 
 
+def dynamic_collate(batch):
+    """Collate samples with variable high-res image sizes by padding per batch."""
+    high_res_list, target_density_list, offsets_list = zip(*batch)
+
+    max_h = max(t.shape[-2] for t in high_res_list)
+    max_w = max(t.shape[-1] for t in high_res_list)
+
+    padded_high_res = []
+    for img in high_res_list:
+        pad_h = max_h - img.shape[-2]
+        pad_w = max_w - img.shape[-1]
+        padded = F.pad(img, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
+        padded_high_res.append(padded.contiguous())
+
+    high_res_batch = torch.stack(padded_high_res, dim=0)
+    target_density_batch = torch.stack([t.contiguous() for t in target_density_list], dim=0)
+    offsets_batch = torch.stack([o.contiguous() for o in offsets_list], dim=0)
+    return high_res_batch, target_density_batch, offsets_batch
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=CONFIG_PATH)
@@ -473,6 +493,11 @@ def main():
 
     # ── dataset ──────────────────────────────────────────────────────
     dataset = DynamicStippleDataset(args.source, args.offsets, grid_size=args.grid_size)
+    if len(dataset) == 0:
+        raise RuntimeError(
+            "DynamicStippleDataset has 0 samples. Ensure source images and offsets share matching "
+            "relative stems (including subfolders), e.g. source/a/b/img.png with offsets/a/b/img.npy."
+        )
     val_len = int(len(dataset) * args.val_split)
     val_len = min(max(val_len, 0), max(len(dataset) - 1, 0))
     train_len = len(dataset) - val_len
@@ -491,6 +516,7 @@ def main():
         train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
+        collate_fn=dynamic_collate,
         num_workers=NUM_WORKERS,
         pin_memory=PIN_MEMORY,
     )
@@ -500,6 +526,7 @@ def main():
             val_dataset,
             batch_size=args.batch_size,
             shuffle=False,
+            collate_fn=dynamic_collate,
             num_workers=NUM_WORKERS,
             pin_memory=PIN_MEMORY,
         )

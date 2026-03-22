@@ -36,10 +36,25 @@ class DynamicStippleDataset(Dataset):
         self.offsets_dir = offsets_dir
         self.grid_size = grid_size
 
-        self.filenames = sorted(
-            f for f in os.listdir(source_dir)
-            if os.path.splitext(f)[1].lower() in self.VALID_EXT
-        )
+        source_stems = {}
+        for root, _, files in os.walk(source_dir):
+            for f in files:
+                if os.path.splitext(f)[1].lower() not in self.VALID_EXT:
+                    continue
+                rel_path = os.path.relpath(os.path.join(root, f), source_dir)
+                stem = os.path.splitext(rel_path)[0]
+                source_stems[stem] = rel_path
+
+        offset_stems = set()
+        for root, _, files in os.walk(offsets_dir):
+            for f in files:
+                if not f.endswith(".npy"):
+                    continue
+                rel_path = os.path.relpath(os.path.join(root, f), offsets_dir)
+                offset_stems.add(os.path.splitext(rel_path)[0])
+
+        # Keep only source files that have a matching offsets file.
+        self.filenames = sorted(source_stems[stem] for stem in source_stems if stem in offset_stems)
 
     def __len__(self):
         return len(self.filenames)
@@ -52,7 +67,7 @@ class DynamicStippleDataset(Dataset):
         img = cv2.imread(
             os.path.join(self.source_dir, filename), cv2.IMREAD_GRAYSCALE
         )
-        high_res = torch.from_numpy(img).float() / 255.0
+        high_res = torch.from_numpy(img).to(torch.float32).clone().contiguous() / 255.0
         high_res = high_res.unsqueeze(0)  # (1, H, W)
 
         # ── target density map via area interpolation ────────────────
@@ -64,6 +79,6 @@ class DynamicStippleDataset(Dataset):
 
         # ── ground-truth offsets ─────────────────────────────────────
         offsets = np.load(os.path.join(self.offsets_dir, stem + ".npy"))
-        offsets = torch.from_numpy(offsets).float()  # (2, grid_size, grid_size)
+        offsets = torch.from_numpy(offsets).to(torch.float32).clone().contiguous()  # (2, grid_size, grid_size)
 
         return high_res, target_density, offsets
