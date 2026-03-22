@@ -131,26 +131,32 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
         )
 
     os.makedirs(resolved_offsets_dir, exist_ok=True)
+    if not os.path.isdir(source_dir):
+        raise FileNotFoundError(f"Source dir was not found: {source_dir}")
     if not os.path.isdir(target_dir):
         raise FileNotFoundError(
             f"Offsets dir is empty and target dir was not found: {target_dir}"
         )
 
-    source_stems = {
-        os.path.splitext(f)[0]
-        for f in os.listdir(source_dir)
-        if os.path.splitext(f)[1].lower() in VALID_EXT
-    }
+    source_stems = set()
+    for root, _, files in os.walk(source_dir):
+        for f in files:
+            if os.path.splitext(f)[1].lower() not in VALID_EXT:
+                continue
+            rel_path = os.path.relpath(os.path.join(root, f), source_dir)
+            source_stems.add(os.path.splitext(rel_path)[0])
 
     # Build target stem -> filepath map for files that have matching source stems.
     target_map = {}
-    for fname in sorted(os.listdir(target_dir)):
-        ext = os.path.splitext(fname)[1].lower()
-        if ext not in VALID_EXT:
-            continue
-        stem = os.path.splitext(fname)[0]
-        if stem in source_stems:
-            target_map[stem] = os.path.join(target_dir, fname)
+    for root, _, files in os.walk(target_dir):
+        for fname in files:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in VALID_EXT:
+                continue
+            rel_path = os.path.relpath(os.path.join(root, fname), target_dir)
+            stem = os.path.splitext(rel_path)[0]
+            if stem in source_stems:
+                target_map[stem] = os.path.join(root, fname)
 
     expected_stems = sorted(target_map.keys())
     if not expected_stems:
@@ -159,10 +165,11 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
             "Check SOURCE_DIR/TARGET_DIR filename stems."
         )
 
-    existing_files = [
-        f for f in os.listdir(resolved_offsets_dir)
-        if f.endswith(".npy")
-    ]
+    existing_files = []
+    for root, _, files in os.walk(resolved_offsets_dir):
+        for f in files:
+            if f.endswith(".npy"):
+                existing_files.append(os.path.relpath(os.path.join(root, f), resolved_offsets_dir))
     existing_stems = {os.path.splitext(f)[0] for f in existing_files}
 
     missing_stems = [stem for stem in expected_stems if stem not in existing_stems]
@@ -204,17 +211,19 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
 
         # Write through a temporary file then atomically replace target file.
         final_path = os.path.join(resolved_offsets_dir, stem + ".npy")
+        os.makedirs(os.path.dirname(final_path), exist_ok=True)
         tmp_prefix = final_path + ".tmp"
         tmp_path = tmp_prefix + ".npy"
         np.save(tmp_prefix, offsets)
         os.replace(tmp_path, final_path)
         exported += 1
 
-    final_existing_stems = {
-        os.path.splitext(f)[0]
-        for f in os.listdir(resolved_offsets_dir)
-        if f.endswith(".npy")
-    }
+    final_existing_stems = set()
+    for root, _, files in os.walk(resolved_offsets_dir):
+        for f in files:
+            if f.endswith(".npy"):
+                rel_path = os.path.relpath(os.path.join(root, f), resolved_offsets_dir)
+                final_existing_stems.add(os.path.splitext(rel_path)[0])
     final_missing = [stem for stem in expected_stems if stem not in final_existing_stems]
     if final_missing:
         raise RuntimeError(
