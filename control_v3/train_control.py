@@ -82,6 +82,7 @@ VAL_SPLIT = 0.1
 
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
 WANDB_ACTIVE = True
+WANDB_PREDICT_IMAGES = 8
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
 
@@ -284,7 +285,7 @@ def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, target_den
     return raw
 
 
-def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch):
+def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, max_samples=4):
     """Save a 4-column panel per validation sample.
 
     Columns: Condition | GT | Predict | GT Offset Quiver
@@ -293,7 +294,7 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch):
         print("matplotlib unavailable; skipping validation panel export")
         return False
 
-    n = min(4, cond_batch.shape[0], gt_offsets_batch.shape[0], pred_offsets_batch.shape[0])
+    n = min(max_samples, cond_batch.shape[0], gt_offsets_batch.shape[0], pred_offsets_batch.shape[0])
     if n <= 0:
         return False
 
@@ -428,6 +429,12 @@ def main():
                         help="Timesteps used in intermediate eval sampling")
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS,
                         help="RePaint micro-loops per timestep during eval sampling")
+    parser.add_argument(
+        "--wandb-predict-images",
+        type=int,
+        default=WANDB_PREDICT_IMAGES,
+        help="Number of validation predictions to include in the wandb panel each epoch (0 disables panel upload)",
+    )
     parser.add_argument("--out", default=OUTPUT_DIR,
                         help="Output directory for checkpoints and logs")
     parser.add_argument(
@@ -440,6 +447,8 @@ def main():
                         help="Validation split ratio in [0,1). Example: 0.1 = 10% val")
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
+    if args.wandb_predict_images < 0:
+        raise ValueError("--wandb-predict-images must be >= 0")
 
     args.offsets = ensure_offsets_dir(args.source, args.target, args.offsets, args.grid_size)
 
@@ -601,7 +610,7 @@ def main():
                     x_0 = x_0.to(device)
 
                     if val_preview_high_res is None:
-                        keep = min(4, high_res_img.shape[0])
+                        keep = min(args.wandb_predict_images, high_res_img.shape[0])
                         val_preview_high_res = high_res_img[:keep].detach()
                         val_preview_target_density = target_density[:keep].detach()
                         val_preview_offsets = x_0[:keep].detach()
@@ -630,33 +639,35 @@ def main():
             val_avg_loss = val_loss_sum / max(len(val_loader), 1)
             control_net.train()
 
-            # Export per-epoch qualitative val panel (4 samples, 4 columns).
-            control_net.eval()
-            pred_raw = sample_eval_batch(
-                diffusion,
-                denoiser,
-                control_net,
-                val_preview_high_res,
-                val_preview_target_density,
-                device,
-                n_samples=val_preview_high_res.shape[0],
-                timesteps=args.eval_timesteps,
-                resample_jumps=args.resample_jumps,
-                show_tqdm=True,
-                tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [predict]",
-            )
-            panel_path = os.path.join(args.out, f"val_panel_ep{epoch+1}.png")
-            saved = save_val_panel(
-                panel_path,
-                val_preview_high_res.cpu().numpy(),
-                val_preview_offsets.cpu().numpy(),
-                pred_raw.cpu().numpy(),
-            )
-            if saved:
-                print(f"  -> saved validation panel: {panel_path}")
-                if use_wandb:
-                    wandb.log({"val/panel": wandb.Image(panel_path)}, step=global_step)
-            control_net.train()
+            if args.wandb_predict_images > 0:
+                # Export per-epoch qualitative val panel (N samples, 4 columns).
+                control_net.eval()
+                pred_raw = sample_eval_batch(
+                    diffusion,
+                    denoiser,
+                    control_net,
+                    val_preview_high_res,
+                    val_preview_target_density,
+                    device,
+                    n_samples=val_preview_high_res.shape[0],
+                    timesteps=args.eval_timesteps,
+                    resample_jumps=args.resample_jumps,
+                    show_tqdm=True,
+                    tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [predict]",
+                )
+                panel_path = os.path.join(args.out, f"val_panel_ep{epoch+1}.png")
+                saved = save_val_panel(
+                    panel_path,
+                    val_preview_high_res.cpu().numpy(),
+                    val_preview_offsets.cpu().numpy(),
+                    pred_raw.cpu().numpy(),
+                    max_samples=args.wandb_predict_images,
+                )
+                if saved:
+                    print(f"  -> saved validation panel: {panel_path}")
+                    if use_wandb:
+                        wandb.log({"val/panel": wandb.Image(panel_path)}, step=global_step)
+                control_net.train()
 
         if use_wandb:
             log_payload = {"loss/epoch": avg_loss, "epoch": epoch}
