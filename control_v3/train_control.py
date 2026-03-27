@@ -24,6 +24,7 @@ Usage (from project root):
 import os
 import sys
 import argparse
+import re
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -83,6 +84,7 @@ VAL_SPLIT = 0.1
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
 WANDB_ACTIVE = True
 WANDB_PREDICT_IMAGES = 8
+RESUME_LATEST = True
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
 
@@ -438,6 +440,12 @@ def main():
     parser.add_argument("--out", default=OUTPUT_DIR,
                         help="Output directory for checkpoints and logs")
     parser.add_argument(
+        "--resume-latest",
+        action=argparse.BooleanOptionalAction,
+        default=RESUME_LATEST,
+        help="Resume training from the latest checkpoint found in --out",
+    )
+    parser.add_argument(
         "--save_every",
         type=int,
         default=SAVE_EVERY,
@@ -545,9 +553,39 @@ def main():
     # ── optimizer ────────────────────────────────────────────────────
     optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
 
-    # ── training loop ────────────────────────────────────────────────
+    # ── optional resume from latest checkpoint ───────────────────────
+    start_epoch = 0
     global_step = 0
-    for epoch in range(args.epochs):
+    if args.resume_latest:
+        ckpt_re = re.compile(r"^dynamic_controlnet_v3_ep(\d+)\.pt$")
+        latest_path = None
+        latest_epoch_num = -1
+        for fname in os.listdir(args.out):
+            match = ckpt_re.match(fname)
+            if not match:
+                continue
+            ep_num = int(match.group(1))
+            if ep_num > latest_epoch_num:
+                latest_epoch_num = ep_num
+                latest_path = os.path.join(args.out, fname)
+
+        if latest_path is None:
+            print("Resume requested but no checkpoint found. Starting from scratch.")
+        else:
+            state = torch.load(latest_path, map_location=device)
+            control_net.load_state_dict(state["control_net"])
+            if "optimizer" in state and state["optimizer"] is not None:
+                optimizer.load_state_dict(state["optimizer"])
+            global_step = int(state.get("global_step", 0))
+            # epoch in checkpoint is 0-based. Continue from next epoch.
+            start_epoch = int(state.get("epoch", latest_epoch_num - 1)) + 1
+            print(
+                f"Resumed from checkpoint: {latest_path} | "
+                f"start_epoch={start_epoch} | global_step={global_step}"
+            )
+
+    # ── training loop ────────────────────────────────────────────────
+    for epoch in range(start_epoch, args.epochs):
         epoch_loss = 0.0
         preview_high_res = None
         preview_target_density = None
