@@ -38,9 +38,13 @@ except ImportError:
     HAS_WANDB = False
 
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
+from control_v3.conditioning import build_condition_tensors_from_image
+from control_v3.guidance import (
+    chamfer_distance_offsets,
+)
 from control_v3.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from utils.Config import ParseSampleConfig
-from utils.stippling_metrics import visualize_overfit_metrics
+from utils.stippling_metrics import compute_spacing_quality, visualize_overfit_metrics
 
 # ── paths ────────────────────────────────────────────────────────────
 DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/small_target_image"
@@ -56,7 +60,7 @@ GRID_SIZE = 32
 N_POINTS = GRID_SIZE ** 2
 
 # ── default run parameters (edit here for quick experiments) ───────
-STEPS = 1000
+STEPS = 10000
 SAMPLE_INDEX = 0
 LR = 5e-4
 VIS_EVERY = 500
@@ -65,6 +69,12 @@ SAMPLE_TIMESTEPS = 1000
 ENABLE_GECCO = True
 MIN_SNR_GAMMA = 5.0
 RESAMPLE_JUMPS = 2
+SDF_TRUNCATE_PX = 8.0
+USE_SDF = True
+
+X0_AUX_WEIGHT = 0.05
+X0_AUX_LOSS = "chamfer"
+GEOM_CLUMP_WEIGHT = 5.0
 
 N_SAMPLES = 2
 SEED = 42
@@ -114,16 +124,16 @@ def extract_points_from_image(img_path, n_points):
     return pts
 
 
-def load_condition(img_path, grid_size, device):
-    """Load source image and return (high_res, target_density) tensors."""
+def load_condition(img_path, grid_size, device, sdf_truncate_px=0.0):
+    """Load source image and return image, density, and SDF condition tensors."""
     img = Image.open(img_path).convert("L")
     img_np = np.array(img, dtype=np.float32) / 255.0
-
-    high_res = torch.from_numpy(img_np).unsqueeze(0).unsqueeze(0).to(device)
-    target_density = F.interpolate(
-        high_res, size=(grid_size, grid_size), mode="area"
+    return build_condition_tensors_from_image(
+        img_np,
+        grid_size,
+        device,
+        sdf_truncate_px=sdf_truncate_px,
     )
-    return high_res, target_density
 
 
 def export_gt_offset_artifacts(out_dir, gt_offsets):
@@ -186,12 +196,13 @@ def export_gt_offset_artifacts(out_dir, gt_offsets):
     print(f"  -> saved gt_offset artifacts: {gt_dir}/")
 
 
-def sample_from_model(diffusion, control_net, denoiser, high_res, target_density,
+def sample_from_model(diffusion, control_net, denoiser, high_res, high_res_sdf,
+                      target_density, target_sdf,
                       device, n_samples=2, timesteps=200, resample_jumps=0):
     """Run the full reverse diffusion loop and return point sets."""
     from tqdm import tqdm as _tqdm
     controlled = DynamicControlledDenoiser(denoiser, control_net)
-    controlled.set_condition(high_res, target_density)
+    controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf)
 
     orig_model = diffusion.model
     diffusion.model = controlled
@@ -199,23 +210,30 @@ def sample_from_model(diffusion, control_net, denoiser, high_res, target_density
     diffusion.eval()
 
     shape = [n_samples, 2, GRID_SIZE, GRID_SIZE]
-    with torch.no_grad():
-        if resample_jumps == 0:
+    apply_manual_loop = resample_jumps > 0
+    with torch.no_grad() if not apply_manual_loop else torch.enable_grad():
+        if not apply_manual_loop:
             raw = diffusion.p_sample_loop(shape, img=None, cond=None,
                                           with_tqdm=True, with_sampling=True)
         else:
             img = diffusion.noise_fn(shape).to(device)
+
             for i in _tqdm(reversed(range(diffusion.num_timesteps - 1)),
                            total=diffusion.num_timesteps - 1,
                            desc="sampling"):
                 t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
                 for u in range(resample_jumps + 1):
-                    img = diffusion.p_sample(img, cond=None, t=t_tensor,
-                                             clip_denoised=diffusion.sample_clip,
-                                             with_sampling=True)
+                    with torch.no_grad():
+                        img = diffusion.p_sample(
+                            img,
+                            cond=None,
+                            t=t_tensor,
+                            clip_denoised=diffusion.sample_clip,
+                            with_sampling=True,
+                        )
+
                     if u == resample_jumps or i == 0:
                         break
-                    # Re-noise: bring x_{i-1} back to x_i
                     beta_i = diffusion.betas[i]
                     noise = torch.randn_like(img)
                     img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
@@ -232,6 +250,29 @@ def sample_from_model(diffusion, control_net, denoiser, high_res, target_density
         ps = ps.reshape(ps.shape[0], np.prod(ps.shape[1:])).T
         pointsets.append(ps)
     return np.array(pointsets), raw_np
+
+
+def geometric_validation_score(pointsets, clump_weight=5.0):
+    """Compute aggregate geometric validation score from predicted point sets."""
+    cvs = []
+    clumped_pcts = []
+    per_sample_scores = []
+
+    for pts in pointsets:
+        spacing = compute_spacing_quality(pts)
+        cv = float(spacing["nn_cv"])
+        clumped_pct = float(spacing["clumped_pct"])
+        score = cv + clump_weight * (clumped_pct / 100.0)
+
+        cvs.append(cv)
+        clumped_pcts.append(clumped_pct)
+        per_sample_scores.append(score)
+
+    return {
+        "cv": float(np.mean(cvs)) if cvs else 0.0,
+        "clumped_pct": float(np.mean(clumped_pcts)) if clumped_pcts else 0.0,
+        "score": float(np.mean(per_sample_scores)) if per_sample_scores else 0.0,
+    }
 
 
 # ── main ─────────────────────────────────────────────────────────────
@@ -264,6 +305,18 @@ def main():
         default=RESAMPLE_JUMPS,
         help="RePaint-style micro-loops per timestep during sampling (0=disabled)",
     )
+    parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX,
+                        help="Truncate signed distance magnitudes before max-normalization (0 disables)")
+    parser.add_argument(
+        "--use-sdf",
+        action=argparse.BooleanOptionalAction,
+        default=USE_SDF,
+        help="Pass real SDF channels to the model (--no-use-sdf zeroes them out for ablation)",
+    )
+    parser.add_argument("--x0-aux-weight", type=float, default=X0_AUX_WEIGHT,
+                        help="Weight for x0 auxiliary geometric loss (0 disables)")
+    parser.add_argument("--x0-aux-loss", choices=["mse", "chamfer"], default=X0_AUX_LOSS,
+                        help="x0 auxiliary loss type")
     parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--device", default=DEVICE)
@@ -307,6 +360,12 @@ def main():
 
     out_dir = os.path.join(OUTPUT_DIR, stem)
     os.makedirs(out_dir, exist_ok=True)
+    vis_dir = os.path.join(out_dir, "vis")
+    points_dir = os.path.join(out_dir, "points")
+    ckpt_dir = os.path.join(out_dir, "checkpoints")
+    os.makedirs(vis_dir, exist_ok=True)
+    os.makedirs(points_dir, exist_ok=True)
+    os.makedirs(ckpt_dir, exist_ok=True)
 
     # ── prepare GT offset tensor on the fly ──────────────────────────
     print(f"Example: {fname}")
@@ -317,7 +376,15 @@ def main():
     gt_offsets = to_image_optimal_transport(gt_points)
     x_0 = torch.from_numpy(gt_offsets).float().unsqueeze(0).to(device)
 
-    high_res, target_density = load_condition(source_path, GRID_SIZE, device)
+    high_res, target_density, high_res_sdf, target_sdf = load_condition(
+        source_path,
+        GRID_SIZE,
+        device,
+        sdf_truncate_px=args.sdf_truncate_px,
+    )
+    if not args.use_sdf:
+        high_res_sdf = torch.zeros_like(high_res_sdf)
+        target_sdf = torch.zeros_like(target_sdf)
 
     source_np = np.array(Image.open(source_path).convert("L"))
     target_np = np.array(Image.open(target_path).convert("L"))
@@ -348,7 +415,7 @@ def main():
         p.requires_grad = False
     denoiser.eval()
 
-    control_net = DynamicControlNet(denoiser, enable_gecco=args.enable_gecco).to(device)
+    control_net = DynamicControlNet(denoiser, grid_size=GRID_SIZE, enable_gecco=args.enable_gecco).to(device)
     control_net.train()
 
     trainable = sum(p.numel() for p in control_net.parameters()
@@ -357,8 +424,14 @@ def main():
     print(f"  GECCO dynamic features enabled: {args.enable_gecco}")
     print(f"  Min-SNR gamma: {args.min_snr_gamma}")
     print(f"  Resample jumps (RePaint): {args.resample_jumps}")
+    print(f"  SDF truncation (px): {args.sdf_truncate_px}")
+    print(f"  SDF conditioning enabled: {args.use_sdf}")
+    print(f"  x0 aux loss: {args.x0_aux_loss} (weight={args.x0_aux_weight})")
 
     optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
+    best_val_score = float("inf")
+    best_ckpt_path = None
+    last_geom = {"cv": None, "clumped_pct": None, "score": None}
 
     # ── training loop ────────────────────────────────────────────────
     print(f"\n{'Step':>6}  {'Loss':>12}")
@@ -370,7 +443,7 @@ def main():
         noise = torch.randn_like(x_0)
         offsets_t = diffusion.q_sample(x_0, t, noise)
 
-        controls = control_net(offsets_t, t, high_res, target_density)
+        controls = control_net(offsets_t, t, high_res, high_res_sdf, target_density, target_sdf)
         noise_pred = denoiser(offsets_t, t, controls=controls)
 
         per_sample_mse = F.mse_loss(noise_pred, noise, reduction="none")
@@ -380,7 +453,17 @@ def main():
         snr = alphas_cumprod_t / torch.clamp(1.0 - alphas_cumprod_t, min=1e-8)
         min_snr_weight = torch.clamp(snr, max=args.min_snr_gamma) / torch.clamp(snr, min=1e-8)
 
-        loss = (per_sample_mse * min_snr_weight).mean()
+        denoise_loss = (per_sample_mse * min_snr_weight).mean()
+
+        aux_loss = torch.tensor(0.0, device=device)
+        if args.x0_aux_weight > 0.0:
+            pred_x0 = diffusion.predict_xstart_from_noise(offsets_t, t, noise_pred)
+            if args.x0_aux_loss == "mse":
+                aux_loss = F.mse_loss(pred_x0, x_0)
+            else:
+                aux_loss = chamfer_distance_offsets(pred_x0, x_0)
+
+        loss = denoise_loss + args.x0_aux_weight * aux_loss
 
         optimizer.zero_grad()
         loss.backward()
@@ -391,7 +474,11 @@ def main():
         losses.append(loss_val)
 
         if use_wandb:
-            wandb.log({"loss": loss_val}, step=step)
+            wandb.log({
+                "loss": loss_val,
+                "loss_denoise": float(denoise_loss.item()),
+                "loss_x0_aux": float(aux_loss.item()),
+            }, step=step)
 
         if step % 50 == 0 or step == 1:
             print(f"{step:6d}  {loss_val:12.6f}")
@@ -399,23 +486,72 @@ def main():
         if step % args.vis_every == 0 or step == args.steps:
             control_net.eval()
             pts, raw = sample_from_model(
-                diffusion, control_net, denoiser, high_res, target_density,
+                diffusion, control_net, denoiser, high_res, high_res_sdf, target_density, target_sdf,
                 device, n_samples=args.n_samples,
                 timesteps=args.sample_timesteps,
                 resample_jumps=args.resample_jumps,
             )
-            vis_path = os.path.join(out_dir, f"vis_step{step:05d}.png")
+            vis_path = os.path.join(vis_dir, f"vis_step{step:05d}.png")
             saved = visualize_overfit_metrics(
                 source_np, target_np, gt_points,
                 list(pts), vis_path, step=step,
                 gt_offsets=gt_offsets,
             )
-            np.save(os.path.join(out_dir, f"points_step{step:05d}.npy"), pts)
+            np.save(os.path.join(points_dir, f"points_step{step:05d}.npy"), pts)
             print(f"  -> saved visualisation: {vis_path}")
+
+            geom = geometric_validation_score(pts, clump_weight=GEOM_CLUMP_WEIGHT)
+            last_geom = geom
+            print(
+                "  -> geometry "
+                f"CV={geom['cv']:.4f} | Clumped={geom['clumped_pct']:.2f}% | "
+                f"Score={geom['score']:.4f}"
+            )
+
+            checkpoint = {
+                "step": step,
+                "model_state_dict": control_net.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "best_val_score": min(best_val_score, geom["score"]),
+                "current_val_score": geom["score"],
+                "cv_score": geom["cv"],
+                "clumped_score": geom["clumped_pct"],
+                "loss": float(loss_val),
+                "loss_denoise": float(denoise_loss.item()),
+                "loss_x0_aux": float(aux_loss.item()),
+                "example": fname,
+                "config": vars(args),
+            }
+
+            latest_ckpt_path = os.path.join(ckpt_dir, "latest_controlnet.pt")
+            torch.save(checkpoint, latest_ckpt_path)
+
+            if geom["score"] < best_val_score:
+                best_val_score = geom["score"]
+                best_filename = (
+                    f"best_controlnet_step{step:05d}"
+                    f"_score{best_val_score:.3f}"
+                    f"_cv{geom['cv']:.3f}"
+                    f"_clumped{geom['clumped_pct']:.2f}.pt"
+                )
+                new_best_path = os.path.join(ckpt_dir, best_filename)
+                checkpoint["best_val_score"] = best_val_score
+                torch.save(checkpoint, new_best_path)
+
+                if best_ckpt_path is not None and os.path.exists(best_ckpt_path):
+                    try:
+                        os.remove(best_ckpt_path)
+                    except OSError:
+                        pass
+                best_ckpt_path = new_best_path
+                print(f"  -> new best checkpoint: {new_best_path}")
 
             if use_wandb and saved:
                 wandb.log({
                     "comparison": wandb.Image(saved, caption=f"Step {step}"),
+                    "geom/cv": geom["cv"],
+                    "geom/clumped_pct": geom["clumped_pct"],
+                    "geom/score": geom["score"],
                 }, step=step)
 
             control_net.train()
@@ -424,10 +560,16 @@ def main():
     # ── save final weights ───────────────────────────────────────────
     ckpt_path = os.path.join(out_dir, "dynamic_controlnet_v3_overfit.pt")
     torch.save({
-        "control_net": control_net.state_dict(),
+        "model_state_dict": control_net.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
         "step": args.steps,
         "loss_history": losses,
+        "best_val_score": best_val_score,
+        "cv_score": last_geom["cv"],
+        "clumped_score": last_geom["clumped_pct"],
+        "current_val_score": last_geom["score"],
         "example": fname,
+        "config": vars(args),
     }, ckpt_path)
     print(f"  -> saved weights: {ckpt_path}")
 
@@ -454,6 +596,12 @@ def main():
         "final_loss": float(losses[-1]),
         "min_loss": float(min(losses)),
         "mean_loss_last100": float(np.mean(losses[-100:])),
+        "best_val_score": None if best_val_score == float("inf") else float(best_val_score),
+        "last_cv": last_geom["cv"],
+        "last_clumped_pct": last_geom["clumped_pct"],
+        "last_geom_score": last_geom["score"],
+        "best_checkpoint": best_ckpt_path,
+        "latest_checkpoint": os.path.join(ckpt_dir, "latest_controlnet.pt"),
         "lr": args.lr,
         "seed": args.seed,
     }

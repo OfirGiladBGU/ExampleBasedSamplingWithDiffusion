@@ -1,8 +1,8 @@
-"""Train the Dynamic ControlNet V3.7 for stipple generation.
+"""Train the Dynamic ControlNet V3.8 for stipple generation.
 
-V3.7 training mirrors the overfit winner components:
-    - AdaptiveGateInjection (V3.2 revert)
-    - optional GECCO dynamic conditioning (enabled by default)
+V3.8 training restores SDF conditioning while keeping the later training wins:
+    - AdaptiveGateInjection
+    - optional GECCO dynamic conditioning on [image, sdf] features
     - Min-SNR-gamma weighted denoising loss
     - continuous (non-binarized) target density
 
@@ -46,6 +46,9 @@ except Exception:
     HAS_MPL = False
 
 from utils.Config import ParseSampleConfig
+from control_v3.guidance import (
+    chamfer_distance_offsets,
+)
 from control_v3.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from control_v3.DynamicStippleDataset import DynamicStippleDataset
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
@@ -71,11 +74,17 @@ DEVICE = "cuda"
 
 ENABLE_GECCO = True
 MIN_SNR_GAMMA = 5.0
+SDF_TRUNCATE_PX = 8.0
+USE_SDF = True
 
 EVAL_EVERY = 0
 EVAL_BATCH = 4
 EVAL_TIMESTEPS = 1000
 RESAMPLE_JUMPS = 2
+
+X0_AUX_WEIGHT = 0.0
+X0_AUX_LOSS = "chamfer"
+USE_X0_AUX = True
 
 NUM_WORKERS = 4
 PIN_MEMORY = True
@@ -240,12 +249,13 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
     return resolved_offsets_dir
 
 
-def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, target_density,
+def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, high_res_sdf,
+                      target_density, target_sdf,
                       device, n_samples=4, timesteps=1000, resample_jumps=2,
                       show_tqdm=False, tqdm_desc="sampling"):
     """Sample offset grids for intermediate eval with optional resampling."""
     controlled = DynamicControlledDenoiser(denoiser, control_net)
-    controlled.set_condition(high_res_img, target_density)
+    controlled.set_condition(high_res_img, high_res_sdf, target_density, target_sdf)
 
     original_model = diffusion.model
     diffusion.model = controlled
@@ -254,8 +264,9 @@ def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, target_den
 
     h, w = target_density.shape[-2], target_density.shape[-1]
     shape = [n_samples, 2, h, w]
-    with torch.no_grad():
-        if resample_jumps == 0:
+    apply_manual_loop = resample_jumps > 0
+    with torch.no_grad() if not apply_manual_loop else torch.enable_grad():
+        if not apply_manual_loop:
             raw = diffusion.p_sample_loop(shape, img=None, cond=None,
                                           with_tqdm=show_tqdm, with_sampling=True)
         else:
@@ -268,12 +279,15 @@ def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, target_den
                     desc=tqdm_desc,
                     leave=False,
                 )
+
             for i in iter_steps:
                 t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
                 for u in range(resample_jumps + 1):
-                    img = diffusion.p_sample(img, cond=None, t=t_tensor,
-                                             clip_denoised=diffusion.sample_clip,
-                                             with_sampling=True)
+                    with torch.no_grad():
+                        img = diffusion.p_sample(img, cond=None, t=t_tensor,
+                                                 clip_denoised=diffusion.sample_clip,
+                                                 with_sampling=True)
+
                     if u == resample_jumps or i == 0:
                         break
                     beta_i = diffusion.betas[i]
@@ -371,22 +385,31 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, 
 
 def dynamic_collate(batch):
     """Collate samples with variable high-res image sizes by padding per batch."""
-    high_res_list, target_density_list, offsets_list = zip(*batch)
+    high_res_list, target_density_list, high_res_sdf_list, target_sdf_list, offsets_list = zip(*batch)
 
     max_h = max(t.shape[-2] for t in high_res_list)
     max_w = max(t.shape[-1] for t in high_res_list)
 
     padded_high_res = []
+    padded_high_res_sdf = []
     for img in high_res_list:
         pad_h = max_h - img.shape[-2]
         pad_w = max_w - img.shape[-1]
         padded = F.pad(img, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
         padded_high_res.append(padded.contiguous())
 
+    for sdf in high_res_sdf_list:
+        pad_h = max_h - sdf.shape[-2]
+        pad_w = max_w - sdf.shape[-1]
+        padded = F.pad(sdf, (0, pad_w, 0, pad_h), mode="constant", value=1.0)
+        padded_high_res_sdf.append(padded.contiguous())
+
     high_res_batch = torch.stack(padded_high_res, dim=0)
+    high_res_sdf_batch = torch.stack(padded_high_res_sdf, dim=0)
     target_density_batch = torch.stack([t.contiguous() for t in target_density_list], dim=0)
+    target_sdf_batch = torch.stack([t.contiguous() for t in target_sdf_list], dim=0)
     offsets_batch = torch.stack([o.contiguous() for o in offsets_list], dim=0)
-    return high_res_batch, target_density_batch, offsets_batch
+    return high_res_batch, target_density_batch, high_res_sdf_batch, target_sdf_batch, offsets_batch
 
 
 def main():
@@ -419,6 +442,24 @@ def main():
         default=MIN_SNR_GAMMA,
         help="Gamma for Min-SNR loss weighting (0 disables)",
     )
+    parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX,
+                        help="Truncate signed distance magnitudes before max-normalization (0 disables)")
+    parser.add_argument(
+        "--use-sdf",
+        action=argparse.BooleanOptionalAction,
+        default=USE_SDF,
+        help="Pass real SDF channels to the model (--no-use-sdf zeroes them out for ablation)",
+    )
+    parser.add_argument(
+        "--use-x0-aux",
+        action=argparse.BooleanOptionalAction,
+        default=USE_X0_AUX,
+        help="Enable x0 auxiliary geometric loss term (use --no-use-x0-aux to disable regardless of weight)",
+    )
+    parser.add_argument("--x0-aux-weight", type=float, default=X0_AUX_WEIGHT,
+                        help="Weight for x0 auxiliary geometric loss (0 disables)")
+    parser.add_argument("--x0-aux-loss", choices=["mse", "chamfer"], default=X0_AUX_LOSS,
+                        help="x0 auxiliary loss type")
     parser.add_argument(
         "--eval-every",
         type=int,
@@ -452,7 +493,7 @@ def main():
         help="Retained for compatibility; epoch checkpoints are now saved every epoch",
     )
     parser.add_argument("--val-split", type=float, default=VAL_SPLIT,
-                        help="Validation split ratio in [0,1). Example: 0.1 = 10% val")
+                        help="Validation split ratio in [0,1). Example: 0.1 = 10%% val")
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
     if args.wandb_predict_images < 0:
@@ -475,6 +516,18 @@ def main():
                 name=run_name,
                 config=vars(args),
             )
+            # Keep global-step curves for batch-level losses.
+            wandb.define_metric("global_step")
+            wandb.define_metric("step_loss/total", step_metric="global_step")
+            wandb.define_metric("step_loss/denoise", step_metric="global_step")
+            wandb.define_metric("step_loss/x0_aux", step_metric="global_step")
+
+            # Add clean epoch-axis charts for train/val comparison and media logs.
+            wandb.define_metric("epoch")
+            wandb.define_metric("epoch_loss/train", step_metric="epoch")
+            wandb.define_metric("epoch_loss/valid", step_metric="epoch")
+            wandb.define_metric("val/*", step_metric="epoch")
+            wandb.define_metric("eval/*", step_metric="epoch")
             print(f"wandb run name: {run_name}")
         except ImportError:
             print("wandb not installed, logging disabled")
@@ -506,10 +559,19 @@ def main():
     print(f"Frozen denoiser params                : {frozen:,}")
     print(f"GECCO dynamic features enabled        : {args.enable_gecco}")
     print(f"Min-SNR gamma                         : {args.min_snr_gamma}")
+    print(f"SDF truncation (px)                   : {args.sdf_truncate_px}")
+    print(f"SDF conditioning enabled              : {args.use_sdf}")
+    print(f"x0 aux enabled                        : {args.use_x0_aux}")
+    print(f"x0 aux loss                           : {args.x0_aux_loss} (weight={args.x0_aux_weight})")
     print(f"Eval resample-jumps                   : {args.resample_jumps}")
 
     # ── dataset ──────────────────────────────────────────────────────
-    dataset = DynamicStippleDataset(args.source, args.offsets, grid_size=args.grid_size)
+    dataset = DynamicStippleDataset(
+        args.source,
+        args.offsets,
+        grid_size=args.grid_size,
+        sdf_truncate_px=args.sdf_truncate_px,
+    )
     if len(dataset) == 0:
         raise RuntimeError(
             "DynamicStippleDataset has 0 samples. Ensure source images and offsets share matching "
@@ -556,6 +618,9 @@ def main():
     # ── optional resume from latest checkpoint ───────────────────────
     start_epoch = 0
     global_step = 0
+    epoch_history = []
+    train_epoch_history = []
+    val_epoch_history = []
     if args.resume_latest:
         ckpt_re = re.compile(r"^dynamic_controlnet_v3_ep(\d+)\.pt$")
         latest_path = None
@@ -589,23 +654,33 @@ def main():
         epoch_loss = 0.0
         preview_high_res = None
         preview_target_density = None
+        preview_high_res_sdf = None
+        preview_target_sdf = None
 
         control_net.train()
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [train]", leave=False)
-        for high_res_img, target_density, x_0 in train_pbar:
+        for high_res_img, target_density, high_res_sdf, target_sdf, x_0 in train_pbar:
             high_res_img = high_res_img.to(device)
             target_density = target_density.to(device)
+            high_res_sdf = high_res_sdf.to(device)
+            target_sdf = target_sdf.to(device)
             x_0 = x_0.to(device)
+
+            if not args.use_sdf:
+                high_res_sdf = torch.zeros_like(high_res_sdf)
+                target_sdf = torch.zeros_like(target_sdf)
 
             if preview_high_res is None:
                 preview_high_res = high_res_img[:1].detach()
                 preview_target_density = target_density[:1].detach()
+                preview_high_res_sdf = high_res_sdf[:1].detach()
+                preview_target_sdf = target_sdf[:1].detach()
 
             t = torch.randint(0, num_timesteps, (x_0.shape[0],), device=device)
             noise = torch.randn_like(x_0)
             offsets_t = diffusion.q_sample(x_0, t, noise)
 
-            controls = control_net(offsets_t, t, high_res_img, target_density)
+            controls = control_net(offsets_t, t, high_res_img, high_res_sdf, target_density, target_sdf)
             noise_pred = denoiser(offsets_t, t, controls=controls)
 
             per_sample_mse = F.mse_loss(noise_pred, noise, reduction="none")
@@ -615,9 +690,20 @@ def main():
                 alphas_cumprod_t = diffusion.alphas_cumprod.gather(0, t)
                 snr = alphas_cumprod_t / torch.clamp(1.0 - alphas_cumprod_t, min=1e-8)
                 min_snr_weight = torch.clamp(snr, max=args.min_snr_gamma) / torch.clamp(snr, min=1e-8)
-                loss = (per_sample_mse * min_snr_weight).mean()
+                denoise_loss = (per_sample_mse * min_snr_weight).mean()
             else:
-                loss = per_sample_mse.mean()
+                denoise_loss = per_sample_mse.mean()
+
+            aux_loss = torch.tensor(0.0, device=device)
+            if args.use_x0_aux and args.x0_aux_weight > 0.0:
+                pred_x0 = diffusion.predict_xstart_from_noise(offsets_t, t, noise_pred)
+                if args.x0_aux_loss == "mse":
+                    aux_loss = F.mse_loss(pred_x0, x_0)
+                else:
+                    aux_loss = chamfer_distance_offsets(pred_x0, x_0)
+
+            aux_weight = args.x0_aux_weight if args.use_x0_aux else 0.0
+            loss = denoise_loss + aux_weight * aux_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -626,7 +712,14 @@ def main():
 
             epoch_loss += loss.item()
             if use_wandb:
-                wandb.log({"loss/step": loss.item()}, step=global_step)
+                wandb.log(
+                    {
+                        "global_step": global_step,
+                        "step_loss/total": loss.item(),
+                        "step_loss/denoise": float(denoise_loss.item()),
+                        "step_loss/x0_aux": float(aux_loss.item()),
+                    }
+                )
             global_step += 1
             train_pbar.set_postfix(loss=f"{loss.item():.6f}")
 
@@ -636,28 +729,38 @@ def main():
         val_avg_loss = None
         val_preview_high_res = None
         val_preview_target_density = None
+        val_preview_high_res_sdf = None
+        val_preview_target_sdf = None
         val_preview_offsets = None
         if val_loader is not None:
             control_net.eval()
             val_loss_sum = 0.0
             val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [val]", leave=False)
             with torch.no_grad():
-                for high_res_img, target_density, x_0 in val_pbar:
+                for high_res_img, target_density, high_res_sdf, target_sdf, x_0 in val_pbar:
                     high_res_img = high_res_img.to(device)
                     target_density = target_density.to(device)
+                    high_res_sdf = high_res_sdf.to(device)
+                    target_sdf = target_sdf.to(device)
                     x_0 = x_0.to(device)
+
+                    if not args.use_sdf:
+                        high_res_sdf = torch.zeros_like(high_res_sdf)
+                        target_sdf = torch.zeros_like(target_sdf)
 
                     if val_preview_high_res is None:
                         keep = min(args.wandb_predict_images, high_res_img.shape[0])
                         val_preview_high_res = high_res_img[:keep].detach()
                         val_preview_target_density = target_density[:keep].detach()
+                        val_preview_high_res_sdf = high_res_sdf[:keep].detach()
+                        val_preview_target_sdf = target_sdf[:keep].detach()
                         val_preview_offsets = x_0[:keep].detach()
 
                     t = torch.randint(0, num_timesteps, (x_0.shape[0],), device=device)
                     noise = torch.randn_like(x_0)
                     offsets_t = diffusion.q_sample(x_0, t, noise)
 
-                    controls = control_net(offsets_t, t, high_res_img, target_density)
+                    controls = control_net(offsets_t, t, high_res_img, high_res_sdf, target_density, target_sdf)
                     noise_pred = denoiser(offsets_t, t, controls=controls)
 
                     per_sample_mse = F.mse_loss(noise_pred, noise, reduction="none")
@@ -685,7 +788,9 @@ def main():
                     denoiser,
                     control_net,
                     val_preview_high_res,
+                    val_preview_high_res_sdf,
                     val_preview_target_density,
+                    val_preview_target_sdf,
                     device,
                     n_samples=val_preview_high_res.shape[0],
                     timesteps=args.eval_timesteps,
@@ -704,14 +809,35 @@ def main():
                 if saved:
                     print(f"  -> saved validation panel: {panel_path}")
                     if use_wandb:
-                        wandb.log({"val/panel": wandb.Image(panel_path)}, step=global_step)
+                        wandb.log({
+                            "epoch": epoch + 1,
+                            "val/panel": wandb.Image(panel_path),
+                        })
                 control_net.train()
 
         if use_wandb:
-            log_payload = {"loss/epoch": avg_loss, "epoch": epoch}
+            epoch_history.append(epoch + 1)
+            train_epoch_history.append(float(avg_loss))
+            val_epoch_history.append(float(val_avg_loss) if val_avg_loss is not None else float("nan"))
+
+            log_payload = {
+                "epoch": epoch + 1,
+                "epoch_loss/train": avg_loss,
+            }
             if val_avg_loss is not None:
-                log_payload["loss/val_epoch"] = val_avg_loss
-            wandb.log(log_payload, step=global_step)
+                log_payload["epoch_loss/valid"] = val_avg_loss
+
+            # Force a single chart that overlays train+val on epoch axis.
+            if len(epoch_history) > 0:
+                log_payload["epoch_loss/compare"] = wandb.plot.line_series(
+                    xs=epoch_history,
+                    ys=[train_epoch_history, val_epoch_history],
+                    keys=["train", "val"],
+                    title="Train vs Val Loss Across Epochs",
+                    xname="epoch",
+                )
+
+            wandb.log(log_payload)
         if val_avg_loss is None:
             print(f"Epoch {epoch:>4d}  |  train loss = {avg_loss:.6f}")
         else:
@@ -725,7 +851,9 @@ def main():
                 denoiser,
                 control_net,
                 preview_high_res,
+                preview_high_res_sdf,
                 preview_target_density,
+                preview_target_sdf,
                 device,
                 n_samples=args.eval_batch,
                 timesteps=args.eval_timesteps,
@@ -737,7 +865,10 @@ def main():
             torch.save(eval_raw.cpu(), eval_path)
             print(f"  -> saved eval samples: {eval_path}")
             if use_wandb:
-                wandb.log({"eval/sample_path": eval_path}, step=global_step)
+                wandb.log({
+                    "epoch": epoch + 1,
+                    "eval/sample_path": eval_path,
+                })
             control_net.train()
 
         save_path = os.path.join(args.out, f"dynamic_controlnet_v3_ep{epoch+1}.pt")
@@ -750,6 +881,21 @@ def main():
         print(f"  -> saved {save_path}")
 
     if use_wandb:
+        # Also upload a final static image snapshot for quick comparison/export.
+        if HAS_MPL and len(epoch_history) > 0:
+            compare_path = os.path.join(args.out, "wandb_epoch_loss_compare.png")
+            fig, ax = plt.subplots(figsize=(10, 4))
+            ax.plot(epoch_history, train_epoch_history, label="train", linewidth=1.5)
+            ax.plot(epoch_history, val_epoch_history, label="val", linewidth=1.5)
+            ax.set_title("Train vs Val Loss Across Epochs")
+            ax.set_xlabel("epoch")
+            ax.set_ylabel("loss")
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc="best")
+            plt.tight_layout()
+            plt.savefig(compare_path, dpi=150)
+            plt.close()
+            wandb.log({"epoch": epoch_history[-1], "epoch_loss/compare_image": wandb.Image(compare_path)})
         wandb.finish()
     print("Training complete.")
 

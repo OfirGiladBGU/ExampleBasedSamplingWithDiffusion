@@ -1,8 +1,10 @@
-"""Dataset for Dynamic ControlNet V3 training.
+"""Dataset for Dynamic ControlNet V3.8 training.
 
-Each sample returns three tensors:
+Each sample returns five tensors:
   - high_res_tensor    (1, H, W)   full-resolution grayscale source image
   - target_density_map (1, 32, 32) area-downsampled density (avg pooling)
+    - high_res_sdf       (1, H, W)   normalized signed distance field
+    - target_sdf_map     (1, 32, 32) downsampled SDF
   - offset_tensor      (2, 32, 32) ground-truth OT offsets from .npy files
 """
 
@@ -11,12 +13,13 @@ import os
 import cv2
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.utils.data import Dataset
+
+from control_v3.conditioning import build_condition_tensors_from_image
 
 
 class DynamicStippleDataset(Dataset):
-    """Dataset that yields (high_res_image, target_density, offsets).
+    """Dataset that yields (high_res_image, target_density, high_res_sdf, target_sdf, offsets).
 
     Parameters
     ----------
@@ -31,10 +34,11 @@ class DynamicStippleDataset(Dataset):
 
     VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
-    def __init__(self, source_dir, offsets_dir, grid_size=32):
+    def __init__(self, source_dir, offsets_dir, grid_size=32, sdf_truncate_px=0.0):
         self.source_dir = source_dir
         self.offsets_dir = offsets_dir
         self.grid_size = grid_size
+        self.sdf_truncate_px = sdf_truncate_px
 
         source_stems = {}
         for root, _, files in os.walk(source_dir):
@@ -67,18 +71,18 @@ class DynamicStippleDataset(Dataset):
         img = cv2.imread(
             os.path.join(self.source_dir, filename), cv2.IMREAD_GRAYSCALE
         )
-        high_res = torch.from_numpy(img).to(torch.float32).clone().contiguous() / 255.0
-        high_res = high_res.unsqueeze(0)  # (1, H, W)
-
-        # ── target density map via area interpolation ────────────────
-        target_density = F.interpolate(
-            high_res.unsqueeze(0),
-            size=(self.grid_size, self.grid_size),
-            mode="area",
-        ).squeeze(0)  # (1, grid_size, grid_size)
+        high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_image(
+            img.astype(np.float32) / 255.0,
+            self.grid_size,
+            sdf_truncate_px=self.sdf_truncate_px,
+        )
+        high_res = high_res.squeeze(0).contiguous()
+        target_density = target_density.squeeze(0).contiguous()
+        high_res_sdf = high_res_sdf.squeeze(0).contiguous()
+        target_sdf = target_sdf.squeeze(0).contiguous()
 
         # ── ground-truth offsets ─────────────────────────────────────
         offsets = np.load(os.path.join(self.offsets_dir, stem + ".npy"))
         offsets = torch.from_numpy(offsets).to(torch.float32).clone().contiguous()  # (2, grid_size, grid_size)
 
-        return high_res, target_density, offsets
+        return high_res, target_density, high_res_sdf, target_sdf, offsets

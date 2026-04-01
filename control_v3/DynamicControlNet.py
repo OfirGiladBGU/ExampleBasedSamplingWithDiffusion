@@ -1,10 +1,10 @@
-"""ControlNet V3 -- static conditioning with optional GECCO retest path.
+"""ControlNet V3.8 -- SDF-aware conditioning with optional GECCO sampling.
 
 Active injection path uses AdaptiveGateInjection (revert of V3.2) so control
 signals are sigmoid-gated 1x1 projections, initialized near zero at step 1.
 
-Hint input channels: offsets_t(2) + target_density(1) + coord_grid(2) = 5
-(plus optional GECCO dynamic channels when enabled).
+Hint input channels: offsets_t(2) + target_density(1) + target_sdf(1) +
+coord_grid(2) = 6 (plus optional GECCO dynamic channels when enabled).
 """
 
 import copy
@@ -39,13 +39,13 @@ class AdaptiveGateInjection(nn.Module):
 
 
 class DynamicControlNet(nn.Module):
-    """Trainable control branch with optional GECCO dynamic conditioning.
+    """Trainable control branch with SDF-aware static and dynamic conditioning.
 
     At each denoising step the module:
         1. Builds hint input from static channels
-            [offsets_t(2), target_density(1), coord_grid(2)] and, when
-            ``enable_gecco=True``, appends GECCO-sampled dynamic features
-            from the high-res image.
+            [offsets_t(2), target_density(1), target_sdf(1), coord_grid(2)] and,
+            when ``enable_gecco=True``, appends GECCO-sampled dynamic features
+            from a high-resolution [image, sdf] feature map.
       2. Passes offsets_t through the copied conv1, adds the 128ch hint,
          then runs through the control encoder + middle blocks.
         3. Returns (encoder_controls, middle_control) tensors transformed by
@@ -88,7 +88,7 @@ class DynamicControlNet(nn.Module):
         # ── optional GECCO feature extractor on high-res condition image ──
         if self.enable_gecco:
             self.gecco_extractor = nn.Sequential(
-                nn.Conv2d(1, 8, 3, padding=1),
+                nn.Conv2d(2, 8, 3, padding=1),
                 nn.SiLU(),
                 nn.Conv2d(8, gecco_channels, 3, padding=1),
                 nn.SiLU(),
@@ -102,8 +102,8 @@ class DynamicControlNet(nn.Module):
         self.ctrl_downsamp_layers = copy.deepcopy(denoiser.downsamp_layers)
         self.ctrl_middle = copy.deepcopy(denoiser.middle)
 
-        # ── hint encoder: static 5ch (+ optional GECCO dynamic channels) ──
-        hint_in_ch = 2 + 1 + 2  # offsets_t + target_density + coord_grid
+        # ── hint encoder: static 6ch (+ optional GECCO dynamic channels) ──
+        hint_in_ch = 2 + 1 + 1 + 2  # offsets_t + target_density + target_sdf + coord_grid
         if self.enable_gecco:
             hint_in_ch += gecco_channels
         first_hidden = denoiser.conv1.net[1].weight.shape[0]  # ch_mult[0] = 128
@@ -129,7 +129,7 @@ class DynamicControlNet(nn.Module):
         middle_ch = middle_first_resblock.conv2.net[1].weight.shape[0]
         self.inject_middle = AdaptiveGateInjection(middle_ch)
 
-    def forward(self, offsets_t, t, high_res_image, target_density_map):
+    def forward(self, offsets_t, t, high_res_image, high_res_sdf, target_density_map, target_sdf_map):
         """Run control encoder and return injection-ready control signals.
 
         Parameters
@@ -137,8 +137,9 @@ class DynamicControlNet(nn.Module):
         offsets_t : Tensor (B, 2, 32, 32)
         t : Tensor (B,)
         high_res_image : Tensor (B, 1, Himg, Wimg)
-            Accepted for call-signature compatibility; unused internally.
+        high_res_sdf : Tensor (B, 1, Himg, Wimg)
         target_density_map : Tensor (B, 1, 32, 32)
+        target_sdf_map : Tensor (B, 1, 32, 32)
 
         Returns
         -------
@@ -151,10 +152,11 @@ class DynamicControlNet(nn.Module):
         hint_parts = [
             offsets_t,           # 2ch
             target_density_map,  # 1ch
+            target_sdf_map,      # 1ch
             batch_coords,        # 2ch
         ]
         if self.enable_gecco:
-            gecco_dynamic = self.compute_gecco_features(offsets_t, high_res_image)
+            gecco_dynamic = self.compute_gecco_features(offsets_t, high_res_image, high_res_sdf)
             hint_parts.append(gecco_dynamic)
 
         hint_input = torch.cat(hint_parts, dim=1)
@@ -186,15 +188,15 @@ class DynamicControlNet(nn.Module):
 
         return (encoder_controls, middle_control)
 
-    def compute_gecco_features(self, offsets_t, high_res_image):
-        """Sample high-res GECCO features at current noisy offset positions."""
-        if high_res_image is None:
-            raise ValueError("high_res_image is required when enable_gecco=True")
+    def compute_gecco_features(self, offsets_t, high_res_image, high_res_sdf):
+        """Sample SDF-aware high-res GECCO features at current noisy positions."""
+        if high_res_image is None or high_res_sdf is None:
+            raise ValueError("high_res_image and high_res_sdf are required when enable_gecco=True")
 
         positions = self.grid_centers + offsets_t / self.grid_size
         sample_coords = positions.permute(0, 2, 3, 1) * 2.0 - 1.0
 
-        gecco_feats_hr = self.gecco_extractor(high_res_image)
+        gecco_feats_hr = self.gecco_extractor(torch.cat([high_res_image, high_res_sdf], dim=1))
         return F.grid_sample(
             gecco_feats_hr,
             sample_coords,
@@ -211,7 +213,7 @@ class DynamicControlledDenoiser(nn.Module):
     so it can replace ``diffusion.model`` inside the existing sampling loop.
 
     Before calling ``forward``, call
-    ``set_condition(high_res_image, target_density_map)`` once.
+    ``set_condition(high_res_image, high_res_sdf, target_density_map, target_sdf_map)`` once.
     """
 
     def __init__(self, denoiser, dynamic_control_net):
@@ -219,23 +221,33 @@ class DynamicControlledDenoiser(nn.Module):
         self.locked = denoiser
         self.control = dynamic_control_net
         self._high_res_image = None
+        self._high_res_sdf = None
         self._target_density = None
+        self._target_sdf = None
 
-    def set_condition(self, high_res_image, target_density_map):
+    def set_condition(self, high_res_image, high_res_sdf, target_density_map, target_sdf_map):
         self._high_res_image = high_res_image
+        self._high_res_sdf = high_res_sdf
         self._target_density = target_density_map
+        self._target_sdf = target_sdf_map
 
     def forward(self, x, t, cond=None):
         assert self._high_res_image is not None, (
-            "Call set_condition(high_res_image, target_density_map) first"
+            "Call set_condition(high_res_image, high_res_sdf, target_density_map, target_sdf_map) first"
         )
 
         hrs = self._high_res_image
+        hrs_sdf = self._high_res_sdf
         tgt = self._target_density
+        tgt_sdf = self._target_sdf
         if hrs.shape[0] != x.shape[0]:
             hrs = hrs.expand(x.shape[0], -1, -1, -1)
+        if hrs_sdf.shape[0] != x.shape[0]:
+            hrs_sdf = hrs_sdf.expand(x.shape[0], -1, -1, -1)
         if tgt.shape[0] != x.shape[0]:
             tgt = tgt.expand(x.shape[0], -1, -1, -1)
+        if tgt_sdf.shape[0] != x.shape[0]:
+            tgt_sdf = tgt_sdf.expand(x.shape[0], -1, -1, -1)
 
-        controls = self.control(x, t, hrs, tgt)
+        controls = self.control(x, t, hrs, hrs_sdf, tgt, tgt_sdf)
         return self.locked(x, t, cond=cond, controls=controls)

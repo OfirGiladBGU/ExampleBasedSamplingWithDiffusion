@@ -1,4 +1,4 @@
-"""Generate stipple point sets using the Dynamic ControlNet V3.7.
+"""Generate stipple point sets using the Dynamic ControlNet V3.8.
 
 Usage (from project root):
     python control_v3/sample_control.py \\
@@ -30,11 +30,12 @@ GRID_SIZE     = 32
 RESAMPLE_JUMPS = 2
 ENABLE_GECCO  = True
 DEVICE        = "cuda"
+SDF_TRUNCATE_PX = 8.0
+USE_SDF = True
 
 import cv2
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 try:
     import matplotlib
@@ -45,6 +46,7 @@ except Exception:
     plt = None
     HAS_MPL = False
 
+from control_v3.conditioning import build_condition_tensors_from_image
 from data.Transforms import to_pointset_optimal_transport
 from utils.Config import ParseSampleConfig
 from control_v3.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
@@ -84,20 +86,17 @@ def save_sample_image(image_path, pts, out_png_path):
     print(f"  -> {out_png_path}")
 
 
-def load_condition(image_path, grid_size, device):
-    """Load a grayscale image and return high-res + target density tensors."""
+def load_condition(image_path, grid_size, device, sdf_truncate_px=0.0):
+    """Load a grayscale image and return image, density, and SDF condition tensors."""
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
         raise FileNotFoundError(f"Cannot read image: {image_path}")
-
-    high_res = torch.from_numpy(img).float() / 255.0
-    high_res = high_res.unsqueeze(0).unsqueeze(0).to(device)  # (1, 1, H, W)
-
-    target_density = F.interpolate(
-        high_res, size=(grid_size, grid_size), mode="area"
-    )  # (1, 1, grid_size, grid_size)
-
-    return high_res, target_density
+    return build_condition_tensors_from_image(
+        img.astype(np.float32) / 255.0,
+        grid_size,
+        device,
+        sdf_truncate_px=sdf_truncate_px,
+    )
 
 
 def main():
@@ -121,6 +120,14 @@ def main():
                         help="Enable GECCO dynamic features (must match training; default: True)")
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS,
                         help="RePaint micro-loops per timestep (0=disabled)")
+    parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX,
+                        help="Truncate signed distance magnitudes before max-normalization (0 disables)")
+    parser.add_argument(
+        "--use-sdf",
+        action=argparse.BooleanOptionalAction,
+        default=USE_SDF,
+        help="Pass real SDF channels to the model (--no-use-sdf zeroes them out for ablation)",
+    )
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
 
@@ -146,12 +153,20 @@ def main():
 
     print(f"Loaded checkpoint : {args.control_ckpt}")
     print(f"GECCO enabled     : {args.enable_gecco}")
+    print(f"SDF enabled       : {args.use_sdf}")
 
     # ── wire up DynamicControlledDenoiser ─────────────────────────────
     controlled = DynamicControlledDenoiser(denoiser, control_net)
-    high_res, target_density = load_condition(args.image, args.grid_size, device)
-    # Use continuous density to match V3.7 training (no binarization)
-    controlled.set_condition(high_res, target_density)
+    high_res, target_density, high_res_sdf, target_sdf = load_condition(
+        args.image,
+        args.grid_size,
+        device,
+        sdf_truncate_px=args.sdf_truncate_px,
+    )
+    if not args.use_sdf:
+        high_res_sdf = torch.zeros_like(high_res_sdf)
+        target_sdf = torch.zeros_like(target_sdf)
+    controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf)
 
     diffusion.model = controlled
     diffusion.set_num_timesteps(args.timesteps)
@@ -163,8 +178,9 @@ def main():
     print(f"Generating {n_samples} samples  |  shape {shape}  |  "
           f"T={args.timesteps}  |  resample_jumps={args.resample_jumps}")
 
-    with torch.no_grad():
-        if args.resample_jumps == 0:
+    apply_manual_loop = args.resample_jumps > 0
+    with torch.no_grad() if not apply_manual_loop else torch.enable_grad():
+        if not apply_manual_loop:
             samples_raw = diffusion.p_sample_loop(
                 shape, img=None, cond=None, with_tqdm=True, with_sampling=True
             )
@@ -175,9 +191,15 @@ def main():
                           total=diffusion.num_timesteps - 1, desc="sampling"):
                 t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
                 for u in range(args.resample_jumps + 1):
-                    img = diffusion.p_sample(img, cond=None, t=t_tensor,
-                                             clip_denoised=diffusion.sample_clip,
-                                             with_sampling=True)
+                    with torch.no_grad():
+                        img = diffusion.p_sample(
+                            img,
+                            cond=None,
+                            t=t_tensor,
+                            clip_denoised=diffusion.sample_clip,
+                            with_sampling=True,
+                        )
+
                     if u == args.resample_jumps or i == 0:
                         break
                     beta_i = diffusion.betas[i]

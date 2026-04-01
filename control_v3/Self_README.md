@@ -1,12 +1,14 @@
-# Control V3.7 (GECCO + AdaptiveGate + Min-SNR) flow:
+# Control V3.8 (SDF + GECCO + AdaptiveGate + Min-SNR) flow:
 
 Key differences from earlier V3 variants:
-- SDF conditioning is removed.
+- SDF conditioning is restored.
 - Target density is continuous (not binarized).
 - GECCO dynamic features are used in overfit by default (`--enable-gecco`).
-- Injection uses `AdaptiveGateInjection` (V3.2 revert).
+- GECCO now samples from high-res `[image, sdf]` features.
+- Injection uses `AdaptiveGateInjection`.
 - Overfit and train use Min-SNR-gamma weighted denoising loss.
 - Sampling uses full reverse diffusion with optional RePaint micro-loops (`--resample-jumps`).
+- Gradient Guidance and Lloyd iterations were tested during V3.8 ablations and are intentionally not used in the active code path.
 
 **GECCO Dynamic Feature Computation (when enabled, runs every step):**
 
@@ -20,11 +22,12 @@ Key differences from earlier V3 variants:
 
 - **Input 1:** Noisy offsets `offsets_t` -> (B, 2, 32, 32).
 - **Input 2:** Continuous target density `target_density` -> (B, 1, 32, 32).
-- **Input 3:** Static coordinate grid `coord_grid` -> (B, 2, 32, 32).
-- **Input 4 (optional):** GECCO dynamic features -> (B, 16, 32, 32).
+- **Input 3:** Target SDF `target_sdf` -> (B, 1, 32, 32).
+- **Input 4:** Static coordinate grid `coord_grid` -> (B, 2, 32, 32).
+- **Input 5 (optional):** GECCO dynamic features from high-res `[image, sdf]` -> (B, 16, 32, 32).
 - **Concatenation:**
-  - GECCO on: `cat([offsets_t, target_density, coord_grid, gecco_dynamic])` -> (B, 21, 32, 32).
-  - GECCO off: `cat([offsets_t, target_density, coord_grid])` -> (B, 5, 32, 32).
+  - GECCO on: `cat([offsets_t, target_density, target_sdf, coord_grid, gecco_dynamic])` -> (B, 22, 32, 32).
+  - GECCO off: `cat([offsets_t, target_density, target_sdf, coord_grid])` -> (B, 6, 32, 32).
 - **Hint Encoder:** 3-layer dilated CNN -> `32 -> 64(d=2) -> 128(d=4)`.
 - **Fusion:** `x = ctrl_conv1(offsets_t) + hint`.
 
@@ -59,7 +62,6 @@ Key differences from earlier V3 variants:
 
 # NOTE:
 
-- V3.7 active stack = GECCO (optional, default-on in overfit), AdaptiveGateInjection, Min-SNR, full resampling.
-- No SDF channel in conditioning.
+- V3.8 active stack = restored SDF, GECCO (optional, default-on in overfit), AdaptiveGateInjection, Min-SNR, full resampling.
 - No target-density binarization in overfit/train synced path.
 - High-res source image can be any spatial size; conditioning is projected to the 32x32 diffusion grid domain.

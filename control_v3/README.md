@@ -1,13 +1,14 @@
-# Dynamic ControlNet V3.7 (Ablation) for Stipple Generation
+# Dynamic ControlNet V3.8 for Stipple Generation
 
 This is the third-generation control module for grayscale-conditioned stipple generation.
-Current active code path is **V3.7 ablation**:
-- Reverted SDF conditioning from V3.4
-- Added Min-SNR-gamma loss weighting (from V3.4)
-- Removed target-density binarization in overfit
+Current active code path is **V3.8**:
+- Restored SDF conditioning for global shape awareness
+- Kept Min-SNR-gamma loss weighting
+- Kept continuous target density
 - Kept full resampling workflow (`--resample-jumps`) in sampling
-- Using GECCO dynamic feature sampling in overfit (`--enable-gecco`)
-- Reverted V3.2 injection change: using `AdaptiveGateInjection` (not `StandardInjection`)
+- Kept GECCO dynamic feature sampling, now from SDF-aware high-res features
+- Kept `AdaptiveGateInjection`
+- Skipped inference-time Gradient Guidance and Lloyd iterations after V3.8 ablations
 
 - **V3.1 "Static Anchor"** -- removed the GECCO-style dynamic feature sampling (`F.grid_sample` with a small CNN) that produced chaotic features for high-frequency images, causing the optimizer to shut the gates and collapse to uniform grids.
 - **V3.2 "Shock the System"** -- replaced the zero-initialized `AdaptiveGateInjection` with `StandardInjection` (Kaiming-initialized 1×1 conv). Zero output at step 1 had allowed the frozen U-Net to learn a uniform-grid shortcut before the ControlNet could exert any influence.
@@ -24,10 +25,10 @@ Current active code path is **V3.7 ablation**:
 
 ## Key Differences from V2
 
-| Aspect | V2 (Dynamic ControlNet) | V3.7 (active ablation) |
+| Aspect | V2 (Dynamic ControlNet) | V3.8 |
 |--------|------------------------|---------------|
-| Condition input | 4ch: offsets(2) + target density(1) + dynamic density(1) | 5ch: offsets(2) + target density(1) + coord grid(2) |
-| Dynamic sampling | `grid_sample` from high-res image every step | GECCO dynamic path in overfit (`--enable-gecco`) |
+| Condition input | 4ch: offsets(2) + target density(1) + dynamic density(1) | 6ch: offsets(2) + target density(1) + target SDF(1) + coord grid(2) |
+| Dynamic sampling | `grid_sample` from high-res image every step | GECCO dynamic path from high-res `[image, sdf]` features |
 | Hint encoder | 4ch -> 2ch | 5ch -> 32 -> 64(d=2) -> 128(d=4) |
 | Skip injection | AdaptiveGateInjection | AdaptiveGateInjection (V3.2 revert active) |
 | Min-SNR (overfit) | No | Yes |
@@ -42,11 +43,12 @@ Current active code path is **V3.7 ablation**:
         ┌───────── | ─────────────────────┐
         |          v                      |
         |   cat([offsets_t,               |
-        |        target_density,   (5ch)  |
+        |        target_density,          |
+        |        target_sdf,       (6ch)  |
         |        coord_grid])             |
         |          |                      |
         |   Hint Encoder                  |
-        |   (5ch -> 32 -> 64(d2) -> 128(d4))
+        |   (6ch -> 32 -> 64(d2) -> 128(d4))
         |   with SiLU activations         |
         |          |                      |
         |        hint (128ch)             |
@@ -137,7 +139,11 @@ GECCO is enabled by default. Use `--no-enable-gecco` to disable it for ablations
 
 Default learning rate is `5e-4` (higher than V2's `1e-4` to help the Kaiming-initialized injections escape local minima faster).
 
-V3.7 overfit uses Min-SNR weighted denoising MSE, non-binarized target density, and optional GECCO dynamic features while ablating SDF from the control representation.
+V3.8 overfit uses Min-SNR weighted denoising MSE, non-binarized target density, restored SDF conditioning, and optional GECCO dynamic features from SDF-aware high-res features.
+
+Two V3.8 experiments were kept as historical findings only and are not part of the current code path:
+- Inference-time Gradient Guidance (SDF repulsion + blue-noise energy) was tested and skipped.
+- Lloyd iterations during sampling were tested and skipped.
 
 ## Tested Versions Archive (for quick jump/re-implementation)
 
@@ -146,18 +152,20 @@ V3.7 overfit uses Min-SNR weighted denoising MSE, non-binarized target density, 
 | V3.4 | Historical baseline | SDF channel, 6ch condition, 3-layer dilated hint encoder, Min-SNR + binarization, resample-jumps | Add SDF computation in scripts; pass `sdf_map` through `DynamicControlledDenoiser.set_condition` and `DynamicControlNet.forward`; use 6ch hint input |
 | V3.5 | Retired | Spatial SDF loss stacking on top of Min-SNR (overfit loss only) | In `test_overfit.py`, multiply unreduced MSE by `(1 + alpha*sdf)`, reduce to per-sample, then apply Min-SNR weighting |
 | V3.6 | Retired | Bottleneck spatial cross-attention (Q=middle features, K/V=hint), zero-init final projection, CLI toggle | In `DynamicControlNet.py`, add `SpatialCrossAttention`; add `enable_spatial_attn` constructor arg; wire in middle block; add `--enable-spatial-attn` to `test_overfit.py` and `sample_control.py` |
-| V3.7 | Active | GECCO + AdaptiveGate + Min-SNR: 5ch condition representation, Min-SNR weighted loss (overfit), non-binarized density, full resampling kept | Current code |
+| V3.7 | Historical ablation | GECCO + AdaptiveGate + Min-SNR without SDF in the control representation | Remove target SDF path and revert GECCO to raw-image features |
+| V3.8 | Active | SDF + GECCO + AdaptiveGate + Min-SNR: 6ch condition representation, SDF-aware dynamic features, Min-SNR weighted loss, non-binarized density, full resampling kept | Current code |
 
 Notes:
 - SDF first appeared in V3.4.
 - Min-SNR + binarization are part of the V3.4 winning baseline in this repo.
+- Gradient Guidance and Lloyd iterations were evaluated during V3.8 and intentionally skipped in the active implementation.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `DynamicControlNet.py` | `AdaptiveGateInjection`, `DynamicControlNet`, `DynamicControlledDenoiser` |
-| `DynamicStippleDataset.py` | Dataset returning (high_res, target_density, offsets) |
+| `DynamicStippleDataset.py` | Dataset returning (high_res, target_density, high_res_sdf, target_sdf, offsets) |
 | `prepare_data.py` | Convert stippled images to OT offset tensors |
 | `train_control.py` | Training script with static conditioning loop |
 | `sample_control.py` | Conditioned inference script |
@@ -170,6 +178,8 @@ V3 uses the same `DynamicStippleDataset` as V2, returning three items per sample
 
 - **high_res_tensor** `(1, H, W)` -- full-resolution source image (kept for call-signature compatibility; not used internally by V3.2)
 - **target_density_map** `(1, 32, 32)` -- created on-the-fly via area interpolation (average pooling)
+- **high_res_sdf** `(1, H, W)` -- normalized signed distance field of the source image
+- **target_sdf_map** `(1, 32, 32)` -- downsampled SDF used in the static hint path
 - **offset_tensor** `(2, 32, 32)` -- same OT offsets as V1/V2
 
 ## Version History
@@ -183,4 +193,5 @@ V3 uses the same `DynamicStippleDataset` as V2, returning three items per sample
 | V3.4 | Stable Geometry + Training | Added SDF conditioning, dilated hint encoder, Min-SNR + binarization, and full resampling workflow |
 | V3.5 | Spatial-Temporal Loss Stacking (retired) | Experimental additive spatial weighting variant |
 | V3.6 | Spatial Cross-Attention Routing (retired) | Experimental bottleneck cross-attention with zero-init output projection and CLI toggle |
-| V3.7 | GECCO + AdaptiveGate + Min-SNR (active) | Reverted SDF conditioning from representation; reverted to AdaptiveGateInjection; enabled GECCO in overfit; restored Min-SNR; kept full resampling |
+| V3.7 | GECCO + AdaptiveGate + Min-SNR | Reverted SDF conditioning from representation; reverted to AdaptiveGateInjection; enabled GECCO in overfit; restored Min-SNR; kept full resampling |
+| V3.8 | SDF + GECCO + AdaptiveGate + Min-SNR (active) | Restored SDF conditioning in both static hint and dynamic GECCO features |
