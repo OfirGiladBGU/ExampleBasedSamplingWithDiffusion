@@ -36,9 +36,6 @@ except ImportError:
 
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
 from control_v4.conditioning import build_condition_tensors_from_image
-from control_v4.guidance import (
-    chamfer_distance_offsets,
-)
 from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from control_v4.smart_init import build_smart_init_from_image, add_noise_at_t
 from utils.Config import ParseSampleConfig
@@ -71,8 +68,6 @@ RESAMPLE_JUMPS = 2
 SDF_TRUNCATE_PX = 8.0
 USE_SDF = True
 
-X0_AUX_WEIGHT = 0.05
-X0_AUX_LOSS = "chamfer"
 GEOM_CLUMP_WEIGHT = 5.0
 
 N_SAMPLES = 2
@@ -315,10 +310,6 @@ def main():
         default=USE_SDF,
         help="Pass real SDF channels to the model (--no-use-sdf zeroes them out for ablation)",
     )
-    parser.add_argument("--x0-aux-weight", type=float, default=X0_AUX_WEIGHT,
-                        help="Weight for x0 auxiliary geometric loss (0 disables)")
-    parser.add_argument("--x0-aux-loss", choices=["mse", "chamfer"], default=X0_AUX_LOSS,
-                        help="x0 auxiliary loss type")
     parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--device", default=DEVICE)
@@ -440,7 +431,6 @@ def main():
     print(f"  Resample jumps (RePaint): {args.resample_jumps}")
     print(f"  SDF truncation (px): {args.sdf_truncate_px}")
     print(f"  SDF conditioning enabled: {args.use_sdf}")
-    print(f"  x0 aux loss: {args.x0_aux_loss} (weight={args.x0_aux_weight})")
     print(f"  Truncation ratio: {TRUNCATION_RATIO:.3f} -> cutoff {truncation_cutoff}/{num_timesteps}")
 
     optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
@@ -469,16 +459,7 @@ def main():
         min_snr_weight = torch.clamp(snr, max=args.min_snr_gamma) / torch.clamp(snr, min=1e-8)
 
         denoise_loss = (per_sample_mse * min_snr_weight).mean()
-
-        aux_loss = torch.tensor(0.0, device=device)
-        if args.x0_aux_weight > 0.0:
-            pred_x0 = diffusion.predict_xstart_from_noise(offsets_t, t, noise_pred)
-            if args.x0_aux_loss == "mse":
-                aux_loss = F.mse_loss(pred_x0, x_0)
-            else:
-                aux_loss = chamfer_distance_offsets(pred_x0, x_0)
-
-        loss = denoise_loss + args.x0_aux_weight * aux_loss
+        loss = denoise_loss
 
         optimizer.zero_grad()
         loss.backward()
@@ -492,7 +473,6 @@ def main():
             wandb.log({
                 "loss": loss_val,
                 "loss_denoise": float(denoise_loss.item()),
-                "loss_x0_aux": float(aux_loss.item()),
             }, step=step)
 
         if step % 50 == 0 or step == 1:
@@ -543,7 +523,6 @@ def main():
                 "clumped_score": geom["clumped_pct"],
                 "loss": float(loss_val),
                 "loss_denoise": float(denoise_loss.item()),
-                "loss_x0_aux": float(aux_loss.item()),
                 "example": fname,
                 "config": vars(args),
             }

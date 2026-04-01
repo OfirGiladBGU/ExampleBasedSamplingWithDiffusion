@@ -43,9 +43,6 @@ except Exception:
     HAS_MPL = False
 
 from utils.Config import ParseSampleConfig
-from control_v4.guidance import (
-    chamfer_distance_offsets,
-)
 from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from control_v4.DynamicStippleDataset import DynamicStippleDataset
 from control_v4.smart_init import add_noise_at_t
@@ -86,10 +83,6 @@ EVAL_EVERY = 0
 EVAL_BATCH = 4
 EVAL_TIMESTEPS = 1000
 RESAMPLE_JUMPS = 2
-
-X0_AUX_WEIGHT = 0.0
-X0_AUX_LOSS = "chamfer"
-USE_X0_AUX = True
 
 NUM_WORKERS = 4
 PIN_MEMORY = True
@@ -462,16 +455,6 @@ def main():
         help="Pass real SDF channels to the model (--no-use-sdf zeroes them out for ablation)",
     )
     parser.add_argument(
-        "--use-x0-aux",
-        action=argparse.BooleanOptionalAction,
-        default=USE_X0_AUX,
-        help="Enable x0 auxiliary geometric loss term (use --no-use-x0-aux to disable regardless of weight)",
-    )
-    parser.add_argument("--x0-aux-weight", type=float, default=X0_AUX_WEIGHT,
-                        help="Weight for x0 auxiliary geometric loss (0 disables)")
-    parser.add_argument("--x0-aux-loss", choices=["mse", "chamfer"], default=X0_AUX_LOSS,
-                        help="x0 auxiliary loss type")
-    parser.add_argument(
         "--eval-every",
         type=int,
         default=EVAL_EVERY,
@@ -547,7 +530,6 @@ def main():
             wandb.define_metric("global_step")
             wandb.define_metric("step_loss/total", step_metric="global_step")
             wandb.define_metric("step_loss/denoise", step_metric="global_step")
-            wandb.define_metric("step_loss/x0_aux", step_metric="global_step")
 
             # Add clean epoch-axis charts for train/val comparison and media logs.
             wandb.define_metric("epoch")
@@ -589,8 +571,6 @@ def main():
     print(f"Min-SNR gamma                         : {args.min_snr_gamma}")
     print(f"SDF truncation (px)                   : {args.sdf_truncate_px}")
     print(f"SDF conditioning enabled              : {args.use_sdf}")
-    print(f"x0 aux enabled                        : {args.use_x0_aux}")
-    print(f"x0 aux loss                           : {args.x0_aux_loss} (weight={args.x0_aux_weight})")
     print(f"Eval resample-jumps                   : {args.resample_jumps}")
     print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
     print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{num_timesteps}")
@@ -755,16 +735,7 @@ def main():
             else:
                 denoise_loss = per_sample_mse.mean()
 
-            aux_loss = torch.tensor(0.0, device=device)
-            if args.use_x0_aux and args.x0_aux_weight > 0.0:
-                pred_x0 = diffusion.predict_xstart_from_noise(offsets_t, t, noise_pred)
-                if args.x0_aux_loss == "mse":
-                    aux_loss = F.mse_loss(pred_x0, x_0)
-                else:
-                    aux_loss = chamfer_distance_offsets(pred_x0, x_0)
-
-            aux_weight = args.x0_aux_weight if args.use_x0_aux else 0.0
-            loss = denoise_loss + aux_weight * aux_loss
+            loss = denoise_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -778,7 +749,6 @@ def main():
                         "global_step": global_step,
                         "step_loss/total": loss.item(),
                         "step_loss/denoise": float(denoise_loss.item()),
-                        "step_loss/x0_aux": float(aux_loss.item()),
                     }
                 )
             global_step += 1

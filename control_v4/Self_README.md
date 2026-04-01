@@ -66,7 +66,7 @@ So V4 learns only on late-stage denoising.
 
 Loss:
 - Min-SNR weighted denoising MSE
-- optional x0 auxiliary loss
+- x0 auxiliary losses (`mse`, `chamfer`, `swd`) were tested during ablations and later removed from active V4 train/overfit because they did not improve results
 
 Dataset returns:
 - `high_res`

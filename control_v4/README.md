@@ -218,7 +218,6 @@ Metrics include:
 
 - `step_loss/total`
 - `step_loss/denoise`
-- `step_loss/x0_aux`
 - `epoch_loss/train`
 - `epoch_loss/valid`
 - `epoch_loss/compare`
@@ -270,3 +269,4 @@ Checkpoint payloads include geometry metadata such as:
 - V4 is intended to be standalone.
 - It should not depend on legacy `control_v1`, `control_v2`, `control_v3`, or any `train_free_*` implementation logic at runtime.
 - Smart Init is implemented directly inside `control_v4`.
+- Auxiliary x0 losses were tested during V4 development (`mse`, `chamfer`, `swd`) and did not improve quality in our runs, so they were removed from active train/overfit codepaths.
