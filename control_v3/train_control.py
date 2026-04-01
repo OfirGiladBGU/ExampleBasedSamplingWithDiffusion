@@ -52,17 +52,20 @@ from control_v3.guidance import (
 from control_v3.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from control_v3.DynamicStippleDataset import DynamicStippleDataset
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
+from utils.stippling_metrics import geometric_validation_score
 
 # ── default globals (edit here for quick experiments) ───────────────
+WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
+
 CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH = "config/GBN/model.ckpt"
+
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/target"
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_1024/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_1024/target"
+OUTPUT_DIR = "control_v3/train_outputs"
+
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
 OFFSETS_DIR = ""
-OUTPUT_DIR = "control_v3/train_outputs"
 GRID_SIZE = 32
 
 # EPOCHS = 100
@@ -90,11 +93,13 @@ NUM_WORKERS = 4
 PIN_MEMORY = True
 VAL_SPLIT = 0.1
 
-WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
 WANDB_ACTIVE = True
 WANDB_PREDICT_IMAGES = 8
 RESUME_LATEST = True
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
+GEOM_CLUMP_WEIGHT = 1.0
+BEST_MAX_CV = 1e9
+BEST_MAX_CLUMPED_PCT = 100.0
 
 
 def load_wandb_key():
@@ -478,6 +483,12 @@ def main():
         default=WANDB_PREDICT_IMAGES,
         help="Number of validation predictions to include in the wandb panel each epoch (0 disables panel upload)",
     )
+    parser.add_argument("--geom-clump-weight", type=float, default=GEOM_CLUMP_WEIGHT,
+                        help="Weight of clumped_pct in geometric score: score = cv + w*(clumped_pct/100)")
+    parser.add_argument("--best-max-cv", type=float, default=BEST_MAX_CV,
+                        help="Only save best-geom checkpoint if CV <= this value")
+    parser.add_argument("--best-max-clumped-pct", type=float, default=BEST_MAX_CLUMPED_PCT,
+                        help="Only save best-geom checkpoint if clumped_pct <= this value")
     parser.add_argument("--out", default=OUTPUT_DIR,
                         help="Output directory for checkpoints and logs")
     parser.add_argument(
@@ -490,7 +501,7 @@ def main():
         "--save_every",
         type=int,
         default=SAVE_EVERY,
-        help="Retained for compatibility; epoch checkpoints are now saved every epoch",
+        help="Save standard epoch checkpoints every N epochs (best-geom checkpoints are saved independently)",
     )
     parser.add_argument("--val-split", type=float, default=VAL_SPLIT,
                         help="Validation split ratio in [0,1). Example: 0.1 = 10%% val")
@@ -498,6 +509,8 @@ def main():
     args = parser.parse_args()
     if args.wandb_predict_images < 0:
         raise ValueError("--wandb-predict-images must be >= 0")
+    if args.save_every <= 0:
+        raise ValueError("--save_every must be >= 1")
 
     args.offsets = ensure_offsets_dir(args.source, args.target, args.offsets, args.grid_size)
 
@@ -618,6 +631,11 @@ def main():
     # ── optional resume from latest checkpoint ───────────────────────
     start_epoch = 0
     global_step = 0
+    best_geom_score = float("inf")
+    last_geom = {"cv": float("nan"), "clumped_pct": float("nan"), "score": float("nan")}
+    checkpoints_dir = os.path.join(args.out, "checkpoints")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    best_geom_ckpt_path = None
     epoch_history = []
     train_epoch_history = []
     val_epoch_history = []
@@ -642,6 +660,7 @@ def main():
             if "optimizer" in state and state["optimizer"] is not None:
                 optimizer.load_state_dict(state["optimizer"])
             global_step = int(state.get("global_step", 0))
+            best_geom_score = float(state.get("best_geom_score", best_geom_score))
             # epoch in checkpoint is 0-based. Continue from next epoch.
             start_epoch = int(state.get("epoch", latest_epoch_num - 1)) + 1
             print(
@@ -732,6 +751,7 @@ def main():
         val_preview_high_res_sdf = None
         val_preview_target_sdf = None
         val_preview_offsets = None
+        pred_raw_for_geom = None
         if val_loader is not None:
             control_net.eval()
             val_loss_sum = 0.0
@@ -798,6 +818,7 @@ def main():
                     show_tqdm=True,
                     tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [predict]",
                 )
+                pred_raw_for_geom = pred_raw
                 panel_path = os.path.join(args.out, f"val_panel_ep{epoch+1}.png")
                 saved = save_val_panel(
                     panel_path,
@@ -813,6 +834,79 @@ def main():
                             "epoch": epoch + 1,
                             "val/panel": wandb.Image(panel_path),
                         })
+                control_net.train()
+
+            # Geometry-gated best checkpoint based on CV + clumped% score.
+            if val_preview_high_res is not None and val_preview_high_res.shape[0] > 0:
+                control_net.eval()
+                if pred_raw_for_geom is None:
+                    pred_raw_for_geom = sample_eval_batch(
+                        diffusion,
+                        denoiser,
+                        control_net,
+                        val_preview_high_res[:1],
+                        val_preview_high_res_sdf[:1],
+                        val_preview_target_density[:1],
+                        val_preview_target_sdf[:1],
+                        device,
+                        n_samples=1,
+                        timesteps=args.eval_timesteps,
+                        resample_jumps=args.resample_jumps,
+                        show_tqdm=False,
+                        tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [geom]",
+                    )
+
+                pts = to_pointset_optimal_transport(pred_raw_for_geom[0].detach().cpu().numpy())
+                pts = pts.reshape(pts.shape[0], np.prod(pts.shape[1:])).T
+                geom = geometric_validation_score(pts, clump_weight=args.geom_clump_weight)
+                last_geom = geom
+
+                cv_ok = geom["cv"] <= args.best_max_cv
+                clump_ok = geom["clumped_pct"] <= args.best_max_clumped_pct
+                geom_score = float(geom["score"])
+                print(
+                    "  -> geom "
+                    f"CV={geom['cv']:.4f} | Clumped={geom['clumped_pct']:.2f}% | Score={geom_score:.4f}"
+                )
+
+                if cv_ok and clump_ok and geom_score < best_geom_score:
+                    best_geom_score = geom_score
+                    best_name = (
+                        f"best_controlnet_ep{epoch+1:04d}"
+                        f"_score{best_geom_score:.3f}"
+                        f"_cv{geom['cv']:.3f}"
+                        f"_clumped{geom['clumped_pct']:.2f}.pt"
+                    )
+                    new_best_path = os.path.join(checkpoints_dir, best_name)
+                    best_payload = {
+                        "control_net": control_net.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "epoch": epoch,
+                        "global_step": global_step,
+                        "best_geom_score": best_geom_score,
+                        "cv_score": float(geom["cv"]),
+                        "clumped_score": float(geom["clumped_pct"]),
+                        "current_geom_score": geom_score,
+                    }
+                    torch.save(best_payload, new_best_path)
+
+                    if best_geom_ckpt_path is not None and os.path.exists(best_geom_ckpt_path):
+                        try:
+                            os.remove(best_geom_ckpt_path)
+                        except OSError:
+                            pass
+                    best_geom_ckpt_path = new_best_path
+                    print(f"  -> new best-geom checkpoint: {new_best_path}")
+
+                if use_wandb:
+                    wandb.log(
+                        {
+                            "epoch": epoch + 1,
+                            "geom/cv": float(geom["cv"]),
+                            "geom/clumped_pct": float(geom["clumped_pct"]),
+                            "geom/score": geom_score,
+                        }
+                    )
                 control_net.train()
 
         if use_wandb:
@@ -871,14 +965,20 @@ def main():
                 })
             control_net.train()
 
-        save_path = os.path.join(args.out, f"dynamic_controlnet_v3_ep{epoch+1}.pt")
-        torch.save({
-            "control_net": control_net.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "epoch": epoch,
-            "global_step": global_step,
-        }, save_path)
-        print(f"  -> saved {save_path}")
+        should_save_epoch = ((epoch + 1) % args.save_every == 0) or ((epoch + 1) == args.epochs)
+        if should_save_epoch:
+            save_path = os.path.join(args.out, f"dynamic_controlnet_v3_ep{epoch+1}.pt")
+            torch.save({
+                "control_net": control_net.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "epoch": epoch,
+                "global_step": global_step,
+                "best_geom_score": best_geom_score,
+                "cv_score": float(last_geom["cv"]),
+                "clumped_score": float(last_geom["clumped_pct"]),
+                "current_geom_score": float(last_geom["score"]),
+            }, save_path)
+            print(f"  -> saved {save_path}")
 
     if use_wandb:
         # Also upload a final static image snapshot for quick comparison/export.

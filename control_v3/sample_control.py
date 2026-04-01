@@ -32,6 +32,8 @@ ENABLE_GECCO  = True
 DEVICE        = "cuda"
 SDF_TRUNCATE_PX = 8.0
 USE_SDF = True
+SHOW_DENOISING = True
+DENOISE_INTERVAL = 50
 
 import cv2
 import numpy as np
@@ -86,6 +88,66 @@ def save_sample_image(image_path, pts, out_png_path):
     print(f"  -> {out_png_path}")
 
 
+def _save_denoise_step(img_tensor, timestep_i, total_timesteps, grid_size, out_path):
+    """Save a scatter-plot preview of sample 0 at an intermediate denoising step."""
+    if not HAS_MPL:
+        return
+    offsets = img_tensor[0].cpu().float().numpy()  # (2, H, W)
+    H, W = offsets.shape[1], offsets.shape[2]
+    cx = (np.arange(W) + 0.5) / W
+    cy = (np.arange(H) + 0.5) / H
+    gx, gy = np.meshgrid(cx, cy)           # (H, W)
+    px = np.clip(gx + offsets[0] / W, 0.0, 1.0).flatten()
+    py = np.clip(gy + offsets[1] / H, 0.0, 1.0).flatten()
+    step_num = total_timesteps - 1 - timestep_i
+    fig, ax = plt.subplots(1, 1, figsize=(4, 4), dpi=100)
+    ax.scatter(px, 1.0 - py, c="black", s=0.5, alpha=0.8)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title(f"step {step_num}/{total_timesteps - 1}  (t={timestep_i})", fontsize=9)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=100, bbox_inches="tight")
+    plt.close()
+
+
+def _save_condition_debug_tensors(high_res, high_res_sdf, target_density, target_sdf, out_dir):
+    """Export model condition tensors for debugging."""
+    os.makedirs(out_dir, exist_ok=True)
+
+    cond_map = {
+        "high_res": high_res,
+        "high_res_sdf": high_res_sdf,
+        "target_density": target_density,
+        "target_sdf": target_sdf,
+    }
+
+    for name, tensor in cond_map.items():
+        arr = tensor.detach().cpu().float().numpy().squeeze()
+        np.save(os.path.join(out_dir, f"{name}.npy"), arr)
+
+    if HAS_MPL:
+        ordered_names = ["high_res", "high_res_sdf", "target_density", "target_sdf"]
+        fig, axes = plt.subplots(2, 2, figsize=(8, 8), dpi=140)
+        for ax, name in zip(axes.flat, ordered_names):
+            arr = cond_map[name].detach().cpu().float().numpy().squeeze()
+            if arr.ndim != 2:
+                ax.axis("off")
+                ax.set_title(f"{name} (invalid shape)")
+                continue
+            if "sdf" in name:
+                vis = np.clip((arr + 1.0) * 0.5, 0.0, 1.0)
+            else:
+                vis = np.clip(arr, 0.0, 1.0)
+            ax.imshow(vis, cmap="gray", vmin=0.0, vmax=1.0)
+            ax.axis("off")
+            ax.set_title(name)
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_dir, "conditions_collage.png"), dpi=140, bbox_inches="tight")
+        plt.close()
+
+
 def load_condition(image_path, grid_size, device, sdf_truncate_px=0.0):
     """Load a grayscale image and return image, density, and SDF condition tensors."""
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
@@ -96,6 +158,28 @@ def load_condition(image_path, grid_size, device, sdf_truncate_px=0.0):
         grid_size,
         device,
         sdf_truncate_px=sdf_truncate_px,
+    )
+
+
+def _extract_control_state_dict(ctrl_state):
+    """Return a ControlNet state_dict from common checkpoint layouts."""
+    if not isinstance(ctrl_state, dict):
+        raise TypeError(f"Control checkpoint must be a dict, got {type(ctrl_state)}")
+
+    for key in ("control_net", "model_state_dict", "state_dict"):
+        value = ctrl_state.get(key)
+        if isinstance(value, dict):
+            return value
+
+    # Some checkpoints are saved as a raw state_dict (param_name -> tensor).
+    if ctrl_state and all(hasattr(v, "shape") for v in ctrl_state.values()):
+        return ctrl_state
+
+    keys_preview = ", ".join(list(ctrl_state.keys())[:8])
+    raise KeyError(
+        "Could not find control weights in checkpoint. "
+        f"Expected one of ['control_net', 'model_state_dict', 'state_dict']; "
+        f"found keys: [{keys_preview}]"
     )
 
 
@@ -129,6 +213,18 @@ def main():
         help="Pass real SDF channels to the model (--no-use-sdf zeroes them out for ablation)",
     )
     parser.add_argument("--device", default=DEVICE)
+    parser.add_argument(
+        "--show-denoising",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_DENOISING,
+        help="Save intermediate denoising previews (sample 0) to <out-dir>/<stem>_steps/",
+    )
+    parser.add_argument(
+        "--denoise-interval",
+        type=int,
+        default=DENOISE_INTERVAL,
+        help="Save a preview every N denoising steps when --show-denoising is set (default: 50)",
+    )
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -148,12 +244,17 @@ def main():
         enable_gecco=args.enable_gecco,
     ).to(device)
     ctrl_state = torch.load(args.control_ckpt, map_location="cpu")
-    control_net.load_state_dict(ctrl_state["control_net"])
+    control_state_dict = _extract_control_state_dict(ctrl_state)
+    control_net.load_state_dict(control_state_dict)
     control_net.eval()
 
     print(f"Loaded checkpoint : {args.control_ckpt}")
     print(f"GECCO enabled     : {args.enable_gecco}")
     print(f"SDF enabled       : {args.use_sdf}")
+
+    img_stem = os.path.splitext(os.path.basename(args.image))[0]
+    sample_base_dir = os.path.join(args.out_dir, img_stem)
+    os.makedirs(sample_base_dir, exist_ok=True)
 
     # ── wire up DynamicControlledDenoiser ─────────────────────────────
     controlled = DynamicControlledDenoiser(denoiser, control_net)
@@ -166,6 +267,16 @@ def main():
     if not args.use_sdf:
         high_res_sdf = torch.zeros_like(high_res_sdf)
         target_sdf = torch.zeros_like(target_sdf)
+
+    conditions_dir = os.path.join(sample_base_dir, "conditions")
+    _save_condition_debug_tensors(
+        high_res,
+        high_res_sdf,
+        target_density,
+        target_sdf,
+        conditions_dir,
+    )
+
     controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf)
 
     diffusion.model = controlled
@@ -178,7 +289,14 @@ def main():
     print(f"Generating {n_samples} samples  |  shape {shape}  |  "
           f"T={args.timesteps}  |  resample_jumps={args.resample_jumps}")
 
-    apply_manual_loop = args.resample_jumps > 0
+    # ── denoising-step preview setup ─────────────────────────────────
+    steps_dir = None
+    if args.show_denoising:
+        steps_dir = os.path.join(sample_base_dir, "denoising_steps")
+        os.makedirs(steps_dir, exist_ok=True)
+        print(f"Denoising previews: {steps_dir}/  (every {args.denoise_interval} steps)")
+
+    apply_manual_loop = args.resample_jumps > 0 or args.show_denoising
     with torch.no_grad() if not apply_manual_loop else torch.enable_grad():
         if not apply_manual_loop:
             samples_raw = diffusion.p_sample_loop(
@@ -205,19 +323,30 @@ def main():
                     beta_i = diffusion.betas[i]
                     noise = torch.randn_like(img)
                     img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
+
+                # ── save intermediate preview ─────────────────────────
+                if steps_dir is not None:
+                    elapsed = diffusion.num_timesteps - 1 - i
+                    if elapsed % args.denoise_interval == 0:
+                        step_path = os.path.join(steps_dir, f"step_{elapsed:04d}.png")
+                        _save_denoise_step(img, i, diffusion.num_timesteps, args.grid_size, step_path)
+
             samples_raw = img
 
     samples_raw = samples_raw.cpu().numpy()
 
     # ── save outputs: one .npy + .png per sample ─────────────────────
-    os.makedirs(args.out_dir, exist_ok=True)
-    img_stem = os.path.splitext(os.path.basename(args.image))[0]
-    print(f"Saving {n_samples} samples to {args.out_dir}/")
+    os.makedirs(sample_base_dir, exist_ok=True)
+    npy_dir = os.path.join(sample_base_dir, "npy")
+    png_dir = os.path.join(sample_base_dir, "png")
+    os.makedirs(npy_dir, exist_ok=True)
+    os.makedirs(png_dir, exist_ok=True)
+    print(f"Saving {n_samples} samples to {sample_base_dir}/ (npy/, png/)")
 
     for idx, s in enumerate(samples_raw):
         suffix = f"_{idx + 1}"
-        npy_path = os.path.join(args.out_dir, f"{img_stem}{suffix}.npy")
-        png_path = os.path.join(args.out_dir, f"{img_stem}{suffix}.png")
+        npy_path = os.path.join(npy_dir, f"{img_stem}{suffix}.npy")
+        png_path = os.path.join(png_dir, f"{img_stem}{suffix}.png")
 
         if not args.no_ot:
             pts = to_pointset_optimal_transport(s)
