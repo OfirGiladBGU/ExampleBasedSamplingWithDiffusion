@@ -127,6 +127,38 @@ def compute_spacing_quality(points):
     }
 
 
+def geometric_validation_score(pointsets, clump_weight=5.0):
+    """Aggregate CV/clumping score used by v3/v4 train scripts.
+
+    Accepts either a single point set ``(N, 2)`` or an iterable/batch of point
+    sets, and returns a dict with mean ``cv``, ``clumped_pct``, and ``score``.
+    """
+    arr = np.asarray(pointsets)
+    if arr.ndim == 2 and arr.shape[-1] == 2:
+        pointsets_iter = [arr]
+    else:
+        pointsets_iter = [np.asarray(p) for p in pointsets]
+
+    cvs = []
+    clumped_pcts = []
+    per_sample_scores = []
+
+    for pts in pointsets_iter:
+        spacing = compute_spacing_quality(pts)
+        cv = float(spacing["nn_cv"])
+        clumped_pct = float(spacing["clumped_pct"])
+        score = cv + clump_weight * (clumped_pct / 100.0)
+        cvs.append(cv)
+        clumped_pcts.append(clumped_pct)
+        per_sample_scores.append(score)
+
+    return {
+        "cv": float(np.mean(cvs)) if cvs else 0.0,
+        "clumped_pct": float(np.mean(clumped_pcts)) if clumped_pcts else 0.0,
+        "score": float(np.mean(per_sample_scores)) if per_sample_scores else 0.0,
+    }
+
+
 # ── visualization ────────────────────────────────────────────────────
 
 def visualize_overfit_metrics(
