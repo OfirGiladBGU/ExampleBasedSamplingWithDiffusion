@@ -47,7 +47,7 @@ from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDen
 from control_v4.DynamicStippleDataset import DynamicStippleDataset
 from control_v4.smart_init import add_noise_at_t
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
-from utils.stippling_metrics import geometric_validation_score
+from utils.stippling_metrics import compute_spacing_quality
 
 # ── default globals (edit here for quick experiments) ───────────────
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
@@ -873,9 +873,25 @@ def main():
                         tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [geom]",
                     )
 
-                pts = to_pointset_optimal_transport(pred_raw_for_geom[0].detach().cpu().numpy())
-                pts = pts.reshape(pts.shape[0], np.prod(pts.shape[1:])).T
-                geom = geometric_validation_score(pts, clump_weight=args.geom_clump_weight)
+                cvs = []
+                clumped_pcts = []
+                per_sample_scores = []
+                for raw_sample in pred_raw_for_geom:
+                    pts = to_pointset_optimal_transport(raw_sample.detach().cpu().numpy())
+                    pts = pts.reshape(pts.shape[0], np.prod(pts.shape[1:])).T
+                    spacing = compute_spacing_quality(pts)
+                    cv_val = float(spacing["nn_cv"])
+                    clumped_pct = float(spacing["clumped_pct"])
+                    score_val = cv_val + args.geom_clump_weight * (clumped_pct / 100.0)
+                    cvs.append(cv_val)
+                    clumped_pcts.append(clumped_pct)
+                    per_sample_scores.append(score_val)
+
+                geom = {
+                    "cv": float(np.mean(cvs)) if cvs else 0.0,
+                    "clumped_pct": float(np.mean(clumped_pcts)) if clumped_pcts else 0.0,
+                    "score": float(np.mean(per_sample_scores)) if per_sample_scores else 0.0,
+                }
                 last_geom = geom
 
                 cv_ok = geom["cv"] <= args.best_max_cv
