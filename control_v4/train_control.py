@@ -548,17 +548,14 @@ def main():
                 name=run_name,
                 config=vars(args),
             )
-            # Keep global-step curves for batch-level losses.
-            wandb.define_metric("global_step")
-            wandb.define_metric("step_loss/total", step_metric="global_step")
-            wandb.define_metric("step_loss/denoise", step_metric="global_step")
-
-            # Add clean epoch-axis charts for train/val comparison and media logs.
+            # Log metrics organized by section: metrics, chart, visual.
             wandb.define_metric("epoch")
-            wandb.define_metric("epoch_loss/train", step_metric="epoch")
-            wandb.define_metric("epoch_loss/valid", step_metric="epoch")
-            wandb.define_metric("val/*", step_metric="epoch")
-            wandb.define_metric("eval/*", step_metric="epoch")
+            wandb.define_metric("metrics/train_loss", step_metric="epoch")
+            wandb.define_metric("metrics/valid_loss", step_metric="epoch")
+            wandb.define_metric("metrics/geo_cv", step_metric="epoch")
+            wandb.define_metric("metrics/geo_clumped_pct", step_metric="epoch")
+            wandb.define_metric("metrics/geo_score", step_metric="epoch")
+            wandb.define_metric("visual/*", step_metric="epoch")
             print(f"wandb run name: {run_name}")
         except ImportError:
             print("wandb not installed, logging disabled")
@@ -740,7 +737,10 @@ def main():
                     debug_path = os.path.join(args.out, "wandb_hint_channels_first_batch.png")
                     plt.savefig(debug_path, dpi=140, bbox_inches="tight")
                     plt.close()
-                    wandb.log({"epoch": epoch + 1, "debug/hint_channels": wandb.Image(debug_path)})
+                    wandb.log({
+                        "epoch": epoch + 1,
+                        "debug/hint_channels": wandb.Image(debug_path),
+                    }, step=epoch + 1)
 
             t = torch.randint(0, truncation_cutoff, (x_0.shape[0],), device=device)
             noise = torch.randn_like(x_0)
@@ -768,14 +768,6 @@ def main():
             optimizer.step()
 
             epoch_loss += loss.item()
-            if use_wandb:
-                wandb.log(
-                    {
-                        "global_step": global_step,
-                        "step_loss/total": loss.item(),
-                        "step_loss/denoise": float(denoise_loss.item()),
-                    }
-                )
             global_step += 1
             train_pbar.set_postfix(loss=f"{loss.item():.6f}")
 
@@ -878,8 +870,8 @@ def main():
                     if use_wandb:
                         wandb.log({
                             "epoch": epoch + 1,
-                            "val/panel": wandb.Image(panel_path),
-                        })
+                            "visual/panel": wandb.Image(panel_path),
+                        }, step=epoch + 1)
                 control_net.train()
 
             # Geometry-gated best checkpoint based on CV + clumped% score.
@@ -958,10 +950,11 @@ def main():
                     wandb.log(
                         {
                             "epoch": epoch + 1,
-                            "geom/cv": float(geom["cv"]),
-                            "geom/clumped_pct": float(geom["clumped_pct"]),
-                            "geom/score": geom_score,
-                        }
+                            "metrics/geo_cv": float(geom["cv"]),
+                            "metrics/geo_clumped_pct": float(geom["clumped_pct"]),
+                            "metrics/geo_score": geom_score,
+                        },
+                        step=epoch + 1
                     )
                 control_net.train()
 
@@ -970,24 +963,23 @@ def main():
             train_epoch_history.append(float(avg_loss))
             val_epoch_history.append(float(val_avg_loss) if val_avg_loss is not None else float("nan"))
 
-            log_payload = {
-                "epoch": epoch + 1,
-                "epoch_loss/train": avg_loss,
-            }
-            if val_avg_loss is not None:
-                log_payload["epoch_loss/valid"] = val_avg_loss
+            # Log train loss separately
+            wandb.log({"epoch": epoch + 1, "metrics/train_loss": avg_loss}, step=epoch + 1)
 
-            # Force a single chart that overlays train+val on epoch axis.
+            # Log val loss separately if available
+            if val_avg_loss is not None:
+                wandb.log({"epoch": epoch + 1, "metrics/valid_loss": val_avg_loss}, step=epoch + 1)
+
+            # Log compare chart separately
             if len(epoch_history) > 0:
-                log_payload["epoch_loss/compare"] = wandb.plot.line_series(
+                compare_chart = wandb.plot.line_series(
                     xs=epoch_history,
                     ys=[train_epoch_history, val_epoch_history],
-                    keys=["train", "val"],
-                    title="Train vs Val Loss Across Epochs",
+                    keys=["train", "Valid"],
+                    title="Train vs Valid Loss Across Epochs",
                     xname="epoch",
                 )
-
-            wandb.log(log_payload)
+                wandb.log({"epoch": epoch + 1, "visual/compare": compare_chart}, step=epoch + 1)
         if val_avg_loss is None:
             print(f"Epoch {epoch:>4d}  |  train loss = {avg_loss:.6f}")
         else:
@@ -1021,7 +1013,7 @@ def main():
                 wandb.log({
                     "epoch": epoch + 1,
                     "eval/sample_path": eval_path,
-                })
+                }, step=epoch + 1)
             control_net.train()
 
         should_save_epoch = ((epoch + 1) % args.save_every == 0) or ((epoch + 1) == args.epochs)
@@ -1040,21 +1032,6 @@ def main():
             print(f"  -> saved {save_path}")
 
     if use_wandb:
-        # Also upload a final static image snapshot for quick comparison/export.
-        if HAS_MPL and len(epoch_history) > 0:
-            compare_path = os.path.join(args.out, "wandb_epoch_loss_compare.png")
-            fig, ax = plt.subplots(figsize=(10, 4))
-            ax.plot(epoch_history, train_epoch_history, label="train", linewidth=1.5)
-            ax.plot(epoch_history, val_epoch_history, label="val", linewidth=1.5)
-            ax.set_title("Train vs Val Loss Across Epochs")
-            ax.set_xlabel("epoch")
-            ax.set_ylabel("loss")
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc="best")
-            plt.tight_layout()
-            plt.savefig(compare_path, dpi=150)
-            plt.close()
-            wandb.log({"epoch": epoch_history[-1], "epoch_loss/compare_image": wandb.Image(compare_path)})
         wandb.finish()
     print("Training complete.")
 
