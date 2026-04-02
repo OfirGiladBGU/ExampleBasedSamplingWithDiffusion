@@ -100,12 +100,15 @@ class DynamicStippleDataset(Dataset):
         offsets = torch.from_numpy(offsets).to(torch.float32).clone().contiguous()  # (2, grid_size, grid_size)
 
         smart_init_grid = None
+        smart_init_offsets_np = None
         if self.smart_init_cache_dir:
             smart_path = os.path.join(self.smart_init_cache_dir, stem + ".npy")
-            if os.path.exists(smart_path):
+            smart_offsets_path = os.path.join(self.smart_init_cache_dir, stem + "_offsets.npy")
+            if os.path.exists(smart_path) and os.path.exists(smart_offsets_path):
                 smart_init_grid = np.load(smart_path)
+                smart_init_offsets_np = np.load(smart_offsets_path)
             else:
-                _, _, smart_init_grid = build_smart_init_from_image(
+                _, smart_init_offsets_np, smart_init_grid = build_smart_init_from_image(
                     img.astype(np.float32) / 255.0,
                     grid_size=self.grid_size,
                     n_points=self.grid_size * self.grid_size,
@@ -113,8 +116,9 @@ class DynamicStippleDataset(Dataset):
                 )
                 os.makedirs(os.path.dirname(smart_path), exist_ok=True)
                 np.save(smart_path, smart_init_grid)
+                np.save(smart_offsets_path, smart_init_offsets_np)
         else:
-            _, _, smart_init_grid = build_smart_init_from_image(
+            _, smart_init_offsets_np, smart_init_grid = build_smart_init_from_image(
                 img.astype(np.float32) / 255.0,
                 grid_size=self.grid_size,
                 n_points=self.grid_size * self.grid_size,
@@ -122,5 +126,6 @@ class DynamicStippleDataset(Dataset):
             )
 
         smart_init_grid = torch.from_numpy(smart_init_grid).to(torch.float32).clone().contiguous()
+        smart_init_offsets = torch.from_numpy(smart_init_offsets_np).to(torch.float32).clone().contiguous()
 
-        return high_res, target_density, high_res_sdf, target_sdf, offsets, smart_init_grid
+        return high_res, target_density, high_res_sdf, target_sdf, offsets, smart_init_grid, smart_init_offsets

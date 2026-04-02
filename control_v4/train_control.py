@@ -255,8 +255,15 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
 def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, high_res_sdf,
                       target_density, target_sdf, smart_init_grid,
                       device, n_samples=4, timesteps=1000, resample_jumps=2,
-                      show_tqdm=False, tqdm_desc="sampling"):
-    """Sample offset grids for intermediate eval with optional resampling."""
+                      show_tqdm=False, tqdm_desc="sampling",
+                      smart_init_offsets=None, truncation_ratio=None):
+    """Sample offset grids for intermediate eval with optional resampling.
+
+    When ``truncation_ratio`` and ``smart_init_offsets`` are provided the
+    function uses SDEdit-style truncated sampling: it adds noise at
+    ``t_start = int(timesteps * truncation_ratio)`` to ``smart_init_offsets``
+    and denoises only from there, matching the truncated training regime.
+    """
     controlled = DynamicControlledDenoiser(denoiser, control_net)
     controlled.set_condition(high_res_img, high_res_sdf, target_density, target_sdf, smart_init_grid)
 
@@ -267,18 +274,32 @@ def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, high_res_s
 
     h, w = target_density.shape[-2], target_density.shape[-1]
     shape = [n_samples, 2, h, w]
-    apply_manual_loop = resample_jumps > 0
+    use_sdedit = (truncation_ratio is not None) and (smart_init_offsets is not None)
+    apply_manual_loop = resample_jumps > 0 or use_sdedit
     with torch.no_grad() if not apply_manual_loop else torch.enable_grad():
         if not apply_manual_loop:
             raw = diffusion.p_sample_loop(shape, img=None, cond=None,
                                           with_tqdm=show_tqdm, with_sampling=True)
         else:
-            img = diffusion.noise_fn(shape).to(device)
-            iter_steps = reversed(range(diffusion.num_timesteps - 1))
+            if use_sdedit:
+                t_start = int(np.clip(
+                    int(diffusion.num_timesteps * truncation_ratio),
+                    1, diffusion.num_timesteps - 1,
+                ))
+                x_init = smart_init_offsets
+                if x_init.shape[0] != n_samples:
+                    x_init = x_init.expand(n_samples, -1, -1, -1).contiguous()
+                alpha_t = diffusion.alphas_cumprod[t_start]
+                img = add_noise_at_t(x_init, alpha_t)
+                n_steps = t_start
+            else:
+                img = diffusion.noise_fn(shape).to(device)
+                n_steps = diffusion.num_timesteps - 1
+            iter_steps = reversed(range(n_steps))
             if show_tqdm:
                 iter_steps = tqdm(
                     iter_steps,
-                    total=diffusion.num_timesteps - 1,
+                    total=n_steps,
                     desc=tqdm_desc,
                     leave=False,
                 )
@@ -388,7 +409,7 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, 
 
 def dynamic_collate(batch):
     """Collate samples with variable high-res image sizes by padding per batch."""
-    high_res_list, target_density_list, high_res_sdf_list, target_sdf_list, offsets_list, smart_init_grid_list = zip(*batch)
+    high_res_list, target_density_list, high_res_sdf_list, target_sdf_list, offsets_list, smart_init_grid_list, smart_init_offsets_list = zip(*batch)
 
     max_h = max(t.shape[-2] for t in high_res_list)
     max_w = max(t.shape[-1] for t in high_res_list)
@@ -413,7 +434,8 @@ def dynamic_collate(batch):
     target_sdf_batch = torch.stack([t.contiguous() for t in target_sdf_list], dim=0)
     offsets_batch = torch.stack([o.contiguous() for o in offsets_list], dim=0)
     smart_init_grid_batch = torch.stack([s.contiguous() for s in smart_init_grid_list], dim=0)
-    return high_res_batch, target_density_batch, high_res_sdf_batch, target_sdf_batch, offsets_batch, smart_init_grid_batch
+    smart_init_offsets_batch = torch.stack([s.contiguous() for s in smart_init_offsets_list], dim=0)
+    return high_res_batch, target_density_batch, high_res_sdf_batch, target_sdf_batch, offsets_batch, smart_init_grid_batch, smart_init_offsets_batch
 
 
 def main():
@@ -645,14 +667,14 @@ def main():
         ckpt_re = re.compile(r"^dynamic_controlnet_v3_ep(\d+)\.pt$")
         latest_path = None
         latest_epoch_num = -1
-        for fname in os.listdir(args.out):
+        for fname in os.listdir(checkpoints_dir):
             match = ckpt_re.match(fname)
             if not match:
                 continue
             ep_num = int(match.group(1))
             if ep_num > latest_epoch_num:
                 latest_epoch_num = ep_num
-                latest_path = os.path.join(args.out, fname)
+                latest_path = os.path.join(checkpoints_dir, fname)
 
         if latest_path is None:
             print("Resume requested but no checkpoint found. Starting from scratch.")
@@ -678,10 +700,11 @@ def main():
         preview_high_res_sdf = None
         preview_target_sdf = None
         preview_smart_init_grid = None
+        preview_smart_init_offsets = None
 
         control_net.train()
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [train]", leave=False)
-        for high_res_img, target_density, high_res_sdf, target_sdf, x_0, smart_init_grid in train_pbar:
+        for high_res_img, target_density, high_res_sdf, target_sdf, x_0, smart_init_grid, smart_init_offsets in train_pbar:
             high_res_img = high_res_img.to(device)
             target_density = target_density.to(device)
             high_res_sdf = high_res_sdf.to(device)
@@ -699,6 +722,7 @@ def main():
                 preview_high_res_sdf = high_res_sdf[:1].detach()
                 preview_target_sdf = target_sdf[:1].detach()
                 preview_smart_init_grid = smart_init_grid[:1].detach()
+                preview_smart_init_offsets = smart_init_offsets[:1].detach()
 
                 if use_wandb and HAS_MPL:
                     fig, axes = plt.subplots(1, 3, figsize=(9, 3), dpi=140)
@@ -764,13 +788,14 @@ def main():
         val_preview_target_sdf = None
         val_preview_offsets = None
         val_preview_smart_init_grid = None
+        val_preview_smart_init_offsets = None
         pred_raw_for_geom = None
         if val_loader is not None:
             control_net.eval()
             val_loss_sum = 0.0
             val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [val]", leave=False)
             with torch.no_grad():
-                for high_res_img, target_density, high_res_sdf, target_sdf, x_0, smart_init_grid in val_pbar:
+                for high_res_img, target_density, high_res_sdf, target_sdf, x_0, smart_init_grid, smart_init_offsets in val_pbar:
                     high_res_img = high_res_img.to(device)
                     target_density = target_density.to(device)
                     high_res_sdf = high_res_sdf.to(device)
@@ -790,6 +815,7 @@ def main():
                         val_preview_target_sdf = target_sdf[:keep].detach()
                         val_preview_offsets = x_0[:keep].detach()
                         val_preview_smart_init_grid = smart_init_grid[:keep].detach()
+                        val_preview_smart_init_offsets = smart_init_offsets[:keep].detach()
 
                     t = torch.randint(0, truncation_cutoff, (x_0.shape[0],), device=device)
                     noise = torch.randn_like(x_0)
@@ -833,6 +859,8 @@ def main():
                     resample_jumps=args.resample_jumps,
                     show_tqdm=True,
                     tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [predict]",
+                    smart_init_offsets=val_preview_smart_init_offsets,
+                    truncation_ratio=args.truncation_ratio,
                 )
                 pred_raw_for_geom = pred_raw
                 panel_path = os.path.join(args.out, f"val_panel_ep{epoch+1}.png")
@@ -871,6 +899,8 @@ def main():
                         resample_jumps=args.resample_jumps,
                         show_tqdm=False,
                         tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [geom]",
+                        smart_init_offsets=val_preview_smart_init_offsets[:1],
+                        truncation_ratio=args.truncation_ratio,
                     )
 
                 pred_pointsets = []
@@ -979,6 +1009,8 @@ def main():
                 resample_jumps=args.resample_jumps,
                 show_tqdm=True,
                 tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [eval-sample]",
+                smart_init_offsets=preview_smart_init_offsets,
+                truncation_ratio=args.truncation_ratio,
             )
             eval_path = os.path.join(args.out, f"eval_offsets_ep{epoch+1}.pt")
             torch.save(eval_raw.cpu(), eval_path)
@@ -992,7 +1024,7 @@ def main():
 
         should_save_epoch = ((epoch + 1) % args.save_every == 0) or ((epoch + 1) == args.epochs)
         if should_save_epoch:
-            save_path = os.path.join(args.out, f"dynamic_controlnet_v3_ep{epoch+1}.pt")
+            save_path = os.path.join(checkpoints_dir, f"dynamic_controlnet_v3_ep{epoch+1}.pt")
             torch.save({
                 "control_net": control_net.state_dict(),
                 "optimizer": optimizer.state_dict(),
