@@ -286,7 +286,7 @@ def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, high_res_s
                     int(diffusion.num_timesteps * truncation_ratio),
                     1, diffusion.num_timesteps - 1,
                 ))
-                x_init = smart_init_offsets
+                x_init = smart_init_offsets.to(device)
                 if x_init.shape[0] != n_samples:
                     x_init = x_init.expand(n_samples, -1, -1, -1).contiguous()
                 alpha_t = diffusion.alphas_cumprod[t_start]
@@ -711,6 +711,7 @@ def main():
             target_sdf = target_sdf.to(device)
             x_0 = x_0.to(device)
             smart_init_grid = smart_init_grid.to(device)
+            smart_init_offsets = smart_init_offsets.to(device)
 
             if not args.use_sdf:
                 high_res_sdf = torch.zeros_like(high_res_sdf)
@@ -802,6 +803,7 @@ def main():
                     target_sdf = target_sdf.to(device)
                     x_0 = x_0.to(device)
                     smart_init_grid = smart_init_grid.to(device)
+                    smart_init_offsets = smart_init_offsets.to(device)
 
                     if not args.use_sdf:
                         high_res_sdf = torch.zeros_like(high_res_sdf)
