@@ -112,6 +112,24 @@ x_noisy = sqrt(alpha_cumprod[t_start]) * x_init + sqrt(1 - alpha_cumprod[t_start
 
 This is a coordinate-space SDEdit-style initialization.
 
+## DPM++ status (tried, currently disabled)
+
+We tested a DPM-Solver++ inference branch in V4 (`sample_control.py` and `test_overfit.py`) and observed worse visual/geometric quality than the DDPM truncated loop for our data.
+
+Current policy:
+- V4 uses DDPM-only sampling paths in active scripts.
+- DPM++ code paths and CLI flags were removed from the runnable flow.
+
+How DPM++ had been implemented (for future rollback):
+- Build a `DDPMScheduler` from the model betas.
+- Create `DPMSolverMultistepScheduler.from_config(..., algorithm_type="dpmsolver++", solver_order=2)`.
+- Call `set_timesteps(inference_steps)`.
+- Keep truncation by taking the tail subset of timesteps.
+- Re-noise `smart_init_offsets` at the DPM start step using scheduler `alphas_cumprod`.
+- Run iterative `scheduler.step(noise_pred, t, x).prev_sample` updates.
+
+If you revisit DPM++ later, re-introduce it behind an explicit optional flag and compare against DDPM on the same checkpoints with both visual and geometry metrics.
+
 ## Scripts
 
 ### 1. Train

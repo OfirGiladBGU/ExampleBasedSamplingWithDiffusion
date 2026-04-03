@@ -235,7 +235,7 @@ def sample_from_model(diffusion, control_net, denoiser, high_res, high_res_sdf,
             img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
 
     raw = img
-    raw_np = raw.cpu().numpy()
+    raw_np = raw.detach().cpu().numpy()
 
     diffusion.model = orig_model
     diffusion.reset_timesteps()

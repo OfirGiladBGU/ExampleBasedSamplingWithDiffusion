@@ -89,7 +89,8 @@ PIN_MEMORY = True
 VAL_SPLIT = 0.1
 
 WANDB_ACTIVE = True
-WANDB_PREDICT_IMAGES = 8
+WANDB_VALID_IMAGES = 8
+WANDB_TRAIN_IMAGES = 8
 RESUME_LATEST = True
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 GEOM_CLUMP_WEIGHT = 1.0
@@ -325,6 +326,11 @@ def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, high_res_s
     return raw
 
 
+def sdf_to_display(sdf_2d):
+    """Map SDF from [-1, 1] to display space [0, 1]."""
+    return np.clip((sdf_2d + 1.0) * 0.5, 0.0, 1.0)
+
+
 def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, max_samples=4):
     """Save a 4-column panel per validation sample.
 
@@ -489,10 +495,16 @@ def main():
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS,
                         help="RePaint micro-loops per timestep during eval sampling")
     parser.add_argument(
-        "--wandb-predict-images",
+        "--wandb-valid-images",
         type=int,
-        default=WANDB_PREDICT_IMAGES,
-        help="Number of validation predictions to include in the wandb panel each epoch (0 disables panel upload)",
+        default=WANDB_VALID_IMAGES,
+        help="Number of validation predictions to include in the wandb visual panel each epoch (0 disables valid panel upload)",
+    )
+    parser.add_argument(
+        "--wandb-train-images",
+        type=int,
+        default=WANDB_TRAIN_IMAGES,
+        help="Number of training predictions to include in the wandb visual panel each epoch (0 disables train panel upload)",
     )
     parser.add_argument("--geom-clump-weight", type=float, default=GEOM_CLUMP_WEIGHT,
                         help="Weight of clumped_pct in geometric score: score = cv + w*(clumped_pct/100)")
@@ -524,8 +536,10 @@ def main():
                         help="Validation split ratio in [0,1). Example: 0.1 = 10%% val")
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
-    if args.wandb_predict_images < 0:
-        raise ValueError("--wandb-predict-images must be >= 0")
+    if args.wandb_valid_images < 0:
+        raise ValueError("--wandb-valid-images must be >= 0")
+    if args.wandb_train_images < 0:
+        raise ValueError("--wandb-train-images must be >= 0")
     if args.save_every <= 0:
         raise ValueError("--save_every must be >= 1")
     if not (0.0 < args.truncation_ratio <= 1.0):
@@ -696,6 +710,7 @@ def main():
         preview_target_density = None
         preview_high_res_sdf = None
         preview_target_sdf = None
+        preview_offsets = None
         preview_smart_init_grid = None
         preview_smart_init_offsets = None
 
@@ -715,19 +730,21 @@ def main():
                 target_sdf = torch.zeros_like(target_sdf)
 
             if preview_high_res is None:
-                preview_high_res = high_res_img[:1].detach()
-                preview_target_density = target_density[:1].detach()
-                preview_high_res_sdf = high_res_sdf[:1].detach()
-                preview_target_sdf = target_sdf[:1].detach()
-                preview_smart_init_grid = smart_init_grid[:1].detach()
-                preview_smart_init_offsets = smart_init_offsets[:1].detach()
+                keep_train = max(1, min(args.wandb_train_images, high_res_img.shape[0]))
+                preview_high_res = high_res_img[:keep_train].detach()
+                preview_target_density = target_density[:keep_train].detach()
+                preview_high_res_sdf = high_res_sdf[:keep_train].detach()
+                preview_target_sdf = target_sdf[:keep_train].detach()
+                preview_offsets = x_0[:keep_train].detach()
+                preview_smart_init_grid = smart_init_grid[:keep_train].detach()
+                preview_smart_init_offsets = smart_init_offsets[:keep_train].detach()
 
                 if use_wandb and HAS_MPL:
                     fig, axes = plt.subplots(1, 3, figsize=(9, 3), dpi=140)
                     axes[0].imshow(preview_target_density[0, 0].cpu().numpy(), cmap="gray", vmin=0.0, vmax=1.0)
                     axes[0].set_title("target_density")
                     axes[0].axis("off")
-                    axes[1].imshow(np.clip((preview_target_sdf[0, 0].cpu().numpy() + 1.0) * 0.5, 0.0, 1.0), cmap="gray", vmin=0.0, vmax=1.0)
+                    axes[1].imshow(sdf_to_display(preview_target_sdf[0, 0].cpu().numpy()), cmap="gray", vmin=0.0, vmax=1.0)
                     axes[1].set_title("target_sdf")
                     axes[1].axis("off")
                     axes[2].imshow(preview_smart_init_grid[0, 0].cpu().numpy(), cmap="gray", vmin=0.0, vmax=1.0)
@@ -739,7 +756,7 @@ def main():
                     plt.close()
                     wandb.log({
                         "epoch": epoch + 1,
-                        "debug/hint_channels": wandb.Image(debug_path),
+                        "visual/hint_channels": wandb.Image(debug_path),
                     }, step=epoch + 1)
 
             t = torch.randint(0, truncation_cutoff, (x_0.shape[0],), device=device)
@@ -773,6 +790,43 @@ def main():
 
         avg_loss = epoch_loss / max(len(train_loader), 1)
 
+        if args.wandb_train_images > 0 and preview_high_res is not None and preview_high_res.shape[0] > 0:
+            control_net.eval()
+            train_pred_raw = sample_eval_batch(
+                diffusion,
+                denoiser,
+                control_net,
+                preview_high_res,
+                preview_high_res_sdf,
+                preview_target_density,
+                preview_target_sdf,
+                preview_smart_init_grid,
+                device,
+                n_samples=preview_high_res.shape[0],
+                timesteps=args.eval_timesteps,
+                resample_jumps=args.resample_jumps,
+                show_tqdm=False,
+                tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [train-predict]",
+                smart_init_offsets=preview_smart_init_offsets,
+                truncation_ratio=args.truncation_ratio,
+            )
+            train_panel_path = os.path.join(args.out, f"train_panel_ep{epoch+1}.png")
+            train_saved = save_val_panel(
+                train_panel_path,
+                preview_high_res.cpu().numpy(),
+                preview_offsets.cpu().numpy(),
+                train_pred_raw.cpu().numpy(),
+                max_samples=args.wandb_train_images,
+            )
+            if train_saved:
+                print(f"  -> saved train panel: {train_panel_path}")
+                if use_wandb:
+                    wandb.log({
+                        "epoch": epoch + 1,
+                        "visual/train": wandb.Image(train_panel_path),
+                    }, step=epoch + 1)
+            control_net.train()
+
         # Validation loop with tqdm.
         val_avg_loss = None
         val_preview_high_res = None
@@ -802,7 +856,7 @@ def main():
                         target_sdf = torch.zeros_like(target_sdf)
 
                     if val_preview_high_res is None:
-                        keep = min(args.wandb_predict_images, high_res_img.shape[0])
+                        keep = min(args.wandb_valid_images, high_res_img.shape[0])
                         val_preview_high_res = high_res_img[:keep].detach()
                         val_preview_target_density = target_density[:keep].detach()
                         val_preview_high_res_sdf = high_res_sdf[:keep].detach()
@@ -835,7 +889,7 @@ def main():
             val_avg_loss = val_loss_sum / max(len(val_loader), 1)
             control_net.train()
 
-            if args.wandb_predict_images > 0:
+            if args.wandb_valid_images > 0:
                 # Export per-epoch qualitative val panel (N samples, 4 columns).
                 control_net.eval()
                 pred_raw = sample_eval_batch(
@@ -863,14 +917,14 @@ def main():
                     val_preview_high_res.cpu().numpy(),
                     val_preview_offsets.cpu().numpy(),
                     pred_raw.cpu().numpy(),
-                    max_samples=args.wandb_predict_images,
+                    max_samples=args.wandb_valid_images,
                 )
                 if saved:
                     print(f"  -> saved validation panel: {panel_path}")
                     if use_wandb:
                         wandb.log({
                             "epoch": epoch + 1,
-                            "visual/panel": wandb.Image(panel_path),
+                            "visual/valid": wandb.Image(panel_path),
                         }, step=epoch + 1)
                 control_net.train()
 

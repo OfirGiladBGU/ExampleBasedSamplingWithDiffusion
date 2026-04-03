@@ -97,6 +97,18 @@ x_noisy = sqrt(alpha_t) * x_init + sqrt(1 - alpha_t) * noise
 
 This means V4 does not start from pure Gaussian noise at the top of the schedule.
 
+## DPM++ note
+
+- DPM-Solver++ was tested in V4 sampling/overfit scripts and did not improve results in our runs.
+- Active V4 code now keeps DDPM-only inference paths.
+
+Implementation that was tested (kept here for future reintroduction):
+- `DDPMScheduler` from model betas
+- `DPMSolverMultistepScheduler` (`algorithm_type="dpmsolver++"`, `solver_order=2`)
+- truncated timestep tail selection
+- Smart-Init re-noising at DPM start with scheduler `alphas_cumprod`
+- iterative `scheduler.step(...).prev_sample`
+
 ## Overfit
 
 V4 overfit keeps the same debugging philosophy as V3:
