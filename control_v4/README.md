@@ -21,7 +21,8 @@ The model is then trained to refine and un-clump that initialization during the 
 - AdaptiveGateInjection skip control
 - optional GECCO dynamic feature sampling from high-res `[image, sdf]`
 - late-timestep truncated training via `--truncation-ratio`
-- Smart Init points + Smart Init raster grid
+- Smart Init points + GPU-rendered Smart Init raster grid (Gaussian soft splatting)
+- GPU-native Smart Init micro-jitter augmentation via `--smart-init-jitter-px`
 - SDEdit-style inference start from noised Smart Init
 - CV / clumped% geometry scoring
 - periodic epoch checkpoints via `--save_every`
@@ -83,6 +84,12 @@ It provides:
 Training is designed to cache Smart Init grids to disk for throughput.
 Sampling and overfit generate Smart Init artifacts directly for debugging.
 
+Active augmentation policy:
+- training applies Smart Init jitter and Smart Init grid rendering on GPU from the same coordinates
+- Smart Init grid is rendered with Gaussian soft splatting controlled by `--smart-init-splat-sigma-px`
+- validation and evaluation keep deterministic (non-jittered) Smart Init
+- overfit uses the same GPU-native controls via `--smart-init-jitter-px` and `--smart-init-splat-sigma-px`
+
 ## Truncated training
 
 V4 trains only on the last fraction of scheduler timesteps:
@@ -130,6 +137,33 @@ How DPM++ had been implemented (for future rollback):
 
 If you revisit DPM++ later, re-introduce it behind an explicit optional flag and compare against DDPM on the same checkpoints with both visual and geometry metrics.
 
+## Post-GECCO point attention status (tried, removed)
+
+We also tested an overfit-only point self-attention block immediately after GECCO feature sampling.
+
+What was tested:
+- take GECCO sampled features after `grid_sample`
+- reshape from `(B, C, H, W)` to `(B, N, C)` with `N = H * W`
+- run a lightweight pre-norm Transformer block
+- reshape back to `(B, C, H, W)` and continue through the existing hint path
+
+The block design that was tested:
+- `LayerNorm -> MultiheadAttention(batch_first=True) -> residual`
+- `LayerNorm -> MLP(Linear, GELU, Linear) -> residual`
+- zero-init on `mha.out_proj` and the final MLP linear layer so the block starts as near-identity
+
+Observed result:
+- small positive boost in the 32x32 overfit setting
+- not enough improvement to justify carrying the extra point-mixing path in the active V4 baseline
+- concern that this branch may become a limiting architectural fork for future larger-grid tests, so it was removed from runnable code
+
+If we restore it later:
+- keep it overfit-only at first
+- add it right after `DynamicControlNet.compute_gecco_features()` returns the sampled GECCO map
+- flatten sampled features to `(B, N, C)`, apply attention, then reshape back before concatenating into the hint input
+- expose it behind explicit flags such as `--point-attn` and `--point-attn-heads`
+- compare 32x32 and 64x64 separately rather than assuming the same conclusion holds across scales
+
 ## Scripts
 
 ### 1. Train
@@ -152,6 +186,8 @@ Important V4 flags:
 - `--truncation-ratio`
 - `--smart-init-cache-dir`
 - `--smart-init-seed`
+- `--smart-init-jitter-px`
+- `--smart-init-splat-sigma-px`
 - `--save_every`
 - `--best-max-cv`
 - `--best-max-clumped-pct`
@@ -189,6 +225,8 @@ The overfit path keeps:
 - periodic visualization exports
 - geometry scoring (CV / clumped % / score)
 - best checkpoint naming with geometry values
+- optional GPU Smart Init micro-jitter via `--smart-init-jitter-px`
+- optional GPU Gaussian soft-splat via `--smart-init-splat-sigma-px`
 
 ## Output structure
 

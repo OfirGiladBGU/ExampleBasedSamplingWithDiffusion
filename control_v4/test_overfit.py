@@ -37,7 +37,10 @@ except ImportError:
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
 from control_v4.conditioning import build_condition_tensors_from_image
 from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
-from control_v4.smart_init import build_smart_init_from_image, add_noise_at_t
+from control_v4.smart_init import (
+    add_noise_at_t,
+    build_smart_init_from_image,
+)
 from utils.Config import ParseSampleConfig
 from utils.stippling_metrics import compute_spacing_quality, visualize_overfit_metrics
 
@@ -75,6 +78,8 @@ SEED = 42
 SMART_INIT_SEED = 42
 DEVICE = "cuda"
 EXPORT_GT_OFFSET = True
+SMART_INIT_JITTER_PX = 0.0  # Disabled
+SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
 WANDB_ACTIVE = False
@@ -129,6 +134,56 @@ def load_condition(img_path, grid_size, device, sdf_truncate_px=0.0):
         device,
         sdf_truncate_px=sdf_truncate_px,
     )
+
+
+def _grid_centers_flat(grid_size, device, dtype):
+    lin = (torch.arange(grid_size, device=device, dtype=dtype) + 0.5) / float(grid_size)
+    gx, gy = torch.meshgrid(lin, lin, indexing="xy")
+    centers = torch.stack([gx, gy], dim=-1).reshape(1, grid_size * grid_size, 2)
+    return centers
+
+
+def offsets_to_coords_gpu(offsets, grid_size, grid_centers_flat):
+    """Convert OT offsets (B,2,G,G) to normalized coords (B,N,2) on GPU."""
+    bsz = offsets.shape[0]
+    offs = offsets.permute(0, 2, 3, 1).reshape(bsz, grid_size * grid_size, 2)
+    coords = grid_centers_flat.expand(bsz, -1, -1) + offs / float(grid_size)
+    return coords.clamp(0.0, 1.0)
+
+
+def coords_to_offsets_gpu(coords, grid_size, grid_centers_flat):
+    """Convert normalized coords (B,N,2) back to OT offsets (B,2,G,G) on GPU."""
+    delta = (coords - grid_centers_flat.expand(coords.shape[0], -1, -1)) * float(grid_size)
+    return delta.reshape(coords.shape[0], grid_size, grid_size, 2).permute(0, 3, 1, 2).contiguous()
+
+
+def apply_gpu_jitter(coords, jitter_strength_px=0.5, grid_size=32):
+    """Apply Gaussian coordinate jitter in pixel units to (B,N,2) coords on GPU."""
+    if jitter_strength_px <= 0.0:
+        return coords
+    sigma = float(jitter_strength_px) / float(grid_size)
+    noise = torch.randn_like(coords) * sigma
+    return (coords + noise).clamp(0.0, 1.0)
+
+
+def render_smart_init_gpu(coords, grid_size=32, sigma_px=0.5):
+    """Render (B,N,2) normalized coords to (B,1,G,G) with Gaussian soft splatting on GPU."""
+    bsz = coords.shape[0]
+    dtype = coords.dtype
+    device = coords.device
+
+    lin = (torch.arange(grid_size, device=device, dtype=dtype) + 0.5) / float(grid_size)
+    gx, gy = torch.meshgrid(lin, lin, indexing="xy")
+    pixel_centers = torch.stack([gx, gy], dim=-1).reshape(1, grid_size * grid_size, 2).expand(bsz, -1, -1)
+
+    sigma = max(float(sigma_px), 1e-4) / float(grid_size)
+    diff = pixel_centers.unsqueeze(2) - coords.unsqueeze(1)  # (B, P, N, 2)
+    dist2 = (diff * diff).sum(dim=-1)
+    gauss = torch.exp(-dist2 / (2.0 * sigma * sigma))
+
+    # Max aggregation keeps values naturally bounded and preserves local peaks.
+    grid = gauss.max(dim=2).values.reshape(bsz, 1, grid_size, grid_size)
+    return grid.clamp(0.0, 1.0)
 
 
 def export_gt_offset_artifacts(out_dir, gt_offsets):
@@ -319,6 +374,18 @@ def main():
         default=EXPORT_GT_OFFSET,
         help="Export GT offset diagnostics into out_dir/gt_offset",
     )
+    parser.add_argument(
+        "--smart-init-jitter-px",
+        type=float,
+        default=SMART_INIT_JITTER_PX,
+        help="Gaussian micro-jitter strength in grid-pixel units for overfit Smart Init (0 disables)",
+    )
+    parser.add_argument(
+        "--smart-init-splat-sigma-px",
+        type=float,
+        default=SMART_INIT_SPLAT_SIGMA_PX,
+        help="Gaussian sigma in grid-pixel units for GPU Smart Init soft splatting",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -377,14 +444,15 @@ def main():
     )
 
     source_img_01 = np.array(Image.open(source_path).convert("L"), dtype=np.float32) / 255.0
-    smart_points, smart_offsets_np, smart_grid_np = build_smart_init_from_image(
+    _, smart_offsets_np, _ = build_smart_init_from_image(
         source_img_01,
         grid_size=GRID_SIZE,
         n_points=N_POINTS,
         seed=SMART_INIT_SEED,
     )
-    smart_init_grid = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
-    smart_init_offsets = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
+    smart_init_offsets_base = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
+    smart_grid_centers_flat = _grid_centers_flat(GRID_SIZE, device, smart_init_offsets_base.dtype)
+    smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, GRID_SIZE, smart_grid_centers_flat)
 
     if not args.use_sdf:
         high_res_sdf = torch.zeros_like(high_res_sdf)
@@ -431,6 +499,8 @@ def main():
     print(f"  Resample jumps (RePaint): {args.resample_jumps}")
     print(f"  SDF truncation (px): {args.sdf_truncate_px}")
     print(f"  SDF conditioning enabled: {args.use_sdf}")
+    print(f"  Smart Init micro-jitter (px): {args.smart_init_jitter_px}")
+    print(f"  Smart Init soft-splat sigma (px): {args.smart_init_splat_sigma_px}")
     print(f"  Truncation ratio: {TRUNCATION_RATIO:.3f} -> cutoff {truncation_cutoff}/{num_timesteps}")
 
     optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
@@ -444,6 +514,18 @@ def main():
 
     losses = []
     for step in range(1, args.steps + 1):
+        smart_points_step = apply_gpu_jitter(
+            smart_points_base,
+            jitter_strength_px=args.smart_init_jitter_px,
+            grid_size=GRID_SIZE,
+        )
+        smart_init_offsets = coords_to_offsets_gpu(smart_points_step, GRID_SIZE, smart_grid_centers_flat)
+        smart_init_grid = render_smart_init_gpu(
+            smart_points_step,
+            grid_size=GRID_SIZE,
+            sigma_px=args.smart_init_splat_sigma_px,
+        )
+
         t = torch.randint(0, truncation_cutoff, (1,), device=device)
         noise = torch.randn_like(x_0)
         offsets_t = diffusion.q_sample(x_0, t, noise)

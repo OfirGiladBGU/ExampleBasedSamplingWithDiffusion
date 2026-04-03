@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
@@ -99,6 +99,8 @@ BEST_MAX_CLUMPED_PCT = 100.0
 TRUNCATION_RATIO = 0.30
 SMART_INIT_CACHE_DIR = ""
 SMART_INIT_SEED = 42
+SMART_INIT_JITTER_PX = 0.0  # Disabled
+SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 
 def load_wandb_key():
@@ -326,6 +328,50 @@ def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, high_res_s
     return raw
 
 
+def _grid_centers_flat(grid_size, device, dtype):
+    lin = (torch.arange(grid_size, device=device, dtype=dtype) + 0.5) / float(grid_size)
+    gx, gy = torch.meshgrid(lin, lin, indexing="xy")
+    return torch.stack([gx, gy], dim=-1).reshape(1, grid_size * grid_size, 2)
+
+
+def offsets_to_coords_gpu(offsets, grid_size, grid_centers_flat):
+    """Convert OT offsets (B,2,G,G) to normalized coords (B,N,2)."""
+    bsz = offsets.shape[0]
+    offs = offsets.permute(0, 2, 3, 1).reshape(bsz, grid_size * grid_size, 2)
+    coords = grid_centers_flat.expand(bsz, -1, -1) + offs / float(grid_size)
+    return coords.clamp(0.0, 1.0)
+
+
+def coords_to_offsets_gpu(coords, grid_size, grid_centers_flat):
+    """Convert normalized coords (B,N,2) back to OT offsets (B,2,G,G)."""
+    delta = (coords - grid_centers_flat.expand(coords.shape[0], -1, -1)) * float(grid_size)
+    return delta.reshape(coords.shape[0], grid_size, grid_size, 2).permute(0, 3, 1, 2).contiguous()
+
+
+def apply_gpu_jitter(coords, jitter_strength_px=0.0, grid_size=32):
+    """Apply Gaussian coordinate jitter in pixel units to (B,N,2) coords."""
+    if jitter_strength_px <= 0.0:
+        return coords
+    sigma = float(jitter_strength_px) / float(grid_size)
+    return (coords + torch.randn_like(coords) * sigma).clamp(0.0, 1.0)
+
+
+def render_smart_init_gpu(coords, grid_size=32, sigma_px=0.5, grid_centers_flat=None):
+    """Render (B,N,2) coords to (B,1,G,G) with Gaussian soft splatting."""
+    bsz = coords.shape[0]
+    device = coords.device
+    dtype = coords.dtype
+    if grid_centers_flat is None:
+        grid_centers_flat = _grid_centers_flat(grid_size, device=device, dtype=dtype)
+    pixel_centers = grid_centers_flat.expand(bsz, -1, -1)
+
+    sigma = max(float(sigma_px), 1e-4) / float(grid_size)
+    dist = torch.cdist(pixel_centers, coords, p=2)
+    gauss = torch.exp(-(dist * dist) / (2.0 * sigma * sigma))
+    grid = gauss.amax(dim=2).reshape(bsz, 1, grid_size, grid_size)
+    return grid.clamp(0.0, 1.0)
+
+
 def sdf_to_display(sdf_2d):
     """Map SDF from [-1, 1] to display space [0, 1]."""
     return np.clip((sdf_2d + 1.0) * 0.5, 0.0, 1.0)
@@ -518,6 +564,18 @@ def main():
                         help="Optional directory to cache Smart Init grids as .npy")
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED,
                         help="Random seed used when generating Smart Init")
+    parser.add_argument(
+        "--smart-init-jitter-px",
+        type=float,
+        default=SMART_INIT_JITTER_PX,
+        help="Train-only Gaussian micro-jitter strength in grid-pixel units for Smart Init points (0 disables)",
+    )
+    parser.add_argument(
+        "--smart-init-splat-sigma-px",
+        type=float,
+        default=SMART_INIT_SPLAT_SIGMA_PX,
+        help="Gaussian sigma in grid-pixel units for GPU Smart Init soft splatting",
+    )
     parser.add_argument("--out", default=OUTPUT_DIR,
                         help="Output directory for checkpoints and logs")
     parser.add_argument(
@@ -604,6 +662,8 @@ def main():
     print(f"Min-SNR gamma                         : {args.min_snr_gamma}")
     print(f"SDF truncation (px)                   : {args.sdf_truncate_px}")
     print(f"SDF conditioning enabled              : {args.use_sdf}")
+    print(f"Smart Init micro-jitter (train, px)  : {args.smart_init_jitter_px}")
+    print(f"Smart Init soft-splat sigma (px)     : {args.smart_init_splat_sigma_px}")
     print(f"Eval resample-jumps                   : {args.resample_jumps}")
     print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
     print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{num_timesteps}")
@@ -619,6 +679,8 @@ def main():
         sdf_truncate_px=args.sdf_truncate_px,
         smart_init_cache_dir=smart_init_cache_dir,
         smart_init_seed=args.smart_init_seed,
+        smart_init_jitter_px=0.0,
+        is_train=False,
     )
     if len(dataset) == 0:
         raise RuntimeError(
@@ -629,15 +691,37 @@ def main():
     val_len = min(max(val_len, 0), max(len(dataset) - 1, 0))
     train_len = len(dataset) - val_len
 
+    all_indices = torch.randperm(len(dataset), generator=torch.Generator().manual_seed(42)).tolist()
+    train_indices = all_indices[:train_len]
+    val_indices = all_indices[train_len:]
+
+    train_filenames = [dataset.filenames[i] for i in train_indices]
+    train_dataset = DynamicStippleDataset(
+        args.source,
+        args.offsets,
+        grid_size=args.grid_size,
+        sdf_truncate_px=args.sdf_truncate_px,
+        smart_init_cache_dir=smart_init_cache_dir,
+        smart_init_seed=args.smart_init_seed,
+        smart_init_jitter_px=0.0,
+        is_train=True,
+        filenames=train_filenames,
+    )
+
+    val_dataset = None
     if val_len > 0:
-        train_dataset, val_dataset = random_split(
-            dataset,
-            [train_len, val_len],
-            generator=torch.Generator().manual_seed(42),
+        val_filenames = [dataset.filenames[i] for i in val_indices]
+        val_dataset = DynamicStippleDataset(
+            args.source,
+            args.offsets,
+            grid_size=args.grid_size,
+            sdf_truncate_px=args.sdf_truncate_px,
+            smart_init_cache_dir=smart_init_cache_dir,
+            smart_init_seed=args.smart_init_seed,
+            smart_init_jitter_px=0.0,
+            is_train=False,
+            filenames=val_filenames,
         )
-    else:
-        train_dataset = dataset
-        val_dataset = None
 
     train_loader = DataLoader(
         train_dataset,
@@ -659,6 +743,7 @@ def main():
         )
 
     print(f"Dataset split: train={train_len}, val={val_len}")
+    grid_centers_flat = _grid_centers_flat(args.grid_size, device=device, dtype=torch.float32)
 
     # ── optimizer ────────────────────────────────────────────────────
     optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
@@ -722,8 +807,21 @@ def main():
             high_res_sdf = high_res_sdf.to(device)
             target_sdf = target_sdf.to(device)
             x_0 = x_0.to(device)
-            smart_init_grid = smart_init_grid.to(device)
             smart_init_offsets = smart_init_offsets.to(device)
+
+            smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
+            smart_coords = apply_gpu_jitter(
+                smart_coords,
+                jitter_strength_px=args.smart_init_jitter_px,
+                grid_size=args.grid_size,
+            )
+            smart_init_offsets = coords_to_offsets_gpu(smart_coords, args.grid_size, grid_centers_flat)
+            smart_init_grid = render_smart_init_gpu(
+                smart_coords,
+                grid_size=args.grid_size,
+                sigma_px=args.smart_init_splat_sigma_px,
+                grid_centers_flat=grid_centers_flat,
+            )
 
             if not args.use_sdf:
                 high_res_sdf = torch.zeros_like(high_res_sdf)
@@ -848,8 +946,16 @@ def main():
                     high_res_sdf = high_res_sdf.to(device)
                     target_sdf = target_sdf.to(device)
                     x_0 = x_0.to(device)
-                    smart_init_grid = smart_init_grid.to(device)
                     smart_init_offsets = smart_init_offsets.to(device)
+
+                    smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
+                    smart_init_offsets = coords_to_offsets_gpu(smart_coords, args.grid_size, grid_centers_flat)
+                    smart_init_grid = render_smart_init_gpu(
+                        smart_coords,
+                        grid_size=args.grid_size,
+                        sigma_px=args.smart_init_splat_sigma_px,
+                        grid_centers_flat=grid_centers_flat,
+                    )
 
                     if not args.use_sdf:
                         high_res_sdf = torch.zeros_like(high_res_sdf)

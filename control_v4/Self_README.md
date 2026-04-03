@@ -1,13 +1,14 @@
 # Control V4 (Truncated Control + Smart Init) flow
 
-Key V4 changes:
-- Training is truncated to the final fraction of scheduler timesteps.
-- Sampling starts from a Smart Init, not pure noise.
-- The hint path includes `smart_init_grid` as an explicit extra channel.
-- Smart Init exists in two forms:
-  - `smart_init_points` for SDEdit-style coordinate initialization
-  - `smart_init_grid` for convolutional hint conditioning
-- W&B reporting, geometry metrics, and best-checkpoint gating are preserved.
+Active V4 components:
+- truncated late-timestep training
+- Smart Init coordinate start for sampling and overfit
+- GPU-rendered `smart_init_grid` (Gaussian soft splatting) as an extra hint channel
+- GPU Smart Init micro-jitter augmentation (pixel-unit strength)
+- optional GECCO dynamic feature sampling from high-res `[image, sdf]`
+- AdaptiveGateInjection control skips
+- DDPM sampling path
+- geometry metrics, visual exports, and checkpointing
 
 ## Smart Init flow
 
@@ -20,6 +21,12 @@ Outputs:
 - `smart_init_points` -> `(N, 2)` in `[0,1]`
 - `smart_init_offsets` -> `(2, 32, 32)`
 - `smart_init_grid` -> `(1, 32, 32)`
+
+Augmentation policy:
+- training: optional GPU micro-jitter via `--smart-init-jitter-px`
+- training: GPU Gaussian soft-splat rendering via `--smart-init-splat-sigma-px`
+- validation: no jitter (deterministic Smart Init)
+- overfit: same GPU controls (`--smart-init-jitter-px`, `--smart-init-splat-sigma-px`)
 
 ## Condition flow
 
@@ -66,7 +73,6 @@ So V4 learns only on late-stage denoising.
 
 Loss:
 - Min-SNR weighted denoising MSE
-- x0 auxiliary losses (`mse`, `chamfer`, `swd`) were tested during ablations and later removed from active V4 train/overfit because they did not improve results
 
 Dataset returns:
 - `high_res`
@@ -97,17 +103,9 @@ x_noisy = sqrt(alpha_t) * x_init + sqrt(1 - alpha_t) * noise
 
 This means V4 does not start from pure Gaussian noise at the top of the schedule.
 
-## DPM++ note
+## Inference backend
 
-- DPM-Solver++ was tested in V4 sampling/overfit scripts and did not improve results in our runs.
-- Active V4 code now keeps DDPM-only inference paths.
-
-Implementation that was tested (kept here for future reintroduction):
-- `DDPMScheduler` from model betas
-- `DPMSolverMultistepScheduler` (`algorithm_type="dpmsolver++"`, `solver_order=2`)
-- truncated timestep tail selection
-- Smart-Init re-noising at DPM start with scheduler `alphas_cumprod`
-- iterative `scheduler.step(...).prev_sample`
+- active V4 inference uses DDPM-only sampling paths
 
 ## Overfit
 
