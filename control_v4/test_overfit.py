@@ -44,7 +44,9 @@ from control_v4.smart_init import (
 from utils.Config import ParseSampleConfig
 from utils.stippling_metrics import compute_spacing_quality, visualize_overfit_metrics
 
-# ── paths ────────────────────────────────────────────────────────────
+# ── default globals (edit here for quick experiments) ───────────────
+
+# Paths and I/O
 DATA_ROOT = r"C:\Users\User\PycharmProjects\ExampleBasedSamplingWithDiffusion\training\monkey"
 # DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024"
 # DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_1024"
@@ -54,35 +56,42 @@ TARGET_DIR = os.path.join(DATA_ROOT, "target")
 CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH = "config/GBN/model.ckpt"
 OUTPUT_DIR = "control_v4/overfit_outputs"
+WANDB_ENV = ".env"
+EXPORT_GT_OFFSET = True
+
+# Model parameters
 GRID_SIZE = 32
 N_POINTS = GRID_SIZE ** 2
-
-# ── default run parameters (edit here for quick experiments) ───────
-STEPS = 10000
-SAMPLE_INDEX = 0
-LR = 5e-4
-VIS_EVERY = 500
 SAMPLE_TIMESTEPS = 1000
 TRUNCATION_RATIO = 0.30
 
 ENABLE_GECCO = True
-MIN_SNR_GAMMA = 5.0
 RESAMPLE_JUMPS = 2
-SDF_TRUNCATE_PX = 8.0
+
 USE_SDF = True
+SDF_TRUNCATE_PX = 8.0
 
-GEOM_CLUMP_WEIGHT = 5.0
-
-N_SAMPLES = 2
-SEED = 42
 SMART_INIT_SEED = 42
-DEVICE = "cuda"
-EXPORT_GT_OFFSET = True
-SMART_INIT_JITTER_PX = 0.0  # Disabled
+ENABLE_SMART_INIT_JITTER = False
+SMART_INIT_JITTER_PX = 0.5
+ENABLE_SMART_INIT_SPLAT = True
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
-WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
+# Loss parameters
+MIN_SNR_GAMMA = 5.0
+GEOM_CLUMP_WEIGHT = 5.0
+
+# Training configuration
 WANDB_ACTIVE = False
+
+STEPS = 10000
+SAMPLE_INDEX = 0
+LR = 5e-4
+VIS_EVERY = 500
+N_SAMPLES = 2
+SEED = 42
+DEVICE = "cuda"
+
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -332,11 +341,16 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--steps", type=int, default=STEPS)
-    parser.add_argument("--sample-index", type=int, default=SAMPLE_INDEX)
-    parser.add_argument("--lr", type=float, default=LR)
-    parser.add_argument("--vis-every", type=int, default=VIS_EVERY,
-                        help="Visualise & sample every N steps")
+
+    # Paths and I/O
+    parser.add_argument(
+        "--export-gt-offset",
+        type=bool,
+        default=EXPORT_GT_OFFSET,
+        help="Export GT offset diagnostics into out_dir/gt_offset",
+    )
+
+    # Model parameters
     parser.add_argument("--sample-timesteps", type=int, default=SAMPLE_TIMESTEPS,
                         help="Diffusion timesteps when sampling")
     parser.add_argument(
@@ -344,12 +358,6 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=ENABLE_GECCO,
         help="Enable GECCO dynamic feature sampling in the control hint path",
-    )
-    parser.add_argument(
-        "--min-snr-gamma",
-        type=float,
-        default=MIN_SNR_GAMMA,
-        help="Gamma for Min-SNR loss weighting (0 disables)",
     )
     parser.add_argument(
         "--resample-jumps",
@@ -365,15 +373,6 @@ def main():
         default=USE_SDF,
         help="Pass real SDF channels to the model (--no-use-sdf zeroes them out for ablation)",
     )
-    parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
-    parser.add_argument("--seed", type=int, default=SEED)
-    parser.add_argument("--device", default=DEVICE)
-    parser.add_argument(
-        "--export-gt-offset",
-        type=bool,
-        default=EXPORT_GT_OFFSET,
-        help="Export GT offset diagnostics into out_dir/gt_offset",
-    )
     parser.add_argument(
         "--smart-init-jitter-px",
         type=float,
@@ -386,6 +385,37 @@ def main():
         default=SMART_INIT_SPLAT_SIGMA_PX,
         help="Gaussian sigma in grid-pixel units for GPU Smart Init soft splatting",
     )
+    parser.add_argument(
+        "--enable-smart-init-jitter",
+        action=argparse.BooleanOptionalAction,
+        default=ENABLE_SMART_INIT_JITTER,
+        help="Enable Gaussian micro-jitter on Smart Init points (requires --smart-init-jitter-px > 0)",
+    )
+    parser.add_argument(
+        "--enable-smart-init-splat",
+        action=argparse.BooleanOptionalAction,
+        default=ENABLE_SMART_INIT_SPLAT,
+        help="Enable Gaussian soft splatting for Smart Init grid; zeros the channel when disabled",
+    )
+
+    # Loss parameters
+    parser.add_argument(
+        "--min-snr-gamma",
+        type=float,
+        default=MIN_SNR_GAMMA,
+        help="Gamma for Min-SNR loss weighting (0 disables)",
+    )
+
+    # Training configuration
+    parser.add_argument("--steps", type=int, default=STEPS)
+    parser.add_argument("--sample-index", type=int, default=SAMPLE_INDEX)
+    parser.add_argument("--lr", type=float, default=LR)
+    parser.add_argument("--vis-every", type=int, default=VIS_EVERY,
+                        help="Visualise & sample every N steps")
+    parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--device", default=DEVICE)
+
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -501,6 +531,8 @@ def main():
     print(f"  SDF conditioning enabled: {args.use_sdf}")
     print(f"  Smart Init micro-jitter (px): {args.smart_init_jitter_px}")
     print(f"  Smart Init soft-splat sigma (px): {args.smart_init_splat_sigma_px}")
+    print(f"  Smart Init jitter enabled: {args.enable_smart_init_jitter}")
+    print(f"  Smart Init splat enabled: {args.enable_smart_init_splat}")
     print(f"  Truncation ratio: {TRUNCATION_RATIO:.3f} -> cutoff {truncation_cutoff}/{num_timesteps}")
 
     optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
@@ -514,17 +546,26 @@ def main():
 
     losses = []
     for step in range(1, args.steps + 1):
-        smart_points_step = apply_gpu_jitter(
-            smart_points_base,
-            jitter_strength_px=args.smart_init_jitter_px,
-            grid_size=GRID_SIZE,
-        )
+        if args.enable_smart_init_jitter:
+            smart_points_step = apply_gpu_jitter(
+                smart_points_base,
+                jitter_strength_px=args.smart_init_jitter_px,
+                grid_size=GRID_SIZE,
+            )
+        else:
+            smart_points_step = smart_points_base
         smart_init_offsets = coords_to_offsets_gpu(smart_points_step, GRID_SIZE, smart_grid_centers_flat)
-        smart_init_grid = render_smart_init_gpu(
-            smart_points_step,
-            grid_size=GRID_SIZE,
-            sigma_px=args.smart_init_splat_sigma_px,
-        )
+        if args.enable_smart_init_splat:
+            smart_init_grid = render_smart_init_gpu(
+                smart_points_step,
+                grid_size=GRID_SIZE,
+                sigma_px=args.smart_init_splat_sigma_px,
+            )
+        else:
+            smart_init_grid = torch.zeros(
+                1, 1, GRID_SIZE, GRID_SIZE,
+                device=device, dtype=smart_points_base.dtype,
+            )
 
         t = torch.randint(0, truncation_cutoff, (1,), device=device)
         noise = torch.randn_like(x_0)

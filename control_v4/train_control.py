@@ -50,6 +50,8 @@ from data.Transforms import to_image_optimal_transport, to_pointset_optimal_tran
 from utils.stippling_metrics import geometric_validation_score
 
 # ── default globals (edit here for quick experiments) ───────────────
+
+# Paths and I/O
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
 
 CONFIG_PATH = "config/GBN/config.json"
@@ -65,7 +67,34 @@ OUTPUT_DIR = "control_v4/train_outputs"
 
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
 OFFSETS_DIR = ""
+SMART_INIT_CACHE_DIR = ""
+VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
+
+# Model parameters
 GRID_SIZE = 32
+ENABLE_GECCO = True
+RESAMPLE_JUMPS = 2
+
+USE_SDF = True
+SDF_TRUNCATE_PX = 8.0
+
+EVAL_TIMESTEPS = 1000
+TRUNCATION_RATIO = 0.30
+
+SMART_INIT_SEED = 42
+ENABLE_SMART_INIT_JITTER = False
+SMART_INIT_JITTER_PX = 0.5
+ENABLE_SMART_INIT_SPLAT_SIGMA = True
+SMART_INIT_SPLAT_SIGMA_PX = 0.5
+
+# Loss component weights
+MIN_SNR_GAMMA = 5.0
+GEOM_CLUMP_WEIGHT = 1.0
+BEST_MAX_CV = 1e9
+BEST_MAX_CLUMPED_PCT = 100.0
+
+# Training configuration
+WANDB_ACTIVE = True
 
 # EPOCHS = 100
 EPOCHS = 1
@@ -73,34 +102,17 @@ BATCH_SIZE = 16
 LR = 1e-4
 SAVE_EVERY = 1
 DEVICE = "cuda"
-
-ENABLE_GECCO = True
-MIN_SNR_GAMMA = 5.0
-SDF_TRUNCATE_PX = 8.0
-USE_SDF = True
+RESUME_LATEST = True
 
 EVAL_EVERY = 0
 EVAL_BATCH = 4
-EVAL_TIMESTEPS = 1000
-RESAMPLE_JUMPS = 2
 
 NUM_WORKERS = 4
 PIN_MEMORY = True
 VAL_SPLIT = 0.1
 
-WANDB_ACTIVE = True
 WANDB_VALID_IMAGES = 8
 WANDB_TRAIN_IMAGES = 8
-RESUME_LATEST = True
-VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
-GEOM_CLUMP_WEIGHT = 1.0
-BEST_MAX_CV = 1e9
-BEST_MAX_CLUMPED_PCT = 100.0
-TRUNCATION_RATIO = 0.30
-SMART_INIT_CACHE_DIR = ""
-SMART_INIT_SEED = 42
-SMART_INIT_JITTER_PX = 0.0  # Disabled
-SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 
 def load_wandb_key():
@@ -492,6 +504,8 @@ def dynamic_collate(batch):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+
+    # Paths and I/O
     parser.add_argument("--config", default=CONFIG_PATH)
     parser.add_argument("--ckpt", default=CKPT_PATH)
     parser.add_argument("--source",
@@ -503,22 +517,19 @@ def main():
     parser.add_argument("--offsets",
                         default=OFFSETS_DIR,
                         help="Dir of .npy offset files; if empty/missing, offsets are exported from --target")
+    parser.add_argument("--smart-init-cache-dir", default=SMART_INIT_CACHE_DIR,
+                        help="Optional directory to cache Smart Init grids as .npy")
+    parser.add_argument("--out", default=OUTPUT_DIR,
+                        help="Output directory for checkpoints and logs")
+
+    # Model parameters
     parser.add_argument("--grid-size", type=int, default=GRID_SIZE,
                         help="Grid resolution for offset export and dataset loading")
-    parser.add_argument("--epochs", type=int, default=EPOCHS)
-    parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
-    parser.add_argument("--lr", type=float, default=LR)
     parser.add_argument(
         "--enable-gecco",
         action=argparse.BooleanOptionalAction,
         default=ENABLE_GECCO,
         help="Enable GECCO dynamic feature sampling in control hint path",
-    )
-    parser.add_argument(
-        "--min-snr-gamma",
-        type=float,
-        default=MIN_SNR_GAMMA,
-        help="Gamma for Min-SNR loss weighting (0 disables)",
     )
     parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX,
                         help="Truncate signed distance magnitudes before max-normalization (0 disables)")
@@ -528,40 +539,12 @@ def main():
         default=USE_SDF,
         help="Pass real SDF channels to the model (--no-use-sdf zeroes them out for ablation)",
     )
-    parser.add_argument(
-        "--eval-every",
-        type=int,
-        default=EVAL_EVERY,
-        help="Run intermediate eval sampling every N epochs (0 disables)",
-    )
-    parser.add_argument("--eval-batch", type=int, default=EVAL_BATCH,
-                        help="Number of samples for each intermediate eval")
     parser.add_argument("--eval-timesteps", type=int, default=EVAL_TIMESTEPS,
                         help="Timesteps used in intermediate eval sampling")
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS,
                         help="RePaint micro-loops per timestep during eval sampling")
-    parser.add_argument(
-        "--wandb-valid-images",
-        type=int,
-        default=WANDB_VALID_IMAGES,
-        help="Number of validation predictions to include in the wandb visual panel each epoch (0 disables valid panel upload)",
-    )
-    parser.add_argument(
-        "--wandb-train-images",
-        type=int,
-        default=WANDB_TRAIN_IMAGES,
-        help="Number of training predictions to include in the wandb visual panel each epoch (0 disables train panel upload)",
-    )
-    parser.add_argument("--geom-clump-weight", type=float, default=GEOM_CLUMP_WEIGHT,
-                        help="Weight of clumped_pct in geometric score: score = cv + w*(clumped_pct/100)")
-    parser.add_argument("--best-max-cv", type=float, default=BEST_MAX_CV,
-                        help="Only save best-geom checkpoint if CV <= this value")
-    parser.add_argument("--best-max-clumped-pct", type=float, default=BEST_MAX_CLUMPED_PCT,
-                        help="Only save best-geom checkpoint if clumped_pct <= this value")
     parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO,
                         help="Train only on timesteps [0, truncation_ratio * total_timesteps)")
-    parser.add_argument("--smart-init-cache-dir", default=SMART_INIT_CACHE_DIR,
-                        help="Optional directory to cache Smart Init grids as .npy")
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED,
                         help="Random seed used when generating Smart Init")
     parser.add_argument(
@@ -576,8 +559,37 @@ def main():
         default=SMART_INIT_SPLAT_SIGMA_PX,
         help="Gaussian sigma in grid-pixel units for GPU Smart Init soft splatting",
     )
-    parser.add_argument("--out", default=OUTPUT_DIR,
-                        help="Output directory for checkpoints and logs")
+    parser.add_argument(
+        "--enable-smart-init-jitter",
+        action=argparse.BooleanOptionalAction,
+        default=ENABLE_SMART_INIT_JITTER,
+        help="Enable train-only Gaussian micro-jitter on Smart Init points (requires --smart-init-jitter-px > 0)",
+    )
+    parser.add_argument(
+        "--enable-smart-init-splat-sigma",
+        action=argparse.BooleanOptionalAction,
+        default=ENABLE_SMART_INIT_SPLAT_SIGMA,
+        help="Enable Gaussian soft splatting for Smart Init grid; zeros the channel when disabled",
+    )
+
+    # Loss parameters
+    parser.add_argument(
+        "--min-snr-gamma",
+        type=float,
+        default=MIN_SNR_GAMMA,
+        help="Gamma for Min-SNR loss weighting (0 disables)",
+    )
+    parser.add_argument("--geom-clump-weight", type=float, default=GEOM_CLUMP_WEIGHT,
+                        help="Weight of clumped_pct in geometric score: score = cv + w*(clumped_pct/100)")
+    parser.add_argument("--best-max-cv", type=float, default=BEST_MAX_CV,
+                        help="Only save best-geom checkpoint if CV <= this value")
+    parser.add_argument("--best-max-clumped-pct", type=float, default=BEST_MAX_CLUMPED_PCT,
+                        help="Only save best-geom checkpoint if clumped_pct <= this value")
+
+    # Training configuration
+    parser.add_argument("--epochs", type=int, default=EPOCHS)
+    parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--lr", type=float, default=LR)
     parser.add_argument(
         "--resume-latest",
         action=argparse.BooleanOptionalAction,
@@ -590,8 +602,28 @@ def main():
         default=SAVE_EVERY,
         help="Save standard epoch checkpoints every N epochs (best-geom checkpoints are saved independently)",
     )
+    parser.add_argument(
+        "--eval-every",
+        type=int,
+        default=EVAL_EVERY,
+        help="Run intermediate eval sampling every N epochs (0 disables)",
+    )
+    parser.add_argument("--eval-batch", type=int, default=EVAL_BATCH,
+                        help="Number of samples for each intermediate eval")
     parser.add_argument("--val-split", type=float, default=VAL_SPLIT,
                         help="Validation split ratio in [0,1). Example: 0.1 = 10%% val")
+    parser.add_argument(
+        "--wandb-valid-images",
+        type=int,
+        default=WANDB_VALID_IMAGES,
+        help="Number of validation predictions to include in the wandb visual panel each epoch (0 disables valid panel upload)",
+    )
+    parser.add_argument(
+        "--wandb-train-images",
+        type=int,
+        default=WANDB_TRAIN_IMAGES,
+        help="Number of training predictions to include in the wandb visual panel each epoch (0 disables train panel upload)",
+    )
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
     if args.wandb_valid_images < 0:
@@ -664,6 +696,8 @@ def main():
     print(f"SDF conditioning enabled              : {args.use_sdf}")
     print(f"Smart Init micro-jitter (train, px)  : {args.smart_init_jitter_px}")
     print(f"Smart Init soft-splat sigma (px)     : {args.smart_init_splat_sigma_px}")
+    print(f"Smart Init jitter enabled            : {args.enable_smart_init_jitter}")
+    print(f"Smart Init splat-sigma enabled       : {args.enable_smart_init_splat_sigma}")
     print(f"Eval resample-jumps                   : {args.resample_jumps}")
     print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
     print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{num_timesteps}")
@@ -679,8 +713,6 @@ def main():
         sdf_truncate_px=args.sdf_truncate_px,
         smart_init_cache_dir=smart_init_cache_dir,
         smart_init_seed=args.smart_init_seed,
-        smart_init_jitter_px=0.0,
-        is_train=False,
     )
     if len(dataset) == 0:
         raise RuntimeError(
@@ -703,8 +735,6 @@ def main():
         sdf_truncate_px=args.sdf_truncate_px,
         smart_init_cache_dir=smart_init_cache_dir,
         smart_init_seed=args.smart_init_seed,
-        smart_init_jitter_px=0.0,
-        is_train=True,
         filenames=train_filenames,
     )
 
@@ -718,8 +748,6 @@ def main():
             sdf_truncate_px=args.sdf_truncate_px,
             smart_init_cache_dir=smart_init_cache_dir,
             smart_init_seed=args.smart_init_seed,
-            smart_init_jitter_px=0.0,
-            is_train=False,
             filenames=val_filenames,
         )
 
@@ -810,18 +838,25 @@ def main():
             smart_init_offsets = smart_init_offsets.to(device)
 
             smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
-            smart_coords = apply_gpu_jitter(
-                smart_coords,
-                jitter_strength_px=args.smart_init_jitter_px,
-                grid_size=args.grid_size,
-            )
+            if args.enable_smart_init_jitter:
+                smart_coords = apply_gpu_jitter(
+                    smart_coords,
+                    jitter_strength_px=args.smart_init_jitter_px,
+                    grid_size=args.grid_size,
+                )
             smart_init_offsets = coords_to_offsets_gpu(smart_coords, args.grid_size, grid_centers_flat)
-            smart_init_grid = render_smart_init_gpu(
-                smart_coords,
-                grid_size=args.grid_size,
-                sigma_px=args.smart_init_splat_sigma_px,
-                grid_centers_flat=grid_centers_flat,
-            )
+            if args.enable_smart_init_splat_sigma:
+                smart_init_grid = render_smart_init_gpu(
+                    smart_coords,
+                    grid_size=args.grid_size,
+                    sigma_px=args.smart_init_splat_sigma_px,
+                    grid_centers_flat=grid_centers_flat,
+                )
+            else:
+                smart_init_grid = torch.zeros(
+                    smart_init_offsets.shape[0], 1, args.grid_size, args.grid_size,
+                    device=device, dtype=smart_coords.dtype,
+                )
 
             if not args.use_sdf:
                 high_res_sdf = torch.zeros_like(high_res_sdf)
@@ -950,12 +985,18 @@ def main():
 
                     smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
                     smart_init_offsets = coords_to_offsets_gpu(smart_coords, args.grid_size, grid_centers_flat)
-                    smart_init_grid = render_smart_init_gpu(
-                        smart_coords,
-                        grid_size=args.grid_size,
-                        sigma_px=args.smart_init_splat_sigma_px,
-                        grid_centers_flat=grid_centers_flat,
-                    )
+                    if args.enable_smart_init_splat_sigma:
+                        smart_init_grid = render_smart_init_gpu(
+                            smart_coords,
+                            grid_size=args.grid_size,
+                            sigma_px=args.smart_init_splat_sigma_px,
+                            grid_centers_flat=grid_centers_flat,
+                        )
+                    else:
+                        smart_init_grid = torch.zeros(
+                            smart_init_offsets.shape[0], 1, args.grid_size, args.grid_size,
+                            device=device, dtype=smart_coords.dtype,
+                        )
 
                     if not args.use_sdf:
                         high_res_sdf = torch.zeros_like(high_res_sdf)

@@ -19,8 +19,6 @@ from torch.utils.data import Dataset
 from control_v4.conditioning import build_condition_tensors_from_image
 from control_v4.smart_init import (
     build_smart_init_from_image,
-    render_smart_init_grid,
-    smart_init_points_to_offsets,
 )
 
 
@@ -48,8 +46,6 @@ class DynamicStippleDataset(Dataset):
         sdf_truncate_px=0.0,
         smart_init_cache_dir=None,
         smart_init_seed=42,
-        smart_init_jitter_px=0.0,
-        is_train=False,
         filenames=None,
     ):
         self.source_dir = source_dir
@@ -58,8 +54,6 @@ class DynamicStippleDataset(Dataset):
         self.sdf_truncate_px = sdf_truncate_px
         self.smart_init_cache_dir = smart_init_cache_dir
         self.smart_init_seed = int(smart_init_seed)
-        self.smart_init_jitter_px = float(smart_init_jitter_px)
-        self.is_train = bool(is_train)
         if self.smart_init_cache_dir:
             os.makedirs(self.smart_init_cache_dir, exist_ok=True)
 
@@ -85,15 +79,6 @@ class DynamicStippleDataset(Dataset):
 
             # Keep only source files that have a matching offsets file.
             self.filenames = sorted(source_stems[stem] for stem in source_stems if stem in offset_stems)
-
-    def _apply_micro_jitter(self, points):
-        pts = np.asarray(points, dtype=np.float32)
-        if (not self.is_train) or self.smart_init_jitter_px <= 0.0:
-            return pts
-
-        jitter_strength = self.smart_init_jitter_px / float(self.grid_size)
-        noise = np.random.normal(loc=0.0, scale=jitter_strength, size=pts.shape).astype(np.float32)
-        return np.clip(pts + noise, 0.0, 1.0).astype(np.float32, copy=False)
 
     def __len__(self):
         return len(self.filenames)
@@ -122,17 +107,14 @@ class DynamicStippleDataset(Dataset):
 
         smart_init_grid = None
         smart_init_offsets_np = None
-        smart_init_points = None
         if self.smart_init_cache_dir:
             smart_path = os.path.join(self.smart_init_cache_dir, stem + ".npy")
             smart_offsets_path = os.path.join(self.smart_init_cache_dir, stem + "_offsets.npy")
-            smart_points_path = os.path.join(self.smart_init_cache_dir, stem + "_points.npy")
-            if os.path.exists(smart_path) and os.path.exists(smart_offsets_path) and os.path.exists(smart_points_path):
+            if os.path.exists(smart_path) and os.path.exists(smart_offsets_path):
                 smart_init_grid = np.load(smart_path)
                 smart_init_offsets_np = np.load(smart_offsets_path)
-                smart_init_points = np.load(smart_points_path)
             else:
-                smart_init_points, smart_init_offsets_np, smart_init_grid = build_smart_init_from_image(
+                _, smart_init_offsets_np, smart_init_grid = build_smart_init_from_image(
                     img.astype(np.float32) / 255.0,
                     grid_size=self.grid_size,
                     n_points=self.grid_size * self.grid_size,
@@ -141,29 +123,13 @@ class DynamicStippleDataset(Dataset):
                 os.makedirs(os.path.dirname(smart_path), exist_ok=True)
                 np.save(smart_path, smart_init_grid)
                 np.save(smart_offsets_path, smart_init_offsets_np)
-                np.save(smart_points_path, smart_init_points)
         else:
-            smart_init_points, smart_init_offsets_np, smart_init_grid = build_smart_init_from_image(
+            _, smart_init_offsets_np, smart_init_grid = build_smart_init_from_image(
                 img.astype(np.float32) / 255.0,
                 grid_size=self.grid_size,
                 n_points=self.grid_size * self.grid_size,
                 seed=self.smart_init_seed,
             )
-
-        if smart_init_points is None:
-            smart_init_points, _, _ = build_smart_init_from_image(
-                img.astype(np.float32) / 255.0,
-                grid_size=self.grid_size,
-                n_points=self.grid_size * self.grid_size,
-                seed=self.smart_init_seed,
-            )
-            if self.smart_init_cache_dir:
-                smart_points_path = os.path.join(self.smart_init_cache_dir, stem + "_points.npy")
-                np.save(smart_points_path, smart_init_points)
-
-        smart_init_points = self._apply_micro_jitter(smart_init_points)
-        smart_init_offsets_np = smart_init_points_to_offsets(smart_init_points)
-        smart_init_grid = render_smart_init_grid(smart_init_points, grid_size=self.grid_size)
 
         smart_init_grid = torch.from_numpy(smart_init_grid).to(torch.float32).clone().contiguous()
         smart_init_offsets = torch.from_numpy(smart_init_offsets_np).to(torch.float32).clone().contiguous()
