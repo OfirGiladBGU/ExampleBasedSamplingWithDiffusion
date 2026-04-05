@@ -206,7 +206,7 @@ def export_gt_offset_artifacts(out_dir, gt_offsets):
         mag_u8 = np.round((mag / mag.max()) * 255.0).astype(np.uint8)
     else:
         mag_u8 = np.zeros_like(mag, dtype=np.uint8)
-    Image.fromarray(mag_u8).save(os.path.join(gt_dir, "gt_offsets_magnitude_32x32.png"))
+    Image.fromarray(mag_u8).save(os.path.join(gt_dir, f"gt_offsets_magnitude_{GRID_SIZE}x{GRID_SIZE}.png"))
 
     # 2) Inverse OT mapping then exact 32x32 occupancy (no interpolation).
     pts_grid = to_pointset_optimal_transport(gt_offsets)
@@ -220,7 +220,7 @@ def export_gt_offset_artifacts(out_dir, gt_offsets):
         counts[y_idx, x_idx] += 1
 
     Image.fromarray(((counts > 0).astype(np.uint8) * 255), mode="L").save(
-        os.path.join(gt_dir, "gt_points_binary_32x32.png")
+        os.path.join(gt_dir, f"gt_points_binary_{GRID_SIZE}x{GRID_SIZE}.png")
     )
 
     # 3) Quiver view of offset vectors for intuitive direction/magnitude reading.
@@ -544,6 +544,19 @@ def main():
     print(f"\n{'Step':>6}  {'Loss':>12}")
     print("-" * 22)
 
+    # Keep evaluation deterministic: sample from clean (non-jittered) Smart Init.
+    if args.enable_smart_init_splat:
+        clean_smart_init_grid = render_smart_init_gpu(
+            smart_points_base,
+            grid_size=GRID_SIZE,
+            sigma_px=args.smart_init_splat_sigma_px,
+        )
+    else:
+        clean_smart_init_grid = torch.zeros(
+            1, 1, GRID_SIZE, GRID_SIZE,
+            device=device, dtype=smart_points_base.dtype,
+        )
+
     losses = []
     for step in range(1, args.steps + 1):
         if args.enable_smart_init_jitter:
@@ -611,8 +624,8 @@ def main():
                 high_res_sdf,
                 target_density,
                 target_sdf,
-                smart_init_grid,
-                smart_init_offsets,
+                clean_smart_init_grid,
+                smart_init_offsets_base,
                 device,
                 n_samples=args.n_samples,
                 timesteps=args.sample_timesteps,
