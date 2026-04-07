@@ -36,11 +36,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n_samples", type=int, default=1, help="Batch size")
     parser.add_argument("--timesteps", type=int, default=1000, help="Reverse diffusion steps")
     parser.add_argument("--model_grid_size", type=int, default=32, help="Model output grid size")
-    parser.add_argument("--warp_grid_size", type=int, default=256, help="CDF warp density grid size")
+    parser.add_argument("--warp_grid_size", type=int, default=64, help="Warp solver grid size")
     parser.add_argument("--density_mode", choices=["dark", "light"], default="dark", help="Which image intensities attract points")
     parser.add_argument("--density_gamma", type=float, default=1.0, help="Density shaping gamma")
     parser.add_argument("--cdf_eps", type=float, default=1e-8, help="Numerical epsilon for CDF inversion")
     parser.add_argument("--disable_cdf_interpolation", action="store_true", help="Disable subpixel interpolation for debugging")
+    parser.add_argument("--lloyd_relax_steps", type=int, default=15, help="Lloyd relaxation steps after CDF warp (0 disables)")
+    parser.add_argument("--lloyd_tau", type=float, default=0.005, help="Softmax temperature for Lloyd step (lower = sharper boundaries)")
+    parser.add_argument("--lloyd_grid_size", type=int, default=64, help="Lloyd solver grid size")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu", help="Execution device")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--output_dir", default="train_free_v4/sample_outputs", help="Output directory")
@@ -66,6 +69,10 @@ def main() -> int:
     print(f"Warp grid: {args.warp_grid_size}")
     print(f"Density mode: {args.density_mode}")
     print(f"Density gamma: {args.density_gamma}")
+    if args.lloyd_relax_steps > 0:
+        print(f"Lloyd relax steps: {args.lloyd_relax_steps}")
+        print(f"Lloyd tau: {args.lloyd_tau}")
+        print(f"Lloyd grid size: {args.lloyd_grid_size}")
     print(f"Device: {args.device}")
     print()
 
@@ -91,6 +98,9 @@ def main() -> int:
             density_gamma=args.density_gamma,
             cdf_eps=args.cdf_eps,
             interpolation=not args.disable_cdf_interpolation,
+            lloyd_relax_steps=args.lloyd_relax_steps,
+            lloyd_tau=args.lloyd_tau,
+            lloyd_grid_size=args.lloyd_grid_size,
             device=args.device,
             with_tqdm=True,
         )

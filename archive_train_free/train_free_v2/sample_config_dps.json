@@ -1,0 +1,18 @@
+{
+    "description": "Sample configuration for train_free_v2 Sinkhorn-guided sampling",
+    "sampling": {
+        "timesteps": 1000,
+        "lambda_0": 1.0,
+        "grad_clip": 1.0
+    },
+    "sinkhorn": {
+        "blur": 0.05,
+        "grid_size": 32,
+        "max_iters": 50
+    },
+    "output": {
+        "save_npy": true,
+        "save_visualization": true,
+        "save_comparison": true
+    }
+}
