@@ -104,9 +104,6 @@ SAVE_EVERY = 1
 DEVICE = "cuda"
 RESUME_LATEST = True
 
-EVAL_EVERY = 0
-EVAL_BATCH = 4
-
 NUM_WORKERS = 4
 PIN_MEMORY = True
 VAL_SPLIT = 0.1
@@ -600,16 +597,8 @@ def main():
         "--save_every",
         type=int,
         default=SAVE_EVERY,
-        help="Save standard epoch checkpoints every N epochs (best-geom checkpoints are saved independently)",
+        help="Every N epochs: save standard checkpoints and export/log train+valid+hints panels (best-geom checkpoints are saved independently)",
     )
-    parser.add_argument(
-        "--eval-every",
-        type=int,
-        default=EVAL_EVERY,
-        help="Run intermediate eval sampling every N epochs (0 disables)",
-    )
-    parser.add_argument("--eval-batch", type=int, default=EVAL_BATCH,
-                        help="Number of samples for each intermediate eval")
     parser.add_argument("--val-split", type=float, default=VAL_SPLIT,
                         help="Validation split ratio in [0,1). Example: 0.1 = 10%% val")
     parser.add_argument(
@@ -818,6 +807,7 @@ def main():
 
     # ── training loop ────────────────────────────────────────────────
     for epoch in range(start_epoch, args.epochs):
+        should_save_epoch = ((epoch + 1) % args.save_every == 0) or ((epoch + 1) == args.epochs)
         epoch_loss = 0.0
         preview_high_res = None
         preview_target_density = None
@@ -872,7 +862,7 @@ def main():
                 preview_smart_init_grid = smart_init_grid[:keep_train].detach()
                 preview_smart_init_offsets = smart_init_offsets[:keep_train].detach()
 
-                if use_wandb and HAS_MPL:
+                if should_save_epoch and use_wandb and HAS_MPL:
                     fig, axes = plt.subplots(1, 3, figsize=(9, 3), dpi=140)
                     axes[0].imshow(preview_target_density[0, 0].cpu().numpy(), cmap="gray", vmin=0.0, vmax=1.0)
                     axes[0].set_title("target_density")
@@ -923,7 +913,7 @@ def main():
 
         avg_loss = epoch_loss / max(len(train_loader), 1)
 
-        if args.wandb_train_images > 0 and preview_high_res is not None and preview_high_res.shape[0] > 0:
+        if should_save_epoch and args.wandb_train_images > 0 and preview_high_res is not None and preview_high_res.shape[0] > 0:
             control_net.eval()
             train_pred_raw = sample_eval_batch(
                 diffusion,
@@ -938,7 +928,7 @@ def main():
                 n_samples=preview_high_res.shape[0],
                 timesteps=args.eval_timesteps,
                 resample_jumps=args.resample_jumps,
-                show_tqdm=False,
+                show_tqdm=True,
                 tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [train-predict]",
                 smart_init_offsets=preview_smart_init_offsets,
                 truncation_ratio=args.truncation_ratio,
@@ -1036,7 +1026,7 @@ def main():
             val_avg_loss = val_loss_sum / max(len(val_loader), 1)
             control_net.train()
 
-            if args.wandb_valid_images > 0:
+            if should_save_epoch and args.wandb_valid_images > 0:
                 # Export per-epoch qualitative val panel (N samples, 4 columns).
                 control_net.eval()
                 pred_raw = sample_eval_batch(
@@ -1186,38 +1176,6 @@ def main():
         else:
             print(f"Epoch {epoch:>4d}  |  train loss = {avg_loss:.6f}  |  val loss = {val_avg_loss:.6f}")
 
-        # Optional intermediate eval sampling with full resampling workflow.
-        if args.eval_every > 0 and (epoch + 1) % args.eval_every == 0:
-            control_net.eval()
-            eval_raw = sample_eval_batch(
-                diffusion,
-                denoiser,
-                control_net,
-                preview_high_res,
-                preview_high_res_sdf,
-                preview_target_density,
-                preview_target_sdf,
-                preview_smart_init_grid,
-                device,
-                n_samples=args.eval_batch,
-                timesteps=args.eval_timesteps,
-                resample_jumps=args.resample_jumps,
-                show_tqdm=True,
-                tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [eval-sample]",
-                smart_init_offsets=preview_smart_init_offsets,
-                truncation_ratio=args.truncation_ratio,
-            )
-            eval_path = os.path.join(args.out, f"eval_offsets_ep{epoch+1}.pt")
-            torch.save(eval_raw.cpu(), eval_path)
-            print(f"  -> saved eval samples: {eval_path}")
-            if use_wandb:
-                wandb.log({
-                    "epoch": epoch + 1,
-                    "eval/sample_path": eval_path,
-                }, step=epoch + 1)
-            control_net.train()
-
-        should_save_epoch = ((epoch + 1) % args.save_every == 0) or ((epoch + 1) == args.epochs)
         if should_save_epoch:
             save_path = os.path.join(checkpoints_dir, f"dynamic_controlnet_v3_ep{epoch+1}.pt")
             torch.save({
