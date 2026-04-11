@@ -1,0 +1,40 @@
+{
+    "path": "config_trained/GBN_stress1",
+    "model": 
+    {
+        "num_channels": 2,
+        "ch": 128, 
+        "out_ch": 2, 
+        "ch_mult": [1, 2, 3],
+        "num_res": 2, 
+        "attn_layers": [],
+        "attn_middle": false,
+        "dropout": 0.1, 
+        "resamp_with_conv": true
+    },
+    "diffusion": 
+    {
+        "betas": {
+            "min": 1e-4,
+            "max": 1e-2, 
+            "count": 1000,
+            "schedule": "linear"
+        },
+        "loss": "mse" 
+    },
+    "train": 
+    {
+        "dataset": "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/db/db_full.hdf5",
+        "samplers": ["GBN"], 
+        "batch_size": 32,
+        "ema_decay": 0.995,
+        "ema_update_every": 25,
+        "lr": 1e-5
+    },
+    "eval": 
+    {    
+        "directory": "eval/", 
+        "freq": 1000000,
+        "ts": [50, 1000]
+    }
+}

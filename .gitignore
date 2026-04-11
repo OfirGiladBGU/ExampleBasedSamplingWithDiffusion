@@ -1,9 +1,10 @@
 __pycache__/
-config/
 db/
 docs/
 *outputs*/
 archive/
+*.ckpt
+config_trained/
 
 wandb/
 logs*/
