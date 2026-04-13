@@ -35,7 +35,7 @@ from utils.stippling_metrics import compute_spacing_quality
 # # Control V4 configuration
 # CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynamic_controlnet_v3_ep1000.pt"
+# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynamic_controlnet_v3_ep1500.pt"
 
 
 # Stress 2:
@@ -47,7 +47,7 @@ BASELINE_CKPT_PATH = "config_trained/GBN_stress2/model.ckpt"
 # Control V4 configuration
 CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2/checkpoints/dynamic_controlnet_v3_ep400.pt"
+CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2/checkpoints/dynamic_controlnet_v3_ep500.pt"
 
 
 # Common settings
@@ -270,9 +270,7 @@ def save_panel(save_path, condition_image_01, gt_points_batch, baseline_points_b
         axes[0, col].axis("off")
 
         baseline_points = baseline_points_batch[i]
-        # Baseline was trained on HDF5 with GBN convention (y=0=bottom), so no y-flip needed.
-        # After retraining with corrected gbn_stress_test.py data, change to 1.0 - baseline_points[:, 1].
-        axes[1, col].scatter(baseline_points[:, 0], baseline_points[:, 1], s=0.5, c="black")
+        axes[1, col].scatter(baseline_points[:, 0], 1.0 - baseline_points[:, 1], s=0.5, c="black")
         axes[1, col].set_xlim(0, 1)
         axes[1, col].set_ylim(0, 1)
         axes[1, col].set_aspect("equal")
