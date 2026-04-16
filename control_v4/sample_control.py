@@ -26,10 +26,10 @@ from data.Transforms import to_pointset_optimal_transport
 from utils.Config import ParseSampleConfig
 
 
-# ?? editable defaults ????????????????????????????????????????????????
+# Editable defaults 
 CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT = "config/GBN/model.ckpt"
-CONTROL_CKPT = "control_v4/train_outputs/dynamic_controlnet_v3_ep1.pt"
+CONTROL_CKPT = "control_v4/train_outputs_icons50_512/checkpoints/dynamic_controlnet_v3_ep1200.pt"
 IMAGE_PATH = "control_v4/sample_test/source.png"
 OUTPUT_DIR = "control_v4/sample_outputs"
 N_SAMPLES = 1
@@ -45,6 +45,7 @@ DENOISE_INTERVAL = 50
 TRUNCATION_RATIO = 0.30
 T_START_STEP = -1
 SMART_INIT_SEED = 42
+SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 
 def save_sample_image(image_path, pts, out_png_path):
@@ -97,23 +98,39 @@ def _save_denoise_step(img_tensor, timestep_i, t_start, out_path):
     plt.close()
 
 
-def _save_condition_debug_tensors(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid, out_dir):
+def _save_condition_debug_tensors(
+    high_res,
+    high_res_sdf,
+    target_density,
+    target_sdf,
+    smart_init_grid_raw,
+    smart_init_grid_model,
+    out_dir,
+):
     os.makedirs(out_dir, exist_ok=True)
     cond_map = {
         "high_res": high_res,
         "high_res_sdf": high_res_sdf,
         "target_density": target_density,
         "target_sdf": target_sdf,
-        "smart_init_grid": smart_init_grid,
+        "smart_init_grid_raw": smart_init_grid_raw,
+        "smart_init_grid_model_input": smart_init_grid_model,
     }
     for name, tensor in cond_map.items():
         arr = tensor.detach().cpu().float().numpy().squeeze()
         np.save(os.path.join(out_dir, f"{name}.npy"), arr)
 
     if HAS_MPL:
-        ordered_names = ["high_res", "high_res_sdf", "target_density", "target_sdf", "smart_init_grid"]
+        ordered_names = [
+            "high_res",
+            "high_res_sdf",
+            "target_density",
+            "target_sdf",
+            "smart_init_grid_raw",
+            "smart_init_grid_model_input",
+        ]
         fig, axes = plt.subplots(2, 3, figsize=(10, 7), dpi=140)
-        for ax, name in zip(axes.flat, ordered_names + ["_"]):
+        for ax, name in zip(axes.flat, ordered_names):
             if name == "_":
                 ax.axis("off")
                 continue
@@ -132,6 +149,30 @@ def _save_condition_debug_tensors(high_res, high_res_sdf, target_density, target
         plt.tight_layout()
         plt.savefig(os.path.join(out_dir, "conditions_collage.png"), dpi=140, bbox_inches="tight")
         plt.close()
+
+
+def _grid_centers_flat(grid_size, device, dtype):
+    lin = (torch.arange(grid_size, device=device, dtype=dtype) + 0.5) / float(grid_size)
+    gx, gy = torch.meshgrid(lin, lin, indexing="xy")
+    return torch.stack([gx, gy], dim=-1).reshape(1, grid_size * grid_size, 2)
+
+
+def _offsets_to_coords_gpu(offsets, grid_size, grid_centers_flat):
+    bsz = offsets.shape[0]
+    offs = offsets.permute(0, 2, 3, 1).reshape(bsz, grid_size * grid_size, 2)
+    coords = grid_centers_flat.expand(bsz, -1, -1) + offs / float(grid_size)
+    return coords.clamp(0.0, 1.0)
+
+
+def _render_smart_init_gpu(coords, grid_size, sigma_px, device):
+    """Gaussian soft splatting of (1, N, 2) coords to (1, 1, G, G) -- matches training."""
+    lin = (torch.arange(grid_size, device=device, dtype=torch.float32) + 0.5) / float(grid_size)
+    gx, gy = torch.meshgrid(lin, lin, indexing="xy")
+    pixel_centers = torch.stack([gx, gy], dim=-1).reshape(1, grid_size * grid_size, 2)
+    sigma = max(float(sigma_px), 1e-4) / float(grid_size)
+    dist = torch.cdist(pixel_centers, coords, p=2)
+    gauss = torch.exp(-(dist * dist) / (2.0 * sigma * sigma))
+    return gauss.amax(dim=2).reshape(1, 1, grid_size, grid_size).clamp(0.0, 1.0)
 
 
 def load_condition(image_path, grid_size, device, sdf_truncate_px=0.0):
@@ -188,6 +229,8 @@ def main():
     parser.add_argument("--t-start-step", type=int, default=T_START_STEP,
                         help="If >=0, overrides truncation-ratio derived start step")
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
+    parser.add_argument("--smart-init-splat-sigma-px", type=float, default=SMART_INIT_SPLAT_SIGMA_PX,
+                        help="Gaussian sigma in grid-pixel units for Smart Init soft splatting (match training default)")
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
 
@@ -227,7 +270,16 @@ def main():
         n_points=args.grid_size * args.grid_size,
         seed=args.smart_init_seed,
     )
-    smart_init_grid = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
+    smart_init_grid_raw = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
+    smart_init_offsets = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
+    grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets.dtype)
+    smart_coords = _offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
+    smart_init_grid = _render_smart_init_gpu(
+        smart_coords,
+        args.grid_size,
+        args.smart_init_splat_sigma_px,
+        device,
+    )
 
     if not args.use_sdf:
         high_res_sdf = torch.zeros_like(high_res_sdf)
@@ -239,12 +291,19 @@ def main():
         high_res_sdf,
         target_density,
         target_sdf,
+        smart_init_grid_raw,
         smart_init_grid,
         conditions_dir,
     )
 
     smart_dir = os.path.join(sample_base_dir, "smart_init")
-    save_smart_init_debug(smart_dir, smart_points, smart_offsets_np, smart_grid_np)
+    save_smart_init_debug(
+        smart_dir,
+        smart_points,
+        smart_offsets_np,
+        smart_grid_np,
+        model_input_grid=smart_init_grid.detach().cpu().numpy(),
+    )
 
     controlled = DynamicControlledDenoiser(denoiser, control_net)
     controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid)
@@ -257,7 +316,7 @@ def main():
 
     n_samples = args.n_samples
     shape = [n_samples, 2, args.grid_size, args.grid_size]
-    x_init = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
+    x_init = smart_init_offsets
     if x_init.shape[0] != n_samples:
         x_init = x_init.expand(n_samples, -1, -1, -1).contiguous()
 

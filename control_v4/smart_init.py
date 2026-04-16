@@ -19,6 +19,16 @@ def generate_smart_init_points_from_density(image_2d, n_points, seed=42):
     h, w = prob.shape
     rng = np.random.RandomState(seed)
 
+    # Guard: if the image has no ink, rejection sampling will loop forever.
+    if prob.sum() <= 0.0:
+        print(
+            "WARNING: generate_smart_init_points_from_density received an all-white image "
+            "(no ink detected). Falling back to uniform random initialization."
+        )
+        x = rng.uniform(0.0, 1.0, n_points)
+        y = rng.uniform(0.0, 1.0, n_points)
+        return np.stack([x, y], axis=1).astype(np.float32)
+
     points = []
     batch = max(4096, n_points * 8)
     while len(points) < n_points:
@@ -77,7 +87,7 @@ def build_smart_init_from_image(image_2d, grid_size=32, n_points=None, seed=42):
     return points, offsets, smart_grid
 
 
-def save_smart_init_debug(out_dir, points, offsets, smart_grid):
+def save_smart_init_debug(out_dir, points, offsets, smart_grid, model_input_grid=None):
     """Save smart-init artifacts for debugging."""
     import os
 
@@ -85,15 +95,21 @@ def save_smart_init_debug(out_dir, points, offsets, smart_grid):
     np.save(os.path.join(out_dir, "smart_init_points.npy"), np.asarray(points, dtype=np.float32))
     np.save(os.path.join(out_dir, "smart_init_offsets.npy"), np.asarray(offsets, dtype=np.float32))
     np.save(os.path.join(out_dir, "smart_init_grid.npy"), np.asarray(smart_grid, dtype=np.float32))
+    if model_input_grid is not None:
+        np.save(
+            os.path.join(out_dir, "smart_init_grid_model_input.npy"),
+            np.asarray(model_input_grid, dtype=np.float32),
+        )
 
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(1, 2, figsize=(8, 4), dpi=140)
+        n_cols = 3 if model_input_grid is not None else 2
+        fig, axes = plt.subplots(1, n_cols, figsize=(4 * n_cols, 4), dpi=140)
         axes[0].imshow(np.squeeze(smart_grid), cmap="gray", vmin=0.0, vmax=1.0)
-        axes[0].set_title("smart_init_grid")
+        axes[0].set_title("smart_init_grid_raw")
         axes[0].axis("off")
 
         axes[1].scatter(points[:, 0], 1.0 - points[:, 1], c="black", s=0.7, alpha=0.8)
@@ -102,6 +118,11 @@ def save_smart_init_debug(out_dir, points, offsets, smart_grid):
         axes[1].set_aspect("equal")
         axes[1].set_title("smart_init_points")
         axes[1].axis("off")
+
+        if model_input_grid is not None:
+            axes[2].imshow(np.squeeze(model_input_grid), cmap="gray", vmin=0.0, vmax=1.0)
+            axes[2].set_title("smart_init_grid_model_input")
+            axes[2].axis("off")
 
         plt.tight_layout()
         plt.savefig(os.path.join(out_dir, "smart_init_collage.png"), dpi=140, bbox_inches="tight")
