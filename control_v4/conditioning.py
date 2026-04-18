@@ -3,12 +3,21 @@ import torch
 import torch.nn.functional as F
 
 
-def compute_signed_distance_field(image_2d, truncate_px=0.0):
-    """Return a normalized signed distance field for a grayscale image.
+def compute_raw_sdf(image_2d):
+    """Compute raw signed distance field (no truncation or normalization).
 
-    Dark pixels are treated as ink. Negative values lie inside ink regions,
-    positive values lie in the background, and the result is normalized to
-    [-1, 1] per image for stable conditioning.
+    This is the expensive scipy.ndimage.distance_transform_edt operation.
+    Cache the output of this function to avoid recomputing every epoch.
+
+    Parameters
+    ----------
+    image_2d : array-like
+        2D grayscale image with values in [0, 1]. Dark pixels (< 0.5) are ink.
+
+    Returns
+    -------
+    np.ndarray
+        Raw SDF as float32. Negative inside ink, positive in background.
     """
     from scipy import ndimage
 
@@ -21,6 +30,28 @@ def compute_signed_distance_field(image_2d, truncate_px=0.0):
     dist_to_bg = ndimage.distance_transform_edt(ink_mask)
     sdf = dist_to_ink - dist_to_bg
 
+    return sdf.astype(np.float32, copy=False)
+
+
+def apply_sdf_truncation(raw_sdf, truncate_px=0.0):
+    """Apply optional truncation and normalize SDF to [-1, 1].
+
+    This is a cheap numpy operation — safe to run every epoch.
+
+    Parameters
+    ----------
+    raw_sdf : np.ndarray
+        Raw signed distance field from compute_raw_sdf().
+    truncate_px : float
+        If > 0, clip SDF values to [-truncate_px, truncate_px] before normalizing.
+
+    Returns
+    -------
+    np.ndarray
+        Normalized SDF in [-1, 1] as float32.
+    """
+    sdf = raw_sdf.copy()
+
     if truncate_px is not None and truncate_px > 0.0:
         sdf = np.clip(sdf, -truncate_px, truncate_px)
 
@@ -29,6 +60,21 @@ def compute_signed_distance_field(image_2d, truncate_px=0.0):
         sdf = sdf / max_abs
 
     return sdf.astype(np.float32, copy=False)
+
+
+def compute_signed_distance_field(image_2d, truncate_px=0.0):
+    """Return a normalized signed distance field for a grayscale image.
+
+    Dark pixels are treated as ink. Negative values lie inside ink regions,
+    positive values lie in the background, and the result is normalized to
+    [-1, 1] per image for stable conditioning.
+
+    Note: This is a convenience wrapper that calls compute_raw_sdf() followed
+    by apply_sdf_truncation(). For training with caching, use those functions
+    directly to avoid redundant scipy calls.
+    """
+    raw_sdf = compute_raw_sdf(image_2d)
+    return apply_sdf_truncation(raw_sdf, truncate_px=truncate_px)
 
 
 def build_condition_tensors_from_image(image_2d, grid_size, device=None, sdf_truncate_px=0.0):
@@ -50,5 +96,40 @@ def build_condition_tensors_from_image(image_2d, grid_size, device=None, sdf_tru
         target_density = target_density.to(device)
         high_res_sdf = high_res_sdf.to(device)
         target_sdf = target_sdf.to(device)
+
+    return high_res, target_density, high_res_sdf, target_sdf
+
+
+def build_condition_tensors_from_cached_sdf(image_2d, raw_sdf, grid_size, sdf_truncate_px=0.0):
+    """Build condition tensors using a pre-computed raw SDF (no scipy calls).
+
+    This is the fast path for training — skips the expensive distance_transform_edt.
+
+    Parameters
+    ----------
+    image_2d : np.ndarray
+        2D grayscale image with values in [0, 1].
+    raw_sdf : np.ndarray
+        Pre-computed raw SDF from compute_raw_sdf().
+    grid_size : int
+        Target grid size for downsampled tensors.
+    sdf_truncate_px : float
+        Truncation threshold for SDF normalization.
+
+    Returns
+    -------
+    tuple
+        (high_res, target_density, high_res_sdf, target_sdf) tensors.
+    """
+    image = np.asarray(image_2d, dtype=np.float32)
+    if image.max() > 1.0 or image.min() < 0.0:
+        image = image / 255.0
+
+    high_res = torch.from_numpy(image).unsqueeze(0).unsqueeze(0)
+    normalized_sdf = apply_sdf_truncation(raw_sdf, truncate_px=sdf_truncate_px)
+    high_res_sdf = torch.from_numpy(normalized_sdf).unsqueeze(0).unsqueeze(0)
+
+    target_density = F.interpolate(high_res, size=(grid_size, grid_size), mode="area")
+    target_sdf = F.interpolate(high_res_sdf, size=(grid_size, grid_size), mode="bilinear", align_corners=False)
 
     return high_res, target_density, high_res_sdf, target_sdf

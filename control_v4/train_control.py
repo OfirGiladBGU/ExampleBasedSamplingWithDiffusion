@@ -68,6 +68,7 @@ OUTPUT_DIR = "control_v4/train_outputs"
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
 OFFSETS_DIR = ""
 SMART_INIT_CACHE_DIR = ""
+PRELOAD_RAM = False  # Preload all cached data to RAM (eliminates disk I/O per batch)
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
 # Model parameters
@@ -531,6 +532,8 @@ def main():
                         help="Dir of .npy offset files; if empty/missing, offsets are exported from --target")
     parser.add_argument("--smart-init-cache-dir", default=SMART_INIT_CACHE_DIR,
                         help="Optional directory to cache Smart Init grids as .npy")
+    parser.add_argument("--preload-ram", action="store_true", default=PRELOAD_RAM,
+                        help="Preload all cached data (SDF, smart init) to RAM for zero disk I/O per batch")
     parser.add_argument("--out", default=OUTPUT_DIR,
                         help="Output directory for checkpoints and logs")
 
@@ -717,6 +720,7 @@ def main():
         sdf_truncate_px=args.sdf_truncate_px,
         smart_init_cache_dir=smart_init_cache_dir,
         smart_init_seed=args.smart_init_seed,
+        preload_ram=False,  # Initial scan only, no preload needed
     )
     if len(dataset) == 0:
         raise RuntimeError(
@@ -740,6 +744,7 @@ def main():
         smart_init_cache_dir=smart_init_cache_dir,
         smart_init_seed=args.smart_init_seed,
         filenames=train_filenames,
+        preload_ram=args.preload_ram,
     )
 
     val_dataset = None
@@ -753,6 +758,7 @@ def main():
             smart_init_cache_dir=smart_init_cache_dir,
             smart_init_seed=args.smart_init_seed,
             filenames=val_filenames,
+            preload_ram=args.preload_ram,
         )
 
     train_loader = DataLoader(
@@ -1082,7 +1088,8 @@ def main():
                 control_net.train()
 
             # Geometry-gated best checkpoint based on CV + clumped% score.
-            if val_preview_high_res is not None and val_preview_high_res.shape[0] > 0:
+            # Only compute geometry on epochs where we save checkpoints.
+            if should_save_epoch and val_preview_high_res is not None and val_preview_high_res.shape[0] > 0:
                 control_net.eval()
                 if pred_raw_for_geom is None:
                     pred_raw_for_geom = sample_eval_batch(
@@ -1098,7 +1105,7 @@ def main():
                         n_samples=1,
                         timesteps=args.eval_timesteps,
                         resample_jumps=args.resample_jumps,
-                        show_tqdm=False,
+                        show_tqdm=True,
                         tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [geom]",
                         smart_init_offsets=val_preview_smart_init_offsets[:1],
                         truncation_ratio=args.truncation_ratio,

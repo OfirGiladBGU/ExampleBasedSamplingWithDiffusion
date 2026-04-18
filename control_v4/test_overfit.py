@@ -35,7 +35,11 @@ except ImportError:
     HAS_WANDB = False
 
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
-from control_v4.conditioning import build_condition_tensors_from_image
+from control_v4.conditioning import (
+    build_condition_tensors_from_cached_sdf,
+    build_condition_tensors_from_image,
+    compute_raw_sdf,
+)
 from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from control_v4.smart_init import (
     add_noise_at_t,
@@ -72,7 +76,7 @@ USE_SDF = True
 SDF_TRUNCATE_PX = 8.0
 
 SMART_INIT_SEED = 42
-ENABLE_SMART_INIT_JITTER = False
+ENABLE_SMART_INIT_JITTER = True
 SMART_INIT_JITTER_PX = 0.5
 ENABLE_SMART_INIT_SPLAT = True
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
@@ -91,7 +95,8 @@ VIS_EVERY = 500
 N_SAMPLES = 2
 SEED = 42
 DEVICE = "cuda"
-
+CAPACITY_GRID_SIZE = 16
+# CAPACITY_GRID_SIZE = -1  # -1 for full input resolution
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -133,16 +138,44 @@ def extract_points_from_image(img_path, n_points):
     return pts
 
 
-def load_condition(img_path, grid_size, device, sdf_truncate_px=0.0):
-    """Load source image and return image, density, and SDF condition tensors."""
+def load_condition(img_path, grid_size, device, sdf_truncate_px=0.0, cache_dir=None):
+    """Load source image and return image, density, and SDF condition tensors.
+    
+    If cache_dir is provided, caches the raw SDF to avoid scipy calls on repeated runs.
+    """
     img = Image.open(img_path).convert("L")
     img_np = np.array(img, dtype=np.float32) / 255.0
-    return build_condition_tensors_from_image(
-        img_np,
-        grid_size,
-        device,
-        sdf_truncate_px=sdf_truncate_px,
-    )
+    
+    # Check for cached raw SDF
+    if cache_dir:
+        stem = os.path.splitext(os.path.basename(img_path))[0]
+        sdf_cache_path = os.path.join(cache_dir, stem + "_sdf_raw.npy")
+        if os.path.exists(sdf_cache_path):
+            raw_sdf = np.load(sdf_cache_path)
+            high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_cached_sdf(
+                img_np, raw_sdf, grid_size, sdf_truncate_px=sdf_truncate_px
+            )
+        else:
+            raw_sdf = compute_raw_sdf(img_np)
+            os.makedirs(cache_dir, exist_ok=True)
+            np.save(sdf_cache_path, raw_sdf)
+            high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_cached_sdf(
+                img_np, raw_sdf, grid_size, sdf_truncate_px=sdf_truncate_px
+            )
+    else:
+        high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_image(
+            img_np,
+            grid_size,
+            sdf_truncate_px=sdf_truncate_px,
+        )
+    
+    if device is not None:
+        high_res = high_res.to(device)
+        target_density = target_density.to(device)
+        high_res_sdf = high_res_sdf.to(device)
+        target_sdf = target_sdf.to(device)
+    
+    return high_res, target_density, high_res_sdf, target_sdf
 
 
 def _grid_centers_flat(grid_size, device, dtype):
@@ -297,6 +330,7 @@ def sample_from_model(diffusion, control_net, denoiser, high_res, high_res_sdf,
                    total=t_start,
                    desc="sampling"):
         t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
+
         for u in range(resample_jumps + 1):
             with torch.no_grad():
                 img = diffusion.p_sample(
@@ -428,10 +462,19 @@ def main():
     parser.add_argument("--vis-every", type=int, default=VIS_EVERY,
                         help="Visualise & sample every N steps")
     parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
+    parser.add_argument(
+        "--capacity-grid-size",
+        type=int,
+        default=CAPACITY_GRID_SIZE,
+        help="Capacity grid size: >0 uses KxK, -1 uses full source image resolution",
+    )
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--device", default=DEVICE)
 
     args = parser.parse_args()
+
+    if args.capacity_grid_size == 0 or args.capacity_grid_size < -1:
+        raise ValueError("--capacity-grid-size must be > 0, or -1 for full source resolution")
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -486,6 +529,7 @@ def main():
         GRID_SIZE,
         device,
         sdf_truncate_px=args.sdf_truncate_px,
+        cache_dir=out_dir,  # Cache raw SDF for faster repeated runs
     )
 
     source_img_01 = np.array(Image.open(source_path).convert("L"), dtype=np.float32) / 255.0
@@ -549,6 +593,10 @@ def main():
     print(f"  Smart Init soft-splat sigma (px): {args.smart_init_splat_sigma_px}")
     print(f"  Smart Init jitter enabled: {args.enable_smart_init_jitter}")
     print(f"  Smart Init splat enabled: {args.enable_smart_init_splat}")
+    if args.capacity_grid_size == -1:
+        print("  Capacity grid size: full source resolution")
+    else:
+        print(f"  Capacity grid size: {args.capacity_grid_size}x{args.capacity_grid_size}")
     print(f"  Truncation ratio: {TRUNCATION_RATIO:.3f} -> cutoff {truncation_cutoff}/{num_timesteps}")
 
     optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
@@ -640,13 +688,13 @@ def main():
                 timesteps=args.sample_timesteps,
                 resample_jumps=args.resample_jumps,
                 truncation_ratio=TRUNCATION_RATIO,
-                control_decay_threshold=args.control_decay_threshold,
             )
             vis_path = os.path.join(vis_dir, f"vis_step{step:05d}.png")
             saved = visualize_overfit_metrics(
                 source_np, target_np, gt_points,
                 list(pts), vis_path, step=step,
                 gt_offsets=gt_offsets,
+                capacity_grid_size=args.capacity_grid_size,
             )
             np.save(os.path.join(points_dir, f"points_step{step:05d}.npy"), pts)
             print(f"  -> saved visualisation: {vis_path}")

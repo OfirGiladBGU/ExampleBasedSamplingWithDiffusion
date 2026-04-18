@@ -159,6 +159,30 @@ def geometric_validation_score(pointsets, clump_weight=5.0):
     }
 
 
+def resolve_capacity_grid_size(image_01, capacity_grid_size):
+    """Resolve capacity grid size from user option.
+
+        capacity_grid_size semantics:
+            - int > 0: use square (k, k)
+            - int == -1: use full image resolution (H, W)
+            - tuple/list (h, w): use explicit grid shape
+    """
+    h_img, w_img = image_01.shape
+    if isinstance(capacity_grid_size, (tuple, list)) and len(capacity_grid_size) == 2:
+        h_grid = max(1, int(capacity_grid_size[0]))
+        w_grid = max(1, int(capacity_grid_size[1]))
+        return h_grid, w_grid
+
+    k = int(capacity_grid_size)
+    if k == -1:
+        return h_img, w_img
+    if k <= 0:
+        raise ValueError(
+            "capacity_grid_size must be > 0, or -1 for full image resolution"
+        )
+    return k, k
+
+
 # ── visualization ────────────────────────────────────────────────────
 
 def visualize_overfit_metrics(
@@ -170,6 +194,7 @@ def visualize_overfit_metrics(
     step=None,
     point_size=0.5,
     gt_offsets=None,
+    capacity_grid_size=16,
 ):
     """Create 3-row comparison figure with metrics.
 
@@ -226,7 +251,8 @@ def visualize_overfit_metrics(
 
     # ── compute metrics for GT + each prediction ─────────────────────
     all_points = [gt_points] + [pred_pointsets[i] for i in range(n_preds)]
-    all_cap = [compute_grid_capacity(p, image_01) for p in all_points]
+    cap_grid_shape = resolve_capacity_grid_size(image_01, capacity_grid_size)
+    all_cap = [compute_grid_capacity(p, image_01, grid_size=cap_grid_shape) for p in all_points]
     all_spa = [compute_spacing_quality(p) for p in all_points]
 
     # ── Row 1: grid capacity ─────────────────────────────────────────
@@ -264,6 +290,7 @@ def visualize_overfit_metrics(
         ok_pct = 100.0 - cap["underfilled_pct"] - cap["overfilled_pct"]
         ax.set_title(
             f"{label} Capacity\n"
+            f"Grid:{cap_grid_shape[0]}x{cap_grid_shape[1]} | "
             f"OK:{ok_pct:.0f}% Under:{cap['underfilled_pct']:.0f}% Over:{cap['overfilled_pct']:.0f}%\n"
             f"Score: {cap['score']:.3f}",
             fontsize=9,
