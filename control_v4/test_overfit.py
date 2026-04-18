@@ -195,6 +195,21 @@ def render_smart_init_gpu(coords, grid_size=32, sigma_px=0.5):
     return grid.clamp(0.0, 1.0)
 
 
+def render_occupancy_grid_gpu(coords, grid_size=32):
+    """Render (B,N,2) coords to (B,1,G,G) normalized occupancy map on GPU."""
+    bsz, n, _ = coords.shape
+    device = coords.device
+    dtype = coords.dtype
+    px = (coords[:, :, 0] * grid_size).clamp(0, grid_size - 1).long()
+    py = (coords[:, :, 1] * grid_size).clamp(0, grid_size - 1).long()
+    flat_idx = py * grid_size + px
+    grid_flat = torch.zeros(bsz, grid_size * grid_size, device=device, dtype=dtype)
+    ones = torch.ones(bsz, n, device=device, dtype=dtype)
+    grid_flat.scatter_add_(1, flat_idx, ones)
+    mx = grid_flat.amax(dim=1, keepdim=True).clamp(min=1.0)
+    return (grid_flat / mx).reshape(bsz, 1, grid_size, grid_size)
+
+
 def export_gt_offset_artifacts(out_dir, gt_offsets):
     """Save GT offset diagnostics inside out_dir/gt_offset/."""
     gt_dir = os.path.join(out_dir, "gt_offset")
@@ -395,7 +410,7 @@ def main():
         "--enable-smart-init-splat",
         action=argparse.BooleanOptionalAction,
         default=ENABLE_SMART_INIT_SPLAT,
-        help="Enable Gaussian soft splatting for Smart Init grid; zeros the channel when disabled",
+        help="Enable Gaussian soft splatting for Smart Init grid; when disabled uses occupancy grid",
     )
 
     # Loss parameters
@@ -474,13 +489,14 @@ def main():
     )
 
     source_img_01 = np.array(Image.open(source_path).convert("L"), dtype=np.float32) / 255.0
-    _, smart_offsets_np, _ = build_smart_init_from_image(
+    _, smart_offsets_np, smart_grid_np = build_smart_init_from_image(
         source_img_01,
         grid_size=GRID_SIZE,
         n_points=N_POINTS,
         seed=SMART_INIT_SEED,
     )
     smart_init_offsets_base = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
+    smart_init_grid_base = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
     smart_grid_centers_flat = _grid_centers_flat(GRID_SIZE, device, smart_init_offsets_base.dtype)
     smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, GRID_SIZE, smart_grid_centers_flat)
 
@@ -544,41 +560,34 @@ def main():
     print(f"\n{'Step':>6}  {'Loss':>12}")
     print("-" * 22)
 
-    # Keep evaluation deterministic: sample from clean (non-jittered) Smart Init.
-    if args.enable_smart_init_splat:
-        clean_smart_init_grid = render_smart_init_gpu(
-            smart_points_base,
-            grid_size=GRID_SIZE,
-            sigma_px=args.smart_init_splat_sigma_px,
-        )
-    else:
-        clean_smart_init_grid = torch.zeros(
-            1, 1, GRID_SIZE, GRID_SIZE,
-            device=device, dtype=smart_points_base.dtype,
-        )
-
     losses = []
     for step in range(1, args.steps + 1):
+        # Reset to base values each step (mirrors train's fresh dataloader unpack)
+        smart_init_grid = smart_init_grid_base
+        smart_init_offsets = smart_init_offsets_base
+
+        smart_coords = None
+        if args.enable_smart_init_jitter or args.enable_smart_init_splat:
+            smart_coords = smart_points_base.clone()
+
         if args.enable_smart_init_jitter:
-            smart_points_step = apply_gpu_jitter(
-                smart_points_base,
+            smart_coords = apply_gpu_jitter(
+                smart_coords,
                 jitter_strength_px=args.smart_init_jitter_px,
                 grid_size=GRID_SIZE,
             )
-        else:
-            smart_points_step = smart_points_base
-        smart_init_offsets = coords_to_offsets_gpu(smart_points_step, GRID_SIZE, smart_grid_centers_flat)
+            smart_init_offsets = coords_to_offsets_gpu(smart_coords, GRID_SIZE, smart_grid_centers_flat)
+
         if args.enable_smart_init_splat:
             smart_init_grid = render_smart_init_gpu(
-                smart_points_step,
+                smart_coords,
                 grid_size=GRID_SIZE,
                 sigma_px=args.smart_init_splat_sigma_px,
             )
-        else:
-            smart_init_grid = torch.zeros(
-                1, 1, GRID_SIZE, GRID_SIZE,
-                device=device, dtype=smart_points_base.dtype,
-            )
+        elif args.enable_smart_init_jitter:
+            # Jitter moved the points: re-render occupancy grid so it stays in sync.
+            smart_init_grid = render_occupancy_grid_gpu(smart_coords, grid_size=GRID_SIZE)
+        # else: use precomputed grid (smart_init_grid already holds the right value)
 
         t = torch.randint(0, truncation_cutoff, (1,), device=device)
         noise = torch.randn_like(x_0)
@@ -624,13 +633,14 @@ def main():
                 high_res_sdf,
                 target_density,
                 target_sdf,
-                clean_smart_init_grid,
-                smart_init_offsets_base,
+                smart_init_grid,
+                smart_init_offsets,
                 device,
                 n_samples=args.n_samples,
                 timesteps=args.sample_timesteps,
                 resample_jumps=args.resample_jumps,
                 truncation_ratio=TRUNCATION_RATIO,
+                control_decay_threshold=args.control_decay_threshold,
             )
             vis_path = os.path.join(vis_dir, f"vis_step{step:05d}.png")
             saved = visualize_overfit_metrics(

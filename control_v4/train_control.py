@@ -365,6 +365,21 @@ def apply_gpu_jitter(coords, jitter_strength_px=0.0, grid_size=32):
     return (coords + torch.randn_like(coords) * sigma).clamp(0.0, 1.0)
 
 
+def render_occupancy_grid_gpu(coords, grid_size=32):
+    """Render (B,N,2) coords to (B,1,G,G) simple normalized occupancy map (no Gaussian)."""
+    bsz, n, _ = coords.shape
+    device = coords.device
+    dtype = coords.dtype
+    px = (coords[:, :, 0] * grid_size).clamp(0, grid_size - 1).long()
+    py = (coords[:, :, 1] * grid_size).clamp(0, grid_size - 1).long()
+    flat_idx = py * grid_size + px  # (B, N)
+    grid_flat = torch.zeros(bsz, grid_size * grid_size, device=device, dtype=dtype)
+    ones = torch.ones(bsz, n, device=device, dtype=dtype)
+    grid_flat.scatter_add_(1, flat_idx, ones)
+    mx = grid_flat.amax(dim=1, keepdim=True).clamp(min=1.0)
+    return (grid_flat / mx).reshape(bsz, 1, grid_size, grid_size)
+
+
 def render_smart_init_gpu(coords, grid_size=32, sigma_px=0.5, grid_centers_flat=None):
     """Render (B,N,2) coords to (B,1,G,G) with Gaussian soft splatting."""
     bsz = coords.shape[0]
@@ -826,15 +841,20 @@ def main():
             target_sdf = target_sdf.to(device)
             x_0 = x_0.to(device)
             smart_init_offsets = smart_init_offsets.to(device)
+            smart_init_grid = smart_init_grid.to(device)
 
-            smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
+            smart_coords = None
+            if args.enable_smart_init_jitter or args.enable_smart_init_splat_sigma:
+                smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
+
             if args.enable_smart_init_jitter:
                 smart_coords = apply_gpu_jitter(
                     smart_coords,
                     jitter_strength_px=args.smart_init_jitter_px,
                     grid_size=args.grid_size,
                 )
-            smart_init_offsets = coords_to_offsets_gpu(smart_coords, args.grid_size, grid_centers_flat)
+                smart_init_offsets = coords_to_offsets_gpu(smart_coords, args.grid_size, grid_centers_flat)
+
             if args.enable_smart_init_splat_sigma:
                 smart_init_grid = render_smart_init_gpu(
                     smart_coords,
@@ -842,11 +862,11 @@ def main():
                     sigma_px=args.smart_init_splat_sigma_px,
                     grid_centers_flat=grid_centers_flat,
                 )
-            else:
-                smart_init_grid = torch.zeros(
-                    smart_init_offsets.shape[0], 1, args.grid_size, args.grid_size,
-                    device=device, dtype=smart_coords.dtype,
-                )
+            elif args.enable_smart_init_jitter:
+                # Jitter moved the points: re-render occupancy grid from jittered coords so
+                # grid and offsets stay in sync. No Gaussian splat, just hard occupancy.
+                smart_init_grid = render_occupancy_grid_gpu(smart_coords, grid_size=args.grid_size)
+            # else: neither jitter nor splat — use precomputed occupancy grid from the dataloader
 
             if not args.use_sdf:
                 high_res_sdf = torch.zeros_like(high_res_sdf)
@@ -972,21 +992,17 @@ def main():
                     target_sdf = target_sdf.to(device)
                     x_0 = x_0.to(device)
                     smart_init_offsets = smart_init_offsets.to(device)
+                    smart_init_grid = smart_init_grid.to(device)
 
-                    smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
-                    smart_init_offsets = coords_to_offsets_gpu(smart_coords, args.grid_size, grid_centers_flat)
                     if args.enable_smart_init_splat_sigma:
+                        smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
                         smart_init_grid = render_smart_init_gpu(
                             smart_coords,
                             grid_size=args.grid_size,
                             sigma_px=args.smart_init_splat_sigma_px,
                             grid_centers_flat=grid_centers_flat,
                         )
-                    else:
-                        smart_init_grid = torch.zeros(
-                            smart_init_offsets.shape[0], 1, args.grid_size, args.grid_size,
-                            device=device, dtype=smart_coords.dtype,
-                        )
+                    # else: use precomputed occupancy grid from the dataloader (smart_init_grid already on device)
 
                     if not args.use_sdf:
                         high_res_sdf = torch.zeros_like(high_res_sdf)
