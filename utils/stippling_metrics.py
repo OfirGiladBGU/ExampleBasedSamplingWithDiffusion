@@ -195,6 +195,7 @@ def visualize_overfit_metrics(
     point_size=0.5,
     gt_offsets=None,
     capacity_grid_size=16,
+    pred_labels=None,
 ):
     """Create 3-row comparison figure with metrics.
 
@@ -240,13 +241,20 @@ def visualize_overfit_metrics(
     ax.set_title("GT (Target)")
     ax.axis("off")
 
+    if pred_labels is None:
+        pred_labels = [f"Predict {i}{step_label}" for i in range(n_preds)]
+    else:
+        pred_labels = [str(label) for label in pred_labels[:n_preds]]
+        if len(pred_labels) < n_preds:
+            pred_labels.extend(f"Predict {i}{step_label}" for i in range(len(pred_labels), n_preds))
+
     for i in range(n_preds):
         ax = axes[0, 2 + i]
         pts = pred_pointsets[i]
         ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
         ax.set_aspect("equal"); ax.set_facecolor("white")
-        ax.set_title(f"Predict {i}{step_label}")
+        ax.set_title(pred_labels[i])
         ax.axis("off")
 
     # ── compute metrics for GT + each prediction ─────────────────────
@@ -276,7 +284,7 @@ def visualize_overfit_metrics(
     else:
         axes[1, 0].axis("off")
 
-    col_labels = ["GT (Target)"] + [f"Predict {i}{step_label}" for i in range(n_preds)]
+    col_labels = ["GT (Target)"] + pred_labels
     for j, (cap, label) in enumerate(zip(all_cap, col_labels)):
         ax = axes[1, 1 + j]
         status = cap["grid_status"]

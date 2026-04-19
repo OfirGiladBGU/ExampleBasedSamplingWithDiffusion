@@ -23,31 +23,31 @@ from control_v4.conditioning import build_condition_tensors_from_image
 from control_v4.smart_init import add_noise_at_t, build_smart_init_from_image
 from data.Transforms import to_pointset_optimal_transport
 from utils.Config import ParseSampleConfig
-from utils.stippling_metrics import compute_spacing_quality
+from utils.stippling_metrics import compute_spacing_quality, visualize_overfit_metrics
 
 
 # Stress 1:
-# DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1"
-# OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs_stress1")
-# # Baseline configuration
-# BASELINE_CONFIG_PATH = "config_trained/GBN_stress1/config.json"
-# BASELINE_CKPT_PATH = "config_trained/GBN_stress1/model.ckpt"
-# # Control V4 configuration
-# CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
-# CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynamic_controlnet_v3_ep1500.pt"
-
-
-# Stress 2:
-DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2"
-OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs_stress2")
+DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1"
+OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs_stress1")
 # Baseline configuration
-BASELINE_CONFIG_PATH = "config_trained/GBN_stress2/config.json"
-BASELINE_CKPT_PATH = "config_trained/GBN_stress2/model.ckpt"
+BASELINE_CONFIG_PATH = "config_trained/GBN_stress1/config.json"
+BASELINE_CKPT_PATH = "config_trained/GBN_stress1/model.ckpt"
 # Control V4 configuration
 CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2/checkpoints/dynamic_controlnet_v3_ep500.pt"
+CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynamic_controlnet_v3_ep7500.pt"
+
+
+# Stress 2:
+# DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2"
+# OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs_stress2")
+# # Baseline configuration
+# BASELINE_CONFIG_PATH = "config_trained/GBN_stress2/config.json"
+# BASELINE_CKPT_PATH = "config_trained/GBN_stress2/model.ckpt"
+# # Control V4 configuration
+# CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
+# CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
+# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2/checkpoints/dynamic_controlnet_v3_ep1600.pt"
 
 
 # Common settings
@@ -67,6 +67,9 @@ USE_SDF = True
 SDF_TRUNCATE_PX = 8.0
 SMART_INIT_SEED = 42
 VALID_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+
+CALCULATE_METRICS = True
+CAPACITY_GRID_SIZE = 32
 
 
 def _is_image_file(name):
@@ -325,6 +328,18 @@ def main():
     parser.add_argument("--device", default=DEVICE)
     parser.add_argument("--n-examples", type=int, default=N_EXAMPLES,
                         help="Number of target examples (columns) to compare")
+    parser.add_argument(
+        "--calculate-metrics",
+        action=argparse.BooleanOptionalAction,
+        default=CALCULATE_METRICS,
+        help="Save one overfit-style metrics panel per sample into output_dir/<dataset>/metrics",
+    )
+    parser.add_argument(
+        "--capacity-grid-size",
+        type=int,
+        default=CAPACITY_GRID_SIZE,
+        help="Capacity grid size: >0 uses KxK, -1 uses full input image resolution",
+    )
     args = parser.parse_args()
 
     if not (0.0 < args.truncation_ratio <= 1.0):
@@ -333,6 +348,8 @@ def main():
         raise ValueError("--baseline-truncation-ratio must be in (0,1]")
     if args.n_examples <= 0:
         raise ValueError("--n-examples must be >= 1")
+    if args.capacity_grid_size == 0 or args.capacity_grid_size < -1:
+        raise ValueError("--capacity-grid-size must be > 0, or -1 for full input resolution")
 
     original_dir = os.path.join(args.data_root, "original")
     target_dir = os.path.join(args.data_root, "target")
@@ -487,6 +504,32 @@ def main():
     saved = save_panel(panel_path, condition_image_01, gt_points_batch, baseline_points_batch, control_points_batch)
     if saved:
         print(f"Saved panel to: {panel_path}")
+
+    if args.calculate_metrics:
+        metrics_dir = os.path.join(out_dir, "metrics")
+        os.makedirs(metrics_dir, exist_ok=True)
+        condition_image_u8 = (condition_image_01 * 255.0).astype(np.uint8)
+        metric_saved_count = 0
+
+        for i, target_path in enumerate(target_image_paths):
+            target_image_u8 = np.array(Image.open(target_path).convert("L"), dtype=np.uint8)
+            sample_stem = os.path.splitext(os.path.basename(target_path))[0]
+            metrics_path = os.path.join(metrics_dir, f"{i:03d}_{sample_stem}_metrics.png")
+            saved_metrics = visualize_overfit_metrics(
+                condition_image_u8,
+                target_image_u8,
+                gt_points_batch[i],
+                [baseline_points_batch[i], control_points_batch[i]],
+                metrics_path,
+                step=None,
+                gt_offsets=None,
+                capacity_grid_size=args.capacity_grid_size,
+                pred_labels=["Baseline", "Control V4"],
+            )
+            if saved_metrics:
+                metric_saved_count += 1
+
+        print(f"Saved {metric_saved_count}/{args.n_examples} metrics panels to: {metrics_dir}")
 
 
 if __name__ == "__main__":
