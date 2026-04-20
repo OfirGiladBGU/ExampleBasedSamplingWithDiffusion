@@ -86,7 +86,7 @@ TRUNCATION_RATIO = 0.30
 SMART_INIT_SEED = 42
 ENABLE_SMART_INIT_JITTER = False
 SMART_INIT_JITTER_PX = 0.5
-ENABLE_SMART_INIT_SPLAT_SIGMA = True
+ENABLE_SMART_INIT_SPLAT_SIGMA = False
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 # Loss component weights
@@ -660,7 +660,7 @@ def main():
         try:
             import wandb
             load_wandb_key()
-            run_name = datetime.now().strftime("v3-train-%Y%m%d-%H%M%S")
+            run_name = datetime.now().strftime("v4-train-%Y%m%d-%H%M%S")
             wandb.init(
                 project="Stipple-ControlNet",
                 name=run_name,
@@ -689,7 +689,7 @@ def main():
     num_timesteps = diffusion.num_timesteps
     truncation_cutoff = max(1, int(num_timesteps * args.truncation_ratio))
 
-    # ── build Dynamic ControlNet V3 ──────────────────────────────────
+    # ── build Dynamic ControlNet V4 ──────────────────────────────────
     # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
     control_net = DynamicControlNet(
         denoiser,
@@ -818,7 +818,7 @@ def main():
     train_epoch_history = []
     val_epoch_history = []
     if args.resume_latest:
-        ckpt_re = re.compile(r"^dynamic_controlnet_v3_ep(\d+)\.pt$")
+        ckpt_re = re.compile(r"^dynamic_controlnet_v4_ep(\d+)\.pt$")
         latest_path = None
         latest_epoch_num = -1
         for fname in os.listdir(checkpoints_dir):
@@ -1224,7 +1224,7 @@ def main():
             print(f"Epoch {epoch:>4d}  |  train loss = {avg_loss:.6f}  |  val loss = {val_avg_loss:.6f}")
 
         if should_save_epoch:
-            save_path = os.path.join(checkpoints_dir, f"dynamic_controlnet_v3_ep{epoch+1}.pt")
+            save_path = os.path.join(checkpoints_dir, f"dynamic_controlnet_v4_ep{epoch+1}.pt")
             torch.save({
                 "control_net": control_net.state_dict(),
                 "optimizer": optimizer.state_dict(),

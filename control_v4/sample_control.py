@@ -398,6 +398,7 @@ def main():
     diffusion.load_state_dict(torch.load(args.base_ckpt, map_location="cpu")["diffu"])
     diffusion.to(device)
     denoiser = diffusion.model
+    denoiser.eval()
 
     control_net = DynamicControlNet(
         denoiser,

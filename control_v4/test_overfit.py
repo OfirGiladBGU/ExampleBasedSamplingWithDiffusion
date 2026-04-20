@@ -77,9 +77,9 @@ USE_SDF = True
 SDF_TRUNCATE_PX = 8.0
 
 SMART_INIT_SEED = 42
-ENABLE_SMART_INIT_JITTER = True
+ENABLE_SMART_INIT_JITTER = False
 SMART_INIT_JITTER_PX = 0.5
-ENABLE_SMART_INIT_SPLAT = True
+ENABLE_SMART_INIT_SPLAT = False
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 # Loss parameters
@@ -491,7 +491,7 @@ def main():
     use_wandb = HAS_WANDB and WANDB_ACTIVE
     if use_wandb:
         load_wandb_key()
-        run_name = datetime.now().strftime("v3-overfit-%Y%m%d-%H%M%S")
+        run_name = datetime.now().strftime("v4-overfit-%Y%m%d-%H%M%S")
         wandb.init(
             project="Stipple-ControlNet",
             config=vars(args),
@@ -571,7 +571,7 @@ def main():
             "target": wandb.Image(target_np, caption="Target GT"),
         }, step=0)
 
-    # ── load pretrained diffusion + build Dynamic ControlNet V3 ──────
+    # ── load pretrained diffusion + build Dynamic ControlNet V4 ──────
     diffusion = ParseSampleConfig(CONFIG_PATH)
     diffusion.load_state_dict(
         torch.load(CKPT_PATH, map_location="cpu")["diffu"])
@@ -781,7 +781,7 @@ def main():
             denoiser.eval()
 
     # ── save final weights ───────────────────────────────────────────
-    ckpt_path = os.path.join(out_dir, "dynamic_controlnet_v3_overfit.pt")
+    ckpt_path = os.path.join(out_dir, "dynamic_controlnet_v4_overfit.pt")
     torch.save({
         "model_state_dict": control_net.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
@@ -802,7 +802,7 @@ def main():
         ax.plot(range(1, len(losses) + 1), losses, linewidth=0.5)
         ax.set_xlabel("Step")
         ax.set_ylabel("MSE Loss")
-        ax.set_title(f"V3 Overfit Loss ({fname})")
+        ax.set_title(f"V4 Overfit Loss ({fname})")
         ax.grid(True, alpha=0.3)
         loss_path = os.path.join(out_dir, "loss_curve.png")
         plt.tight_layout()

@@ -218,7 +218,7 @@ class DynamicControlNet(nn.Module):
 
 
 class DynamicControlledDenoiser(nn.Module):
-    """Drop-in wrapper that plugs a DynamicControlNet V3 into a frozen denoiser.
+    """Drop-in wrapper that plugs a DynamicControlNet V4 into a frozen denoiser.
 
     The ``forward(x, t, cond)`` signature matches ``DenoiserModel.forward``,
     so it can replace ``diffusion.model`` inside the existing sampling loop.
