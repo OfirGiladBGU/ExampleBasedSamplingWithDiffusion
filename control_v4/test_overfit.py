@@ -64,6 +64,7 @@ WANDB_ENV = ".env"
 EXPORT_GT_OFFSET = True
 
 # Model parameters
+FREEZE_DENOISER = True
 GRID_SIZE = 32
 N_POINTS = GRID_SIZE ** 2
 SAMPLE_TIMESTEPS = 1000
@@ -459,6 +460,12 @@ def main():
     parser.add_argument("--steps", type=int, default=STEPS)
     parser.add_argument("--sample-index", type=int, default=SAMPLE_INDEX)
     parser.add_argument("--lr", type=float, default=LR)
+    parser.add_argument(
+        "--freeze-denoiser",
+        action=argparse.BooleanOptionalAction,
+        default=FREEZE_DENOISER,
+        help="Freeze the base denoiser (default); use --no-freeze-denoiser to train jointly",
+    )
     parser.add_argument("--vis-every", type=int, default=VIS_EVERY,
                         help="Visualise & sample every N steps")
     parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
@@ -574,16 +581,26 @@ def main():
     num_timesteps = diffusion.num_timesteps
     truncation_cutoff = max(1, int(num_timesteps * TRUNCATION_RATIO))
 
-    for p in denoiser.parameters():
-        p.requires_grad = False
-    denoiser.eval()
-
+    # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
     control_net = DynamicControlNet(denoiser, grid_size=GRID_SIZE, enable_gecco=args.enable_gecco).to(device)
     control_net.train()
 
-    trainable = sum(p.numel() for p in control_net.parameters()
-                    if p.requires_grad)
-    print(f"  DynamicControlNet V3 trainable params: {trainable:,}")
+    # Freeze/unfreeze denoiser based on flag (AFTER control_net creation)
+    if args.freeze_denoiser:
+        for p in denoiser.parameters():
+            p.requires_grad = False
+        denoiser.eval()
+    else:
+        denoiser.train()
+
+    control_params = sum(p.numel() for p in control_net.parameters() if p.requires_grad)
+    denoiser_params = sum(p.numel() for p in denoiser.parameters())
+    if args.freeze_denoiser:
+        print(f"  Trainable ControlNet params: {control_params:,}")
+        print(f"  Frozen denoiser params: {denoiser_params:,}")
+    else:
+        trainable_total = control_params + sum(p.numel() for p in denoiser.parameters() if p.requires_grad)
+        print(f"  Trainable params (control + denoiser): {trainable_total:,}")
     print(f"  GECCO dynamic features enabled: {args.enable_gecco}")
     print(f"  Min-SNR gamma: {args.min_snr_gamma}")
     print(f"  Resample jumps (RePaint): {args.resample_jumps}")
@@ -599,7 +616,11 @@ def main():
         print(f"  Capacity grid size: {args.capacity_grid_size}x{args.capacity_grid_size}")
     print(f"  Truncation ratio: {TRUNCATION_RATIO:.3f} -> cutoff {truncation_cutoff}/{num_timesteps}")
 
-    optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
+    if args.freeze_denoiser:
+        optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
+    else:
+        all_params = list(control_net.parameters()) + list(denoiser.parameters())
+        optimizer = torch.optim.AdamW(all_params, lr=args.lr)
     best_val_score = float("inf")
     best_ckpt_path = None
     last_geom = {"cv": None, "clumped_pct": None, "score": None}
@@ -656,7 +677,11 @@ def main():
 
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(control_net.parameters(), 1.0)
+        if args.freeze_denoiser:
+            torch.nn.utils.clip_grad_norm_(control_net.parameters(), 1.0)
+        else:
+            all_params = list(control_net.parameters()) + list(denoiser.parameters())
+            torch.nn.utils.clip_grad_norm_(all_params, 1.0)
         optimizer.step()
 
         loss_val = loss.item()
