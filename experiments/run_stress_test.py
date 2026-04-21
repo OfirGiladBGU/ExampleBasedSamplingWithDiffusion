@@ -35,7 +35,7 @@ BASELINE_CKPT_PATH = "config_trained/GBN_stress1/model.ckpt"
 # Control V4 configuration
 CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynamic_controlnet_v3_ep7500.pt"
+CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynamic_controlnet_v4_ep3000.pt"
 
 
 # Stress 2:
@@ -47,7 +47,19 @@ CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynami
 # # Control V4 configuration
 # CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2/checkpoints/dynamic_controlnet_v3_ep1600.pt"
+# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2/checkpoints/dynamic_controlnet_v4_ep1500.pt"
+
+
+# Stress V2:
+# DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2"
+# OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs_stress2_V2")
+# # Baseline configuration
+# BASELINE_CONFIG_PATH = "config_trained/GBN_stress2_V2/config.json"
+# BASELINE_CKPT_PATH = "config_trained/GBN_stress2_V2/model.ckpt"
+# # Control V4 configuration
+# CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
+# CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
+# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2_V2_no_random/checkpoints/dynamic_controlnet_v4_ep1500.pt"
 
 
 # Common settings
@@ -66,6 +78,7 @@ ENABLE_GECCO = True
 USE_SDF = True
 SDF_TRUNCATE_PX = 8.0
 SMART_INIT_SEED = 42
+ENABLE_SMART_INIT_SPLAT_SIGMA = False
 VALID_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 CALCULATE_METRICS = True
@@ -83,6 +96,29 @@ def _pick_condition_image(original_dir):
     if not candidates:
         raise FileNotFoundError(f"No images found in original directory: {original_dir}")
     return os.path.join(original_dir, candidates[0])
+
+
+def _pick_matched_source_target_examples(source_dir, original_dir, target_dir, n_examples):
+        """Pick (source_path, target_path) pairs.
+
+        Priority:
+            1) If source/target share filenames, use matched source per target.
+            2) Otherwise fallback to a single image from original/ repeated for all targets.
+        """
+        target_paths = _pick_target_images(target_dir, n_examples)
+
+        if os.path.isdir(source_dir):
+                source_candidates = sorted([f for f in os.listdir(source_dir) if _is_image_file(f)])
+                source_set = set(source_candidates)
+                matched = [p for p in target_paths if os.path.basename(p) in source_set]
+                if len(matched) == len(target_paths):
+                        source_paths = [os.path.join(source_dir, os.path.basename(p)) for p in target_paths]
+                        return source_paths, target_paths, "source"
+
+        # Fallback path for older layouts with a single original image
+        fallback = _pick_condition_image(original_dir)
+        source_paths = [fallback for _ in target_paths]
+        return source_paths, target_paths, "original"
 
 
 def _pick_target_images(target_dir, n_examples):
@@ -166,6 +202,21 @@ def render_smart_init_gpu(coords, grid_size=32, sigma_px=0.5):
     gauss = torch.exp(-dist2 / (2.0 * sigma * sigma))
     grid = gauss.max(dim=2).values.reshape(bsz, 1, grid_size, grid_size)
     return grid.clamp(0.0, 1.0)
+
+
+def render_occupancy_grid_gpu(coords, grid_size=32):
+    """Render (B,N,2) coords to (B,1,G,G) normalized occupancy map (no Gaussian)."""
+    bsz, n, _ = coords.shape
+    device = coords.device
+    dtype = coords.dtype
+    px = (coords[:, :, 0] * grid_size).clamp(0, grid_size - 1).long()
+    py = (coords[:, :, 1] * grid_size).clamp(0, grid_size - 1).long()
+    flat_idx = py * grid_size + px
+    grid_flat = torch.zeros(bsz, grid_size * grid_size, device=device, dtype=dtype)
+    ones = torch.ones(bsz, n, device=device, dtype=dtype)
+    grid_flat.scatter_add_(1, flat_idx, ones)
+    mx = grid_flat.amax(dim=1, keepdim=True).clamp(min=1.0)
+    return (grid_flat / mx).reshape(bsz, 1, grid_size, grid_size)
 
 
 def load_condition(image_path, grid_size, device, sdf_truncate_px=0.0):
@@ -322,6 +373,12 @@ def main():
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
     parser.add_argument("--smart-init-splat-sigma-px", type=float, default=0.5)
+    parser.add_argument(
+        "--enable-smart-init-splat-sigma",
+        action=argparse.BooleanOptionalAction,
+        default=ENABLE_SMART_INIT_SPLAT_SIGMA,
+        help="Use Gaussian soft-splat smart-init hint (otherwise use hard occupancy, matching no_splat runs)",
+    )
     parser.add_argument("--enable-gecco", action=argparse.BooleanOptionalAction, default=ENABLE_GECCO)
     parser.add_argument("--use-sdf", action=argparse.BooleanOptionalAction, default=USE_SDF)
     parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX)
@@ -351,10 +408,15 @@ def main():
     if args.capacity_grid_size == 0 or args.capacity_grid_size < -1:
         raise ValueError("--capacity-grid-size must be > 0, or -1 for full input resolution")
 
+    source_dir = os.path.join(args.data_root, "source")
     original_dir = os.path.join(args.data_root, "original")
     target_dir = os.path.join(args.data_root, "target")
-    condition_image_path = _pick_condition_image(original_dir)
-    target_image_paths = _pick_target_images(target_dir, args.n_examples)
+    source_image_paths, target_image_paths, condition_source_kind = _pick_matched_source_target_examples(
+        source_dir,
+        original_dir,
+        target_dir,
+        args.n_examples,
+    )
 
     device = torch.device(args.device)
     torch.manual_seed(42)
@@ -385,15 +447,40 @@ def main():
         enable_gecco=args.enable_gecco,
     ).to(device)
     ctrl_state = torch.load(args.control_ckpt, map_location="cpu")
-    control_net.load_state_dict(_extract_control_state_dict(ctrl_state), strict=False)
+    control_net.load_state_dict(_extract_control_state_dict(ctrl_state), strict=True)
     control_net.eval()
 
-    condition_image_01, high_res, target_density, high_res_sdf, target_sdf = load_condition(
-        condition_image_path,
-        args.grid_size,
-        device,
-        sdf_truncate_px=args.sdf_truncate_px,
-    )
+    condition_images_01 = []
+    high_res_list = []
+    target_density_list = []
+    high_res_sdf_list = []
+    target_sdf_list = []
+    for src_path in source_image_paths:
+        image_01, hi, den, hi_sdf, den_sdf = load_condition(
+            src_path,
+            args.grid_size,
+            device,
+            sdf_truncate_px=args.sdf_truncate_px,
+        )
+        condition_images_01.append(image_01)
+        high_res_list.append(hi)
+        target_density_list.append(den)
+        high_res_sdf_list.append(hi_sdf)
+        target_sdf_list.append(den_sdf)
+
+    # Stress datasets are expected to be shape-consistent; fail loudly otherwise.
+    first_shape = high_res_list[0].shape
+    for idx, tensor in enumerate(high_res_list[1:], start=1):
+        if tensor.shape != first_shape:
+            raise ValueError(
+                "Source images have different shapes; this script currently expects a fixed shape. "
+                f"Sample 0 shape={first_shape}, sample {idx} shape={tensor.shape}."
+            )
+
+    high_res = torch.cat(high_res_list, dim=0)
+    target_density = torch.cat(target_density_list, dim=0)
+    high_res_sdf = torch.cat(high_res_sdf_list, dim=0)
+    target_sdf = torch.cat(target_sdf_list, dim=0)
 
     gt_points_batch = [
         target_image_to_points(np.array(Image.open(path).convert("L"), dtype=np.float32) / 255.0)
@@ -404,20 +491,29 @@ def main():
         high_res_sdf = torch.zeros_like(high_res_sdf)
         target_sdf = torch.zeros_like(target_sdf)
 
-    smart_points_np, smart_offsets_np, _ = build_smart_init_from_image(
-        condition_image_01,
-        grid_size=args.grid_size,
-        n_points=args.grid_size * args.grid_size,
-        seed=args.smart_init_seed,
-    )
-    smart_init_offsets_base = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
+    smart_init_offsets_tensors = []
+    for image_01 in condition_images_01:
+        _, smart_offsets_np, _ = build_smart_init_from_image(
+            image_01,
+            grid_size=args.grid_size,
+            n_points=args.grid_size * args.grid_size,
+            seed=args.smart_init_seed,
+        )
+        smart_init_offsets_tensors.append(torch.from_numpy(smart_offsets_np).unsqueeze(0))
+    smart_init_offsets_base = torch.cat(smart_init_offsets_tensors, dim=0).to(device)
     grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets_base.dtype)
     smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, args.grid_size, grid_centers_flat)
-    smart_init_grid = render_smart_init_gpu(
-        smart_points_base,
-        grid_size=args.grid_size,
-        sigma_px=args.smart_init_splat_sigma_px,
-    )
+    if args.enable_smart_init_splat_sigma:
+        smart_init_grid = render_smart_init_gpu(
+            smart_points_base,
+            grid_size=args.grid_size,
+            sigma_px=args.smart_init_splat_sigma_px,
+        )
+    else:
+        smart_init_grid = render_occupancy_grid_gpu(
+            smart_points_base,
+            grid_size=args.grid_size,
+        )
 
     controlled = DynamicControlledDenoiser(control_backbone, control_net)
     controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid)
@@ -425,23 +521,23 @@ def main():
 
     baseline_diffusion.set_num_timesteps(args.sample_timesteps)
 
-    x_init = smart_init_offsets_base
-    if x_init.shape[0] != args.n_examples:
-        x_init = x_init.expand(args.n_examples, -1, -1, -1).contiguous()
+    x_init = smart_init_offsets_base.contiguous()
 
     # Baseline: starts from pure noise (full schedule)
     x_noisy_baseline = torch.randn_like(x_init)
 
     # Control: SDEdit from smart_init noised at truncation t_start
+    control_diffusion.set_num_timesteps(args.sample_timesteps)
     control_t_start = int(np.clip(
-        int(baseline_diffusion.num_timesteps * args.truncation_ratio),
-        1, baseline_diffusion.num_timesteps - 1,
+        int(control_diffusion.num_timesteps * args.truncation_ratio),
+        1, control_diffusion.num_timesteps - 1,
     ))
     noise = torch.randn_like(x_init)
-    alpha_t = baseline_diffusion.alphas_cumprod[control_t_start]
+    alpha_t = control_diffusion.alphas_cumprod[control_t_start]
     x_noisy_control = add_noise_at_t(x_init, alpha_t, noise=noise)
 
     baseline_diffusion.reset_timesteps()
+    control_diffusion.reset_timesteps()
 
     print(f"Baseline: full denoising ({int(args.baseline_truncation_ratio * args.sample_timesteps)} steps from pure noise)")
     print(f"Control V4: SDEdit from smart_init ({control_t_start} steps, truncation_ratio={args.truncation_ratio})")
@@ -469,7 +565,11 @@ def main():
     control_points_batch = offsets_batch_to_pointsets(control_raw)
 
     print(f"Data root: {args.data_root}")
-    print(f"Condition image: {condition_image_path}")
+    print(f"Condition source kind: {condition_source_kind}")
+    print("Condition/target pairs:")
+    for src_path, tgt_path in zip(source_image_paths, target_image_paths):
+        print(f"  - source: {src_path}")
+        print(f"    target: {tgt_path}")
     print(f"Target images ({args.n_examples}):")
     for target_path in target_image_paths:
         print(f"  - {target_path}")
@@ -478,6 +578,9 @@ def main():
     print(f"Control base config: {args.control_base_config}")
     print(f"Control base ckpt: {control_base_ckpt_path}")
     print(f"Control ckpt: {args.control_ckpt}")
+    print(f"Control smart-init soft-splat enabled: {args.enable_smart_init_splat_sigma}")
+    if args.enable_smart_init_splat_sigma:
+        print(f"Control smart-init splat sigma (px): {args.smart_init_splat_sigma_px}")
     print(f"Device: {args.device}")
     print(f"Samples per model: {args.n_examples}")
     print(f"Control t_start: {control_t_start}/{args.sample_timesteps}")
@@ -490,7 +593,8 @@ def main():
     out_dir = os.path.join(args.output_dir, data_stem)
     os.makedirs(out_dir, exist_ok=True)
 
-    Image.fromarray((condition_image_01 * 255.0).astype(np.uint8), mode="L").save(os.path.join(out_dir, "condition.png"))
+    # Keep a representative condition snapshot for backward compatibility.
+    Image.fromarray((condition_images_01[0] * 255.0).astype(np.uint8), mode="L").save(os.path.join(out_dir, "condition.png"))
     for i, gt_img_for_save in enumerate(gt_points_batch):
         # save a synthetic dot-on-white image reconstructed from the extracted points
         pass  # raw GT PNGs are preserved in target_dir; no need to re-save
@@ -501,17 +605,17 @@ def main():
     np.save(os.path.join(out_dir, "control_v4_points.npy"), control_points_batch)
 
     panel_path = os.path.join(out_dir, "comparison_panel_paper_style.png")
-    saved = save_panel(panel_path, condition_image_01, gt_points_batch, baseline_points_batch, control_points_batch)
+    saved = save_panel(panel_path, condition_images_01[0], gt_points_batch, baseline_points_batch, control_points_batch)
     if saved:
         print(f"Saved panel to: {panel_path}")
 
     if args.calculate_metrics:
         metrics_dir = os.path.join(out_dir, "metrics")
         os.makedirs(metrics_dir, exist_ok=True)
-        condition_image_u8 = (condition_image_01 * 255.0).astype(np.uint8)
         metric_saved_count = 0
 
         for i, target_path in enumerate(target_image_paths):
+            condition_image_u8 = (condition_images_01[i] * 255.0).astype(np.uint8)
             target_image_u8 = np.array(Image.open(target_path).convert("L"), dtype=np.uint8)
             sample_stem = os.path.splitext(os.path.basename(target_path))[0]
             metrics_path = os.path.join(metrics_dir, f"{i:03d}_{sample_stem}_metrics.png")
