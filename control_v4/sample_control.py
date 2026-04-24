@@ -133,8 +133,7 @@ def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, poi
         rgb[status == 0, 1] = 1.0
         rgb[status == -1, 0] = 1.0
         rgb[status == 1, 2] = 1.0
-
-        ax.imshow(rgb, origin="lower", aspect="equal")
+        ax.imshow(rgb, origin="upper", aspect="equal")
         ok_pct = 100.0 - cap["underfilled_pct"] - cap["overfilled_pct"]
         ax.set_title(
             f"Predict {i} Capacity\n"

@@ -293,8 +293,7 @@ def visualize_overfit_metrics(
         rgb[status == 0, 1] = 1.0    # green = ok
         rgb[status == -1, 0] = 1.0   # red = underfilled
         rgb[status == 1, 2] = 1.0    # blue = overfilled
-
-        ax.imshow(rgb, origin="lower", aspect="equal")
+        ax.imshow(rgb, origin="upper", aspect="equal")
         ok_pct = 100.0 - cap["underfilled_pct"] - cap["overfilled_pct"]
         ax.set_title(
             f"{label} Capacity\n"
