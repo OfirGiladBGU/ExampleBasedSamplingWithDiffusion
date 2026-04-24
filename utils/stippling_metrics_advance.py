@@ -880,3 +880,521 @@ def visualize_advanced_metrics_panel(
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()
     return save_path
+
+
+# ── Per-axis spatial visual functions ────────────────────────────────
+
+# -- Voronoi clipping helpers -------------------------------------------------
+
+def _clip_polygon_to_bbox(vertices, bbox=(0.0, 1.0, 0.0, 1.0)):
+    """Sutherland-Hodgman polygon clipping to axis-aligned bounding box.
+
+    Parameters
+    ----------
+    vertices : ndarray (N, 2)
+    bbox : (xmin, xmax, ymin, ymax)
+
+    Returns
+    -------
+    ndarray (M, 2) – clipped polygon vertices (may be empty)
+    """
+    xmin, xmax, ymin, ymax = bbox
+
+    def _clip_edge(poly, ax0, ay0, ax1, ay1):
+        """Clip *poly* against the half-plane to the left of (a0→a1)."""
+        if not poly:
+            return []
+
+        def _inside(p):
+            return (ax1 - ax0) * (p[1] - ay0) - (ay1 - ay0) * (p[0] - ax0) >= 0
+
+        def _intersect(p1, p2):
+            dx, dy = ax1 - ax0, ay1 - ay0
+            dpx, dpy = p2[0] - p1[0], p2[1] - p1[1]
+            # denom = dx*dpy - dy*dpx  (correct Sutherland-Hodgman sign)
+            denom = dx * dpy - dy * dpx
+            if abs(denom) < 1e-12:
+                return p1
+            t = (dy * (p1[0] - ax0) - dx * (p1[1] - ay0)) / denom
+            return (p1[0] + t * dpx, p1[1] + t * dpy)
+
+        out = []
+        for i, curr in enumerate(poly):
+            prev = poly[i - 1]
+            if _inside(curr):
+                if not _inside(prev):
+                    out.append(_intersect(prev, curr))
+                out.append(curr)
+            elif _inside(prev):
+                out.append(_intersect(prev, curr))
+        return out
+
+    poly = [(v[0], v[1]) for v in vertices]
+    # CCW winding of [xmin,xmax]×[ymin,ymax]; "inside" = left of each directed edge
+    poly = _clip_edge(poly, xmin, ymin, xmax, ymin)   # bottom: y >= ymin
+    poly = _clip_edge(poly, xmax, ymin, xmax, ymax)   # right:  x <= xmax
+    poly = _clip_edge(poly, xmax, ymax, xmin, ymax)   # top:    y <= ymax
+    poly = _clip_edge(poly, xmin, ymax, xmin, ymin)   # left:   x >= xmin
+    return np.array(poly) if poly else np.zeros((0, 2))
+
+
+def _voronoi_regions_clipped(vor, bbox=(0.0, 1.0, 0.0, 1.0)):
+    """Return a list of (clipped_vertices, is_originally_finite) per input point.
+
+    Infinite ridges are extended far enough to be clipped cleanly to *bbox*.
+    The returned order matches ``vor.points`` (one entry per point).
+
+    Parameters
+    ----------
+    vor : scipy.spatial.Voronoi
+    bbox : (xmin, xmax, ymin, ymax)
+
+    Returns
+    -------
+    list of (ndarray (M,2), bool)
+    """
+    xmin, xmax, ymin, ymax = bbox
+    center = vor.points.mean(axis=0)
+    # Extend far enough that any infinite ridge will be cut by the bbox
+    radius = max(xmax - xmin, ymax - ymin) * 4.0
+
+    # Build ridge lookup: point_index → [(other_point, v1, v2), ...]
+    ridge_map = {}
+    for (p1, p2), (v1, v2) in zip(vor.ridge_points, vor.ridge_vertices):
+        ridge_map.setdefault(p1, []).append((p2, v1, v2))
+        ridge_map.setdefault(p2, []).append((p1, v1, v2))
+
+    # Extended vertex list (we may append far-points)
+    ext_verts = vor.vertices.tolist()
+
+    result = []
+    for pt_idx, region_idx in enumerate(vor.point_region):
+        region = vor.regions[region_idx]
+        is_finite = all(v >= 0 for v in region)
+
+        if is_finite:
+            raw = vor.vertices[region]
+        else:
+            # Start from finite vertices in the region
+            new_region = [v for v in region if v >= 0]
+
+            for p2, v1, v2 in ridge_map.get(pt_idx, []):
+                # Swap so that v2 is the finite endpoint
+                if v2 < 0:
+                    v1, v2 = v2, v1
+                if v1 >= 0:
+                    continue  # both endpoints finite – already in new_region
+
+                # Build a "far point" for the infinite end
+                tangent = vor.points[p2] - vor.points[pt_idx]
+                norm = np.linalg.norm(tangent)
+                if norm < 1e-12:
+                    continue
+                tangent /= norm
+                normal = np.array([-tangent[1], tangent[0]])
+                midpoint = vor.points[[pt_idx, p2]].mean(axis=0)
+                sign = np.sign(np.dot(midpoint - center, normal))
+                far_pt = vor.vertices[v2] + sign * normal * radius
+                ext_verts.append(far_pt.tolist())
+                new_region.append(len(ext_verts) - 1)
+
+            if len(new_region) < 3:
+                result.append((np.zeros((0, 2)), is_finite))
+                continue
+
+            ext_arr = np.array(ext_verts)
+            vs = ext_arr[new_region]
+            c = vs.mean(axis=0)
+            angles = np.arctan2(vs[:, 1] - c[1], vs[:, 0] - c[0])
+            raw = vs[np.argsort(angles)]
+
+        clipped = _clip_polygon_to_bbox(raw, bbox)
+        result.append((clipped, is_finite))
+
+    return result
+
+
+def _extract_subject_contour(density_map, bg_threshold=0.05):
+    """Extract the dominant subject-area contour as (N, 2) float in [0, 1].
+
+    Uses ``matplotlib.contour`` on a thresholded + hole-filled mask so no
+    extra dependencies (skimage, shapely) are required.
+
+    Parameters
+    ----------
+    density_map : ndarray (H, W), values in [0, 1]; 1 = subject, 0 = bg
+    bg_threshold : float
+
+    Returns
+    -------
+    ndarray (N, 2) in [0, 1] or None
+    """
+    from scipy.ndimage import binary_fill_holes, gaussian_filter
+
+    H, W = density_map.shape
+
+    # Binary mask: subject pixels
+    mask = density_map > bg_threshold
+    # Fill interior holes (e.g. white eyes inside the monkey)
+    mask = binary_fill_holes(mask)
+    # Very slight smoothing just to avoid 1-pixel jags in the contour path
+    sigma = max(0.5, min(H, W) / 512.0)
+    smooth = gaussian_filter(mask.astype(np.float32), sigma=sigma)
+
+    try:
+        fig_tmp, ax_tmp = plt.subplots(1, 1)
+        cs = ax_tmp.contour(smooth, levels=[0.5])   # threshold on the smooth mask
+        plt.close(fig_tmp)
+
+        # matplotlib >= 3.8 removed cs.collections; use cs.get_paths() instead
+        try:
+            all_paths = list(cs.get_paths())
+        except AttributeError:
+            all_paths = [p for coll in cs.collections for p in coll.get_paths()]
+
+        if not all_paths:
+            return None
+
+        # Pick the path enclosing the largest area (proxy: most vertices)
+        largest = max(all_paths, key=lambda p: len(p.vertices))
+        verts = largest.vertices   # (col, row) in pixel indices
+        # Scale to [0, 1]
+        return np.column_stack([verts[:, 0] / W, verts[:, 1] / H])
+    except Exception:
+        return None
+
+
+def plot_visual_m1_voronoi_mass(points, image_01, ax, clip_to_domain=True):
+    """Visual M1: Voronoi cells colored by mass deviation from the mean.
+
+    Red = over-filled (too much density mass), Blue = under-filled.
+
+    Parameters
+    ----------
+    points : ndarray (N, 2) in [0, 1]
+    image_01 : ndarray (H, W) float in [0, 1]  (0=dark/dense, 1=white/bg)
+    ax : matplotlib Axes
+    clip_to_domain : bool, default True
+        When True, the subject shape is extracted from the image and used as
+        a clip path — only the Voronoi mosaic inside the subject silhouette
+        is rendered; the white background is fully masked.
+        When False, all finite Voronoi cells are colored by deviation without
+        any contour clipping or background classification.
+    """
+    from matplotlib.patches import Polygon as MplPolygon, PathPatch
+    from matplotlib.collections import PatchCollection
+    from matplotlib.path import Path, Path as MplPath
+    from scipy.spatial import Voronoi
+
+    # Stippling density: dark = subject (high), white bg = 0
+    density_map = 1.0 - image_01
+
+    H, W = image_01.shape
+    pts_clip = np.clip(points, 1e-5, 1 - 1e-5)
+
+    try:
+        vor = Voronoi(pts_clip)
+    except Exception:
+        ax.set_title("M1: Voronoi Mass Deviation\n(insufficient points)", fontsize=9)
+        return
+
+    def _cell_mass(verts):
+        """Mean stippling density inside a polygon (Monte-Carlo sampling)."""
+        x_min, x_max = verts[:, 0].min(), verts[:, 0].max()
+        y_min, y_max = verts[:, 1].min(), verts[:, 1].max()
+        n = max(10, int((x_max - x_min) * (y_max - y_min) * W * H * 0.5))
+        xs = np.random.uniform(x_min, x_max, n)
+        ys = np.random.uniform(y_min, y_max, n)
+        inside = Path(verts).contains_points(np.column_stack([xs, ys]))
+        if inside.sum() == 0:
+            return 0.0
+        px = np.clip((xs[inside] * W).astype(int), 0, W - 1)
+        py = np.clip((ys[inside] * H).astype(int), 0, H - 1)
+        return float(density_map[py, px].mean())
+
+    # ── Build Voronoi cell polygons (finite cells only in both modes) ─────
+    cell_polys, cell_masses = [], []
+    for pt_idx in vor.point_region:
+        region = vor.regions[pt_idx]
+        if len(region) < 3 or -1 in region:
+            continue
+        verts = np.clip(vor.vertices[region], 0, 1)
+        cell_polys.append(MplPolygon(verts))
+        cell_masses.append(_cell_mass(verts))
+
+    cell_masses = np.array(cell_masses)
+
+    # Deviation relative to the mean of all cells
+    mean_mass = cell_masses.mean() if len(cell_masses) > 0 else 1.0
+    deviations = np.clip((cell_masses - mean_mass) / (mean_mass + 1e-8), -1.0, 1.0)
+
+    ax.set_facecolor("white")
+
+    if cell_polys:
+        col = PatchCollection(
+            cell_polys, cmap="coolwarm", alpha=0.8, edgecolor="black", linewidth=0.2
+        )
+        col.set_array(deviations)
+        col.set_clim(-1.0, 1.0)
+
+        if clip_to_domain:
+            # ── clip_to_domain=True: extract subject contour and clip the
+            #    collection so only the inside of the shape is rendered. ──────
+            contour_pts = _extract_subject_contour(density_map, bg_threshold=0.05)
+            if contour_pts is not None and len(contour_pts) >= 3:
+                cp = np.vstack([contour_pts, contour_pts[0]])
+                codes = (
+                    [MplPath.MOVETO]
+                    + [MplPath.LINETO] * (len(cp) - 2)
+                    + [MplPath.CLOSEPOLY]
+                )
+                clip_patch = PathPatch(
+                    MplPath(cp, codes), transform=ax.transData, visible=False
+                )
+                ax.add_patch(clip_patch)
+                col.set_clip_path(clip_patch)
+                # Draw the contour outline on top for reference
+                closed = np.vstack([contour_pts, contour_pts[0]])
+                ax.plot(closed[:, 0], closed[:, 1],
+                        color="black", linewidth=0.8, zorder=10, alpha=0.5)
+
+        # clip_to_domain=False: draw all finite cells as-is, no contour
+        ax.add_collection(col)
+
+    ax.scatter(pts_clip[:, 0], pts_clip[:, 1], c="black", s=0.5, zorder=5)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.invert_yaxis()
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title("M1: Voronoi Mass Deviation\n(Red=Over, Blue=Under)", fontsize=9)
+
+
+def plot_visual_m3_adaptive_nnd(points, image_01, ax):
+    """Visual M3: Points colored by density-adapted nearest-neighbor distance.
+
+    Clumped regions (blue-noise violations) appear as bright hotspots.
+    """
+    from scipy.spatial import cKDTree
+
+    N = len(points)
+    if N < 2:
+        ax.set_title("M3: Adaptive NND Hotspots\n(insufficient points)", fontsize=9)
+        return
+
+    tree = cKDTree(points)
+    nn_dists, _ = tree.query(points, k=2)
+    nn_dists = nn_dists[:, 1]
+
+    H, W = image_01.shape
+    gx = np.clip((points[:, 0] * (W - 1)).astype(int), 0, W - 1)
+    gy = np.clip((points[:, 1] * (H - 1)).astype(int), 0, H - 1)
+    # Stippling density: dark = dense (1), white background = 0
+    local_density = 1.0 - image_01[gy, gx]
+
+    expected_nn = (local_density + 0.1) ** (-0.5) * 0.5
+    adaptive_nnd = nn_dists / (expected_nn + 1e-8)
+
+    sc = ax.scatter(points[:, 0], points[:, 1], c=adaptive_nnd, cmap="viridis", s=2.0)
+    plt.colorbar(sc, ax=ax, shrink=0.7, label="Adaptive NND")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.invert_yaxis()
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title("M3: Adaptive NND Hotspots", fontsize=9)
+
+
+def plot_visual_m4_cvt_vectors(points, image_01, ax):
+    """Visual M4: Voronoi boundaries + red lines to each cell's geometric centroid.
+
+    Arrow length/direction show how far and which way each point should move
+    to reach the density-weighted CVT optimum.
+    """
+    from scipy.spatial import Voronoi, voronoi_plot_2d
+
+    pts_clip = np.clip(points, 1e-5, 1 - 1e-5)
+
+    try:
+        vor = Voronoi(pts_clip)
+    except Exception:
+        ax.set_title("M4: CVT Relaxation Vectors\n(insufficient points)", fontsize=9)
+        return
+
+    voronoi_plot_2d(
+        vor, ax=ax,
+        show_points=False, show_vertices=False,
+        line_colors="gray", line_width=0.3, line_alpha=0.5,
+    )
+
+    for region_idx, point_idx in enumerate(vor.point_region):
+        region = vor.regions[point_idx]
+        if len(region) < 3 or -1 in region:
+            continue
+        vertices = np.clip(vor.vertices[region], 0, 1)
+        cx, cy = vertices[:, 0].mean(), vertices[:, 1].mean()
+        px_pt, py_pt = points[region_idx]
+        ax.plot([px_pt, cx], [py_pt, cy], color="red", linewidth=0.8, alpha=0.7)
+        ax.scatter(cx, cy, color="red", marker="x", s=5, linewidths=0.5)
+
+    ax.scatter(pts_clip[:, 0], pts_clip[:, 1], c="black", s=1.0, zorder=5)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.invert_yaxis()
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title("M4: CVT Relaxation Vectors", fontsize=9)
+
+
+def plot_visual_m5_spectrum(points, image_01, ax):
+    """Visual M5: Log-log radial power spectrum with regression line overlay.
+
+    Shows whether the spectrum follows a blue-noise power law (straight line)
+    and reveals any frequency spikes causing spatial artifacts.
+    """
+    H, W = image_01.shape
+    grid_size = max(H, W)
+
+    point_grid = np.zeros((grid_size, grid_size), dtype=np.float32)
+    x_idx = np.clip((points[:, 0] * grid_size).astype(int), 0, grid_size - 1)
+    y_idx = np.clip((points[:, 1] * grid_size).astype(int), 0, grid_size - 1)
+    point_grid[y_idx, x_idx] = 1.0
+
+    power = np.abs(np.fft.fft2(point_grid)) ** 2
+
+    yy, xx = np.mgrid[0:grid_size, 0:grid_size]
+    rr = np.maximum(
+        np.sqrt((xx - grid_size / 2) ** 2 + (yy - grid_size / 2) ** 2), 1.0
+    )
+    radial_bins = np.arange(1, grid_size // 2, dtype=np.float32)
+    radial_power = np.array([
+        power[(rr >= r) & (rr < r + 1)].mean() if ((rr >= r) & (rr < r + 1)).sum() > 0 else 0.0
+        for r in radial_bins
+    ])
+
+    valid = (radial_bins > 0) & (radial_power > 1e-10)
+    if valid.sum() > 2:
+        log_f = np.log(radial_bins[valid])
+        log_p = np.log(radial_power[valid])
+        slope, intercept = np.polyfit(log_f, log_p, 1)
+        ax.plot(radial_bins[valid], radial_power[valid],
+                color="steelblue", alpha=0.8, linewidth=1.0, label="Spectrum")
+        ax.plot(
+            radial_bins[valid],
+            np.exp(intercept) * (radial_bins[valid] ** slope),
+            color="red", linestyle="--", linewidth=1.2, label=f"Fit (slope {slope:.2f})",
+        )
+        ax.legend(fontsize=7)
+        ax.set_title(f"M5: Power Spectrum\nSlope: {slope:.3f}", fontsize=9)
+    else:
+        ax.set_title("M5: Power Spectrum\n(insufficient data)", fontsize=9)
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.grid(True, which="both", ls="-", alpha=0.2)
+    ax.tick_params(axis="both", labelsize=6)
+    ax.set_xlabel("Radial frequency", fontsize=7)
+    ax.set_ylabel("Power", fontsize=7)
+
+
+# ── Spatial visual metrics panel ─────────────────────────────────────
+
+def visualize_spatial_metrics_panel(
+    image_01,
+    pred_pointsets,
+    save_path,
+    pred_labels=None,
+    gt_points=None,
+    gt_label="GT",
+    clip_to_domain=True,
+):
+    """4-row spatial-visual panel: M1 Voronoi / M3 NND / M4 CVT / M5 Spectrum.
+
+    Each column is one point set (GT first if provided, then predictions).
+    Each row is one spatial metric visualisation.
+
+    Parameters
+    ----------
+    image_01 : ndarray (H, W) float in [0, 1]
+    pred_pointsets : list of ndarray (N, 2) in [0, 1]
+    save_path : str
+    pred_labels : list of str or None
+    gt_points : ndarray (N, 2) or None
+    gt_label : str
+    clip_to_domain : bool, default True
+        Passed to plot_visual_m1_voronoi_mass.  When True, boundary Voronoi
+        cells are clipped to [0,1] and drawn white instead of being omitted.
+
+    Returns
+    -------
+    save_path or None
+    """
+    if not HAS_MPL:
+        return None
+
+    n_preds = min(len(pred_pointsets), 4)
+    all_pointsets = []
+    all_labels = []
+
+    if gt_points is not None:
+        all_pointsets.append(np.asarray(gt_points, dtype=np.float64))
+        all_labels.append(str(gt_label))
+
+    for i in range(n_preds):
+        all_pointsets.append(np.asarray(pred_pointsets[i], dtype=np.float64))
+
+    if pred_labels is None:
+        all_labels.extend([f"Pred {i}" for i in range(n_preds)])
+    else:
+        pred_labels = [str(l) for l in pred_labels[:n_preds]]
+        if len(pred_labels) < n_preds:
+            pred_labels.extend(f"Pred {i}" for i in range(len(pred_labels), n_preds))
+        all_labels.extend(pred_labels)
+
+    n_cols = len(all_pointsets)
+    if n_cols == 0:
+        return None
+
+    row_titles = [
+        "M1: Voronoi Mass Deviation",
+        "M3: Adaptive NND Hotspots",
+        "M4: CVT Relaxation Vectors",
+        "M5: Power Spectrum",
+    ]
+    plot_fns = [
+        plot_visual_m1_voronoi_mass,
+        plot_visual_m3_adaptive_nnd,
+        plot_visual_m4_cvt_vectors,
+        plot_visual_m5_spectrum,
+    ]
+    n_rows = len(plot_fns)
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows))
+    if n_cols == 1:
+        axes = axes[:, np.newaxis]
+
+    for col_idx, (pts, label) in enumerate(zip(all_pointsets, all_labels)):
+        for row_idx, fn in enumerate(plot_fns):
+            ax = axes[row_idx, col_idx]
+            try:
+                if fn is plot_visual_m1_voronoi_mass:
+                    fn(pts, image_01, ax, clip_to_domain=clip_to_domain)
+                else:
+                    fn(pts, image_01, ax)
+            except Exception as exc:
+                ax.axis("off")
+                ax.set_title(f"{row_titles[row_idx]}\n(error)", fontsize=8)
+            # Prepend column label on top row
+            if row_idx == 0:
+                current = ax.get_title()
+                ax.set_title(f"[{label}]  {current}", fontsize=9)
+
+    # Row labels on left spine
+    for row_idx, rt in enumerate(row_titles):
+        axes[row_idx, 0].set_ylabel(rt, fontsize=10, fontweight="bold", labelpad=8)
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    return save_path

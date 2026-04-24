@@ -35,6 +35,7 @@ from utils.stippling_metrics import (
 from utils.stippling_metrics_advance import (
     compute_all_advanced_metrics,
     visualize_adaptive_sampling_density_map,
+    visualize_spatial_metrics_panel,
     visualize_overfit_metrics as visualize_overfit_metrics_advance,
 )
 
@@ -66,6 +67,7 @@ CAPACITY_GRID_SIZE = 32
 # CAPACITY_GRID_SIZE = -1  # -1 for full input resolution
 METRICS_ADVANCE = True
 ADAPTIVE_SAMPLING_DENSITY_MAP = True
+CLIP_TO_DOMAIN = True  # Whether to clip predicted points to [0,1]² before metrics and visualisation (recommended for truncated control)
 
 
 def extract_points_from_target(img_path, n_points):
@@ -719,6 +721,25 @@ def main():
                     print(f"Saved AKDE density map : {akde_saved}")
             except Exception as e:
                 print(f"Warning: AKDE density map visualisation failed: {e}")
+
+        # ── Spatial visual metrics panel (M1/M3/M4/M5) ───────────────────
+        if args.metrics_advance and input_img_u8 is not None and len(pred_pointsets) > 0:
+            try:
+                spatial_dir = os.path.join(sample_base_dir, "spatial_metrics")
+                os.makedirs(spatial_dir, exist_ok=True)
+                spatial_path = os.path.join(spatial_dir, "spatial_metrics_panel.png")
+                image_01 = input_img_u8.astype(np.float64) / 255.0
+                spatial_saved = visualize_spatial_metrics_panel(
+                    image_01,
+                    pred_pointsets,
+                    spatial_path,
+                    gt_points=gt_points,
+                    clip_to_domain=CLIP_TO_DOMAIN,
+                )
+                if spatial_saved:
+                    print(f"Saved spatial metrics panel: {spatial_saved}")
+            except Exception as e:
+                print(f"Warning: spatial metrics panel failed: {e}")
 
     print("Done.")
 
