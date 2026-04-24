@@ -1,6 +1,7 @@
 """Generate stipple point sets using Dynamic ControlNet V4 (Truncated Control)."""
 
 import argparse
+import json
 import os
 import sys
 
@@ -30,7 +31,11 @@ from utils.stippling_metrics import (
     compute_spacing_quality,
     geometric_validation_score,
     resolve_capacity_grid_size,
-    visualize_overfit_metrics,
+)
+from utils.stippling_metrics_advance import (
+    compute_all_advanced_metrics,
+    visualize_adaptive_sampling_density_map,
+    visualize_overfit_metrics as visualize_overfit_metrics_advance,
 )
 
 
@@ -42,7 +47,7 @@ CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynam
 # GT_IMAGE_PATH = ""
 INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT/source/emoji-one_4_monkey.png"
 GT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT/target/emoji-one_4_monkey.png"
-OUTPUT_DIR = "control_v4/sample_outputs"
+OUTPUT_DIR = "control_v4/sample_outputs_advance"
 N_SAMPLES = 1
 TIMESTEPS = 1000
 GRID_SIZE = 32
@@ -59,6 +64,8 @@ SMART_INIT_SEED = 42
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 CAPACITY_GRID_SIZE = 32
 # CAPACITY_GRID_SIZE = -1  # -1 for full input resolution
+METRICS_ADVANCE = True
+ADAPTIVE_SAMPLING_DENSITY_MAP = True
 
 
 def extract_points_from_target(img_path, n_points):
@@ -86,18 +93,26 @@ def extract_points_from_target(img_path, n_points):
     return points
 
 
-def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, point_size=0.5, capacity_grid_size=16):
+def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, point_size=0.5, capacity_grid_size=16, compute_advanced=False):
     """Create overfit-style metrics panel without GT column."""
     if not HAS_MPL:
         return None
     if len(pred_pointsets) == 0:
         return None
 
+    from utils.stippling_metrics_advance import compute_all_advanced_metrics, _format_advanced_text
+
     n_preds = min(len(pred_pointsets), 4)
     n_cols = 1 + n_preds  # INPUT + predictions
-    n_rows = 3
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.5 * n_cols, 4.5 * n_rows))
+    if compute_advanced:
+        fig, axes = plt.subplots(
+            4, n_cols,
+            figsize=(4.5 * n_cols, 4.5 * 3 + 2.5),
+            gridspec_kw={"height_ratios": [3, 3, 3, 1.5]},
+        )
+    else:
+        fig, axes = plt.subplots(3, n_cols, figsize=(4.5 * n_cols, 4.5 * 3))
     if n_cols == 1:
         axes = axes[:, np.newaxis]
 
@@ -178,6 +193,25 @@ def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, poi
         )
         ax.axis("off")
         plt.colorbar(sc, ax=ax, shrink=0.7, label="NN dist")
+
+    # ── Row 3: advanced M1–M6 numeric text (optional) ────────────────
+    if compute_advanced:
+        axes[3, 0].axis("off")
+        for i in range(n_preds):
+            ax = axes[3, 1 + i]
+            ax.axis("off")
+            try:
+                m = compute_all_advanced_metrics(pred_pointsets[i], image_01)
+                text = _format_advanced_text(m)
+            except Exception:
+                text = "(metrics unavailable)"
+            ax.text(
+                0.5, 0.95, text,
+                ha="center", va="top", fontsize=8, fontfamily="monospace",
+                transform=ax.transAxes,
+                bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", alpha=0.85),
+            )
+            ax.set_title(f"Predict {i} Adv. Metrics", fontsize=9)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -385,6 +419,18 @@ def main():
         default=CAPACITY_GRID_SIZE,
         help="Capacity grid size: >0 uses KxK, -1 uses full input image resolution",
     )
+    parser.add_argument(
+        "--metrics-advance",
+        action="store_true",
+        default=METRICS_ADVANCE,
+        help="Enable advanced M1-M6 metrics (Voronoi, Sinkhorn, Adaptive-NND, CVT, Spectrum, EMD)",
+    )
+    parser.add_argument(
+        "--adaptive-sampling-density-map",
+        action=argparse.BooleanOptionalAction,
+        default=ADAPTIVE_SAMPLING_DENSITY_MAP,
+        help="Enable GBN-style AKDE density map visualisation (saved to adaptive_sampling_density_map/)",
+    )
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
 
@@ -552,6 +598,7 @@ def main():
         input_img_u8 = cv2.imread(args.input_image, cv2.IMREAD_GRAYSCALE)
         panel_path = os.path.join(metrics_dir, "results_panel.png")
         panel_saved = None
+        gt_points = None
         if input_img_u8 is None:
             print(f"Skipped metrics panel: failed to read input image: {args.input_image}")
         elif len(pred_pointsets) == 0:
@@ -565,10 +612,11 @@ def main():
                     pred_pointsets,
                     panel_path,
                     capacity_grid_size=args.capacity_grid_size,
+                    compute_advanced=args.metrics_advance,
                 )
             else:
                 gt_points = extract_points_from_target(args.gt_image, pred_pointsets[0].shape[0])
-                panel_saved = visualize_overfit_metrics(
+                panel_saved = visualize_overfit_metrics_advance(
                     input_img_u8,
                     gt_img_u8,
                     gt_points,
@@ -577,6 +625,7 @@ def main():
                     step=None,
                     gt_offsets=None,
                     capacity_grid_size=args.capacity_grid_size,
+                    compute_advanced=args.metrics_advance,
                 )
         else:
             panel_saved = visualize_sample_metrics_no_gt(
@@ -584,6 +633,7 @@ def main():
                 pred_pointsets,
                 panel_path,
                 capacity_grid_size=args.capacity_grid_size,
+                compute_advanced=args.metrics_advance,
             )
 
         if panel_saved is not None:
@@ -598,6 +648,77 @@ def main():
             f"Clumped={geom['clumped_pct']:.2f}% | "
             f"Score={geom['score']:.4f}"
         )
+
+        # Advanced metrics M1–M6 (optional) — text row already embedded in panel above
+        if args.metrics_advance and not args.no_ot:
+            try:
+                metrics_advance_dir = os.path.join(sample_base_dir, "metrics_advance")
+                os.makedirs(metrics_advance_dir, exist_ok=True)
+
+                gt_metrics = None
+                if gt_points is not None:
+                    gt_metrics = compute_all_advanced_metrics(gt_points, image_01)
+                    gt_json_path = os.path.join(metrics_advance_dir, "metrics_gt.json")
+                    with open(gt_json_path, "w") as f:
+                        json.dump(gt_metrics, f, indent=2)
+                    print(
+                        "GT advanced metrics | "
+                        f"M1_CV={gt_metrics.get('M1_voronoi_mass_cv', 0.0):.4f} | "
+                        f"M2_OT={gt_metrics.get('M2_sinkhorn_ot_cost', 0.0):.4f} | "
+                        f"M3_NND={gt_metrics.get('M3_adaptive_nnd_cv', 0.0):.4f} | "
+                        f"M6_EMD={gt_metrics.get('M6_emd_distance', 0.0):.4f}"
+                    )
+
+                # Compute and save detailed M1-M6 metrics for each prediction
+                for idx, pts in enumerate(pred_pointsets):
+                    metrics_dict = compute_all_advanced_metrics(pts, image_01)
+                    metrics_json_path = os.path.join(metrics_advance_dir, f"metrics_pred_{idx + 1}.json")
+
+                    with open(metrics_json_path, "w") as f:
+                        json.dump(metrics_dict, f, indent=2)
+
+                    if gt_metrics is not None:
+                        comparable_keys = sorted(set(gt_metrics.keys()) & set(metrics_dict.keys()))
+                        compare = {k: float(metrics_dict[k] - gt_metrics[k]) for k in comparable_keys}
+                        compare_json_path = os.path.join(metrics_advance_dir, f"metrics_compare_pred_{idx + 1}_minus_gt.json")
+                        with open(compare_json_path, "w") as f:
+                            json.dump(compare, f, indent=2)
+
+                    # Print summary
+                    print(f"Pred {idx + 1} advanced metrics | "
+                          f"M1_CV={metrics_dict.get('M1_voronoi_mass_cv', 0.0):.4f} | "
+                          f"M2_OT={metrics_dict.get('M2_sinkhorn_ot_cost', 0.0):.4f} | "
+                          f"M3_NND={metrics_dict.get('M3_adaptive_nnd_cv', 0.0):.4f} | "
+                          f"M6_EMD={metrics_dict.get('M6_emd_distance', 0.0):.4f}")
+
+                    if gt_metrics is not None:
+                        print(
+                            f"Pred {idx + 1} - GT deltas | "
+                            f"dM1_CV={metrics_dict.get('M1_voronoi_mass_cv', 0.0) - gt_metrics.get('M1_voronoi_mass_cv', 0.0):+.4f} | "
+                            f"dM2_OT={metrics_dict.get('M2_sinkhorn_ot_cost', 0.0) - gt_metrics.get('M2_sinkhorn_ot_cost', 0.0):+.4f} | "
+                            f"dM3_NND={metrics_dict.get('M3_adaptive_nnd_cv', 0.0) - gt_metrics.get('M3_adaptive_nnd_cv', 0.0):+.4f} | "
+                            f"dM6_EMD={metrics_dict.get('M6_emd_distance', 0.0) - gt_metrics.get('M6_emd_distance', 0.0):+.4f}"
+                        )
+            except Exception as e:
+                print(f"Warning: advanced metrics computation failed: {e}")
+
+        # ── AKDE density map (GBN-style) ─────────────────────────────────
+        if args.adaptive_sampling_density_map and input_img_u8 is not None and len(pred_pointsets) > 0:
+            try:
+                akde_dir = os.path.join(sample_base_dir, "adaptive_sampling_density_map")
+                os.makedirs(akde_dir, exist_ok=True)
+                akde_path = os.path.join(akde_dir, "density_map.png")
+                akde_saved = visualize_adaptive_sampling_density_map(
+                    input_img_u8,
+                    pred_pointsets,
+                    akde_path,
+                    gt_points=gt_points,
+                    device=str(device),
+                )
+                if akde_saved:
+                    print(f"Saved AKDE density map : {akde_saved}")
+            except Exception as e:
+                print(f"Warning: AKDE density map visualisation failed: {e}")
 
     print("Done.")
 
