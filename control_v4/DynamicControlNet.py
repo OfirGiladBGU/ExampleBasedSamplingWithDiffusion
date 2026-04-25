@@ -73,17 +73,11 @@ class DynamicControlNet(nn.Module):
         self.enable_gecco = enable_gecco
         self.gecco_channels = gecco_channels
 
-        # ── fixed grid of cell centers in [0, 1] ────────────────────
-        coords = torch.arange(grid_size, dtype=torch.float32) / grid_size + 0.5 / grid_size
-        gx, gy = torch.meshgrid(coords, coords, indexing="xy")
-        grid_centers = torch.stack([gx, gy], dim=0).unsqueeze(0)  # (1, 2, H, W)
-        self.register_buffer("grid_centers", grid_centers)
-
-        # ── static coordinate grid in [-1, 1] for spatial awareness ──
-        lin = torch.linspace(-1, 1, grid_size)
-        grid_y, grid_x = torch.meshgrid(lin, lin, indexing="ij")
-        coord_grid = torch.stack([grid_x, grid_y], dim=0).unsqueeze(0)  # (1, 2, H, W)
-        self.register_buffer("coord_grid", coord_grid)
+        # grid_centers and coord_grid are computed dynamically in forward() so that
+        # the model can run inference on any grid size (e.g. train on 32x32, infer on
+        # 48x48) without crashing.  They are NOT registered as buffers, which means
+        # old checkpoints that contain those keys are simply ignored on load
+        # (load_state_dict is called with strict=False everywhere).
 
         # ── optional GECCO feature extractor on high-res condition image ──
         if self.enable_gecco:
@@ -143,21 +137,28 @@ class DynamicControlNet(nn.Module):
 
         Parameters
         ----------
-        offsets_t : Tensor (B, 2, 32, 32)
+        offsets_t : Tensor (B, 2, G, G)
+            Noisy offset grid; G can differ from the training grid_size.
         t : Tensor (B,)
         high_res_image : Tensor (B, 1, Himg, Wimg)
         high_res_sdf : Tensor (B, 1, Himg, Wimg)
-        target_density_map : Tensor (B, 1, 32, 32)
-        target_sdf_map : Tensor (B, 1, 32, 32)
-        target_smart_init_map : Tensor (B, 1, 32, 32)
+        target_density_map : Tensor (B, 1, G, G)
+        target_sdf_map : Tensor (B, 1, G, G)
+        target_smart_init_map : Tensor (B, 1, G, G)
 
         Returns
         -------
         tuple (encoder_controls, middle_control)
         """
-        B = offsets_t.shape[0]
+        B, _, H, W = offsets_t.shape
 
-        batch_coords = self.coord_grid.expand(B, -1, -1, -1)
+        # Recompute coord_grid for the actual (possibly different) spatial size.
+        lin_y = torch.linspace(-1, 1, H, device=offsets_t.device)
+        lin_x = torch.linspace(-1, 1, W, device=offsets_t.device)
+        gy2d, gx2d = torch.meshgrid(lin_y, lin_x, indexing="ij")
+        coord_grid = torch.stack([gx2d, gy2d], dim=0).unsqueeze(0)  # (1, 2, H, W)
+
+        batch_coords = coord_grid.expand(B, -1, -1, -1)
 
         hint_parts = [
             offsets_t,           # 2ch
@@ -204,7 +205,15 @@ class DynamicControlNet(nn.Module):
         if high_res_image is None or high_res_sdf is None:
             raise ValueError("high_res_image and high_res_sdf are required when enable_gecco=True")
 
-        positions = self.grid_centers + offsets_t / self.grid_size
+        # Recompute grid_centers for the actual spatial size (supports grid sizes
+        # different from the one used at training time).
+        _, _, H, W = offsets_t.shape
+        cx = torch.arange(W, dtype=torch.float32, device=offsets_t.device) / W + 0.5 / W
+        cy = torch.arange(H, dtype=torch.float32, device=offsets_t.device) / H + 0.5 / H
+        gx, gy = torch.meshgrid(cx, cy, indexing="xy")
+        grid_centers = torch.stack([gx, gy], dim=0).unsqueeze(0)  # (1, 2, H, W)
+
+        positions = grid_centers + offsets_t / H  # H == W for square grids
         sample_coords = positions.permute(0, 2, 3, 1) * 2.0 - 1.0
 
         gecco_feats_hr = self.gecco_extractor(torch.cat([high_res_image, high_res_sdf], dim=1))
