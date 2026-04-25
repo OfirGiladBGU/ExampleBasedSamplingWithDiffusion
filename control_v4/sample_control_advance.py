@@ -658,8 +658,8 @@ def main():
                         "GT advanced metrics | "
                         f"M1_CV={gt_metrics.get('M1_voronoi_mass_cv', 0.0):.4f} | "
                         f"M2_OT={gt_metrics.get('M2_sinkhorn_ot_cost', 0.0):.4f} | "
-                        f"M3_NND={gt_metrics.get('M3_adaptive_nnd_cv', 0.0):.4f} | "
-                        f"M6_EMD={gt_metrics.get('M6_emd_distance', 0.0):.4f}"
+                        f"M3_EMD={gt_metrics.get('M3_emd_distance', 0.0):.4f} | "
+                        f"M4_NND={gt_metrics.get('M4_adaptive_nnd_cv', 0.0):.4f}"
                     )
 
                 # Compute and save detailed M1-M6 metrics for each prediction
@@ -681,16 +681,16 @@ def main():
                     print(f"Pred {idx + 1} advanced metrics | "
                           f"M1_CV={metrics_dict.get('M1_voronoi_mass_cv', 0.0):.4f} | "
                           f"M2_OT={metrics_dict.get('M2_sinkhorn_ot_cost', 0.0):.4f} | "
-                          f"M3_NND={metrics_dict.get('M3_adaptive_nnd_cv', 0.0):.4f} | "
-                          f"M6_EMD={metrics_dict.get('M6_emd_distance', 0.0):.4f}")
+                          f"M3_EMD={metrics_dict.get('M3_emd_distance', 0.0):.4f} | "
+                          f"M4_NND={metrics_dict.get('M4_adaptive_nnd_cv', 0.0):.4f}")
 
                     if gt_metrics is not None:
                         print(
                             f"Pred {idx + 1} - GT deltas | "
                             f"dM1_CV={metrics_dict.get('M1_voronoi_mass_cv', 0.0) - gt_metrics.get('M1_voronoi_mass_cv', 0.0):+.4f} | "
                             f"dM2_OT={metrics_dict.get('M2_sinkhorn_ot_cost', 0.0) - gt_metrics.get('M2_sinkhorn_ot_cost', 0.0):+.4f} | "
-                            f"dM3_NND={metrics_dict.get('M3_adaptive_nnd_cv', 0.0) - gt_metrics.get('M3_adaptive_nnd_cv', 0.0):+.4f} | "
-                            f"dM6_EMD={metrics_dict.get('M6_emd_distance', 0.0) - gt_metrics.get('M6_emd_distance', 0.0):+.4f}"
+                            f"dM3_EMD={metrics_dict.get('M3_emd_distance', 0.0) - gt_metrics.get('M3_emd_distance', 0.0):+.4f} | "
+                            f"dM4_NND={metrics_dict.get('M4_adaptive_nnd_cv', 0.0) - gt_metrics.get('M4_adaptive_nnd_cv', 0.0):+.4f}"
                         )
             except Exception as e:
                 print(f"Warning: advanced metrics computation failed: {e}")

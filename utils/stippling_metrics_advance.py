@@ -40,10 +40,10 @@ def _format_advanced_text(metrics):
     return (
         f"M1 Voronoi CV : {metrics.get('M1_voronoi_mass_cv', 0.0):.4f}\n"
         f"M2 Sinkhorn OT: {metrics.get('M2_sinkhorn_ot_cost', 0.0):.4f}\n"
-        f"M3 Adapt NND  : {metrics.get('M3_adaptive_nnd_cv', 0.0):.4f}\n"
-        f"M4 CVT Energy : {metrics.get('M4_cvt_energy', 0.0):.4f}\n"
-        f"M5 Spec Slope : {metrics.get('M5_spectrum_slope', 0.0):.4f}\n"
-        f"M6 EMD Dist   : {metrics.get('M6_emd_distance', 0.0):.4f}"
+        f"M3 EMD Dist   : {metrics.get('M3_emd_distance', 0.0):.4f}\n"
+        f"M4 Adapt NND  : {metrics.get('M4_adaptive_nnd_cv', 0.0):.4f}\n"
+        f"M5 CVT Energy : {metrics.get('M5_cvt_energy', 0.0):.4f}\n"
+        f"M6 Spec Slope : {metrics.get('M6_spectrum_slope', 0.0):.4f}"
     )
 
 
@@ -215,7 +215,7 @@ def compute_sinkhorn_wasserstein(points, image_01, target_density=None):
 
 
 def compute_adaptive_nnd(points, image_01):
-    """M3: Adaptive nearest-neighbor distance (density-weighted).
+    """M4: Adaptive nearest-neighbor distance (density-weighted).
 
     Parameters
     ----------
@@ -254,7 +254,7 @@ def compute_adaptive_nnd(points, image_01):
 
 
 def compute_cvt_energy(points, image_01):
-    """M4: CVT-like energy (mass-weighted second moment in Voronoi cells).
+    """M5: CVT-like energy (mass-weighted second moment in Voronoi cells).
 
     Parameters
     ----------
@@ -310,45 +310,75 @@ def compute_cvt_energy(points, image_01):
         return {"cvt_energy": 0.0}
 
 
-def compute_warped_spectrum(points, image_01):
-    """M5: Spectral analysis of warped point distribution.
+def compute_ot_warped_spectrum(points, image_01):
+    """M6: Spectral analysis of OT-warped point distribution.
+
+    Uses Optimal Transport to map the adaptive points to a uniform grid
+    before computing the radial power spectrum. This removes the
+    low-frequency signature of the target density itself, so the spectrum
+    reflects only the blue-noise / regularity properties of the point set.
 
     Parameters
     ----------
     points : ndarray (N, 2) in [0, 1]
-    image_01 : ndarray (H, W) float in [0, 1]
+    image_01 : ndarray (H, W) float in [0, 1]  (unused post-warp, kept for API)
 
     Returns
     -------
     dict with spectrum_slope, spectrum_peak_freq
     """
     try:
+        import ot as _ot
+
         N = len(points)
         if N < 10:
             return {"spectrum_slope": 0.0, "spectrum_peak_freq": 0.0}
+
         H, W = image_01.shape
         grid_size = max(H, W)
+
+        # ── 1. OT warp: map adaptive points → uniform grid ──────────────
+        grid_dim = int(np.ceil(np.sqrt(N)))
+        x_lin = np.linspace(0.05, 0.95, grid_dim)
+        y_lin = np.linspace(0.05, 0.95, grid_dim)
+        xv, yv = np.meshgrid(x_lin, y_lin)
+        uniform_points = np.column_stack([xv.ravel(), yv.ravel()])[:N]  # trim to N
+
+        M_cost = _ot.dist(points, uniform_points, metric="sqeuclidean")
+        a = np.ones(N, dtype=np.float64) / N
+        b = np.ones(len(uniform_points), dtype=np.float64) / len(uniform_points)
+        assignment = _ot.emd(a, b, M_cost)           # exact 1-to-1 mapping
+        match_idx = np.argmax(assignment, axis=1)
+        warped_points = uniform_points[match_idx]
+
+        # ── 2. Rasterise warped points and run FFT ────────────────────
         point_grid = np.zeros((grid_size, grid_size), dtype=np.float32)
-        for px, py in points:
+        for px, py in warped_points:
             x_idx = int(np.clip(px * grid_size, 0, grid_size - 1))
             y_idx = int(np.clip(py * grid_size, 0, grid_size - 1))
             point_grid[y_idx, x_idx] = 1.0
+
         fft_result = np.fft.fft2(point_grid)
         power = np.abs(fft_result) ** 2
+        power_shifted = np.fft.fftshift(power)      # zero-freq at centre
+
         yy, xx = np.mgrid[0:grid_size, 0:grid_size]
         rr = np.sqrt((xx - grid_size / 2) ** 2 + (yy - grid_size / 2) ** 2)
         rr = np.maximum(rr, 1.0)
+
         radial_bins = np.arange(1, grid_size // 2, dtype=np.float32)
         radial_power = []
         for r in radial_bins:
             mask = (rr >= r) & (rr < r + 1)
             if mask.sum() > 0:
-                radial_power.append(power[mask].mean())
+                radial_power.append(power_shifted[mask].mean())
             else:
                 radial_power.append(0.0)
         radial_power = np.array(radial_power)
+
         if radial_power.max() < 1e-8:
             return {"spectrum_slope": 0.0, "spectrum_peak_freq": 0.0}
+
         valid_idx = (radial_bins > 0) & (radial_power > 1e-10)
         if valid_idx.sum() > 2:
             log_freq = np.log(radial_bins[valid_idx])
@@ -356,18 +386,21 @@ def compute_warped_spectrum(points, image_01):
             slope = np.polyfit(log_freq, log_power, 1)[0]
         else:
             slope = 0.0
+
         peak_freq_idx = np.argmax(radial_power)
         peak_freq = radial_bins[peak_freq_idx] if len(radial_bins) > 0 else 0.0
+
         return {
             "spectrum_slope": float(np.clip(slope, -5, 5)),
             "spectrum_peak_freq": float(peak_freq / grid_size),
         }
-    except Exception:
+    except Exception as e:
+        print(f"M6 warped-spectrum error: {e}")
         return {"spectrum_slope": 0.0, "spectrum_peak_freq": 0.0}
 
 
 def compute_emd_stats(points, target_points=None, image_01=None):
-    """M6: Earth Mover's Distance (EMD) statistics.
+    """M3: Earth Mover's Distance (EMD) statistics.
 
     Parameters
     ----------
@@ -430,13 +463,13 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None):
     result.update({f"M1_{k}": v for k, v in m1.items()})
     m2 = compute_sinkhorn_wasserstein(points, image_01)
     result.update({f"M2_{k}": v for k, v in m2.items()})
-    m3 = compute_adaptive_nnd(points, image_01)
+    m3 = compute_emd_stats(points, None, image_01)
     result.update({f"M3_{k}": v for k, v in m3.items()})
-    m4 = compute_cvt_energy(points, image_01)
+    m4 = compute_adaptive_nnd(points, image_01)
     result.update({f"M4_{k}": v for k, v in m4.items()})
-    m5 = compute_warped_spectrum(points, image_01)
+    m5 = compute_cvt_energy(points, image_01)
     result.update({f"M5_{k}": v for k, v in m5.items()})
-    m6 = compute_emd_stats(points, None, image_01)
+    m6 = compute_ot_warped_spectrum(points, image_01)
     result.update({f"M6_{k}": v for k, v in m6.items()})
     return result
 
@@ -881,12 +914,12 @@ def visualize_advanced_metrics_panel(
         axes = axes[:, np.newaxis]
 
     metrics_names = [
-        ("M1", "Voronoi Mass CV", "M1_voronoi_mass_cv"),
+        ("M1", "Voronoi Mass CV",  "M1_voronoi_mass_cv"),
         ("M2", "Sinkhorn OT Cost", "M2_sinkhorn_ot_cost"),
-        ("M3", "Adaptive NND CV", "M3_adaptive_nnd_cv"),
-        ("M4", "CVT Energy", "M4_cvt_energy"),
-        ("M5", "Spectrum Slope", "M5_spectrum_slope"),
-        ("M6", "EMD Distance", "M6_emd_distance"),
+        ("M3", "EMD Distance",     "M3_emd_distance"),
+        ("M4", "Adaptive NND CV",  "M4_adaptive_nnd_cv"),
+        ("M5", "CVT Energy",       "M5_cvt_energy"),
+        ("M6", "Spectrum Slope",   "M6_spectrum_slope"),
     ]
 
     for m_idx, (m_short, m_long, m_key) in enumerate(metrics_names):
@@ -1384,9 +1417,9 @@ def visualize_spatial_metrics_panel(
 
     row_titles = [
         "M1: Voronoi Mass Deviation",
-        "M3: Adaptive NND Hotspots",
-        "M4: CVT Relaxation Vectors",
-        "M5: Power Spectrum",
+        "M4: Adaptive NND Hotspots",
+        "M5: CVT Relaxation Vectors",
+        "M6: Power Spectrum",
     ]
     plot_fns = [
         plot_visual_m1_voronoi_mass,
