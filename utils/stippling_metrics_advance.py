@@ -47,6 +47,48 @@ def _format_advanced_text(metrics):
     )
 
 
+# ── constants for the shared advanced-metrics row ──────────────────
+_ADV_ROW_FONTSIZE       = 14
+_ADV_ROW_TITLE_FONTSIZE = 13
+_ADV_ROW_HEIGHT_RATIO   = 2.0
+_ADV_ROW_EXTRA_HEIGHT   = 3.5  # inches added to base figure height
+
+
+def _render_advanced_metrics_row(axes_row, points_list, labels, image_01):
+    """Fill one matplotlib axes row with M1-M6 metric text boxes.
+
+    Parameters
+    ----------
+    axes_row : sequence of Axes
+        ``axes_row[0]`` is left blank (INPUT/spacer column);
+        ``axes_row[1+j]`` receives metrics for ``points_list[j]``.
+    points_list : list of ndarray (N, 2)
+        One array per column that should show metrics (GT + preds, or just preds).
+    labels : list of str
+        Column label for each entry in *points_list*.
+    image_01 : ndarray (H, W) float32
+        Reference density image used by the metric functions.
+    """
+    axes_row[0].axis("off")
+    for j, (pts, label) in enumerate(zip(points_list, labels)):
+        ax = axes_row[1 + j]
+        ax.axis("off")
+        try:
+            m    = compute_all_advanced_metrics(pts, image_01)
+            text = _format_advanced_text(m)
+        except Exception:
+            text = "(metrics unavailable)"
+        ax.text(
+            0.5, 0.95, text,
+            ha="center", va="top",
+            fontsize=_ADV_ROW_FONTSIZE,
+            fontfamily="monospace",
+            transform=ax.transAxes,
+            bbox=dict(boxstyle="round,pad=0.8", facecolor="lightyellow", alpha=0.85),
+        )
+        ax.set_title(f"{label} Adv. Metrics", fontsize=_ADV_ROW_TITLE_FONTSIZE)
+
+
 # ── Advanced Metrics M1–M6 ──────────────────────────────────────────
 
 def compute_voronoi_mass_variance(points, image_01):
@@ -657,8 +699,8 @@ def visualize_overfit_metrics(
     if compute_advanced:
         fig, axes = plt.subplots(
             4, n_cols,
-            figsize=(4.5 * n_cols, 4.5 * 3 + 2.5),
-            gridspec_kw={"height_ratios": [3, 3, 3, 1.5]},
+            figsize=(4.5 * n_cols, 4.5 * 3 + _ADV_ROW_EXTRA_HEIGHT),
+            gridspec_kw={"height_ratios": [3, 3, 3, _ADV_ROW_HEIGHT_RATIO]},
         )
     else:
         fig, axes = plt.subplots(3, n_cols, figsize=(4.5 * n_cols, 4.5 * 3))
@@ -786,23 +828,8 @@ def visualize_overfit_metrics(
 
     # Row 3: M1-M6 text (optional)
     if compute_advanced:
-        axes[3, 0].axis("off")
         adv_points = [gt_points] + [pred_pointsets[i] for i in range(n_preds)]
-        for j, (pts, label) in enumerate(zip(adv_points, col_labels)):
-            ax = axes[3, 1 + j]
-            ax.axis("off")
-            try:
-                m = compute_all_advanced_metrics(pts, image_01)
-                text = _format_advanced_text(m)
-            except Exception:
-                text = "(metrics unavailable)"
-            ax.text(
-                0.5, 0.95, text,
-                ha="center", va="top", fontsize=8, fontfamily="monospace",
-                transform=ax.transAxes,
-                bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", alpha=0.85),
-            )
-            ax.set_title(f"{label} Adv. Metrics", fontsize=9)
+        _render_advanced_metrics_row(axes[3, :], adv_points, col_labels, image_01)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")

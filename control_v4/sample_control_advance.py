@@ -37,6 +37,11 @@ from utils.stippling_metrics_advance import (
     visualize_adaptive_sampling_density_map,
     visualize_spatial_metrics_panel,
     visualize_overfit_metrics as visualize_overfit_metrics_advance,
+    _render_advanced_metrics_row,
+    _ADV_ROW_FONTSIZE,
+    _ADV_ROW_TITLE_FONTSIZE,
+    _ADV_ROW_HEIGHT_RATIO,
+    _ADV_ROW_EXTRA_HEIGHT,
 )
 
 
@@ -110,8 +115,8 @@ def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, poi
     if compute_advanced:
         fig, axes = plt.subplots(
             4, n_cols,
-            figsize=(4.5 * n_cols, 4.5 * 3 + 2.5),
-            gridspec_kw={"height_ratios": [3, 3, 3, 1.5]},
+            figsize=(4.5 * n_cols, 4.5 * 3 + _ADV_ROW_EXTRA_HEIGHT),
+            gridspec_kw={"height_ratios": [3, 3, 3, _ADV_ROW_HEIGHT_RATIO]},
         )
     else:
         fig, axes = plt.subplots(3, n_cols, figsize=(4.5 * n_cols, 4.5 * 3))
@@ -198,22 +203,8 @@ def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, poi
 
     # ── Row 3: advanced M1–M6 numeric text (optional) ────────────────
     if compute_advanced:
-        axes[3, 0].axis("off")
-        for i in range(n_preds):
-            ax = axes[3, 1 + i]
-            ax.axis("off")
-            try:
-                m = compute_all_advanced_metrics(pred_pointsets[i], image_01)
-                text = _format_advanced_text(m)
-            except Exception:
-                text = "(metrics unavailable)"
-            ax.text(
-                0.5, 0.95, text,
-                ha="center", va="top", fontsize=8, fontfamily="monospace",
-                transform=ax.transAxes,
-                bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", alpha=0.85),
-            )
-            ax.set_title(f"Predict {i} Adv. Metrics", fontsize=9)
+        pred_labels = [f"Predict {i}" for i in range(n_preds)]
+        _render_advanced_metrics_row(axes[3, :], pred_pointsets[:n_preds], pred_labels, image_01)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
