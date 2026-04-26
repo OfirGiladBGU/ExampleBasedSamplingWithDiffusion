@@ -1,4 +1,4 @@
-"""Simplified stipple dataset for control_v5.
+"""Simplified stipple dataset for control_early_fusion.
 
 Returns ``(high_res_image, offsets)`` per sample — no SDF, no smart_init.
 Heavy per-sample preprocessing (scipy distance transforms, rejection sampling)

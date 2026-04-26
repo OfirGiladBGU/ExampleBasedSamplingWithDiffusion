@@ -1,4 +1,4 @@
-"""Image-GECCO early-fusion wrapper for control_v5.
+"""Image-GECCO early-fusion wrapper for control_early_fusion.
 
 Architecture
 ------------

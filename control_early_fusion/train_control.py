@@ -1,4 +1,4 @@
-"""Train the image-GECCO early-fusion wrapper (control_v5).
+"""Train the image-GECCO early-fusion wrapper (control_early_fusion).
 
 The model is a lightweight wrapper around the pretrained diffusion denoiser.
 Two conv layers extract image features which are sampled at the current noisy
@@ -6,7 +6,7 @@ offset positions (GECCO) and concatenated to the denoiser's input -- no
 parallel U-Net branch.
 
 Usage (from project root):
-    python control_v5/train_control.py \\
+    python control_early_fusion/train_control.py \\
         --config  config/GBN/config.json \\
         --ckpt    config/GBN/model.ckpt  \\
         --source  /path/to/source        \\
@@ -14,7 +14,7 @@ Usage (from project root):
         --epochs  100                    \\
         --batch_size 16                  \\
         --lr 1e-4                        \\
-        --out control_v5/train_out
+        --out control_early_fusion/train_out
 """
 
 import os
@@ -42,8 +42,8 @@ except Exception:
     HAS_MPL = False
 
 from utils.Config import ParseSampleConfig
-from control_v5.LightweightAdapter import ImageGECCOWrapper
-from control_v5.DynamicStippleDataset import StippleDataset
+from control_early_fusion.LightweightAdapter import ImageGECCOWrapper
+from control_early_fusion.DynamicStippleDataset import StippleDataset
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
 from utils.stippling_metrics import geometric_validation_score
 
@@ -56,37 +56,24 @@ CKPT_PATH   = "config/GBN/model.ckpt"
 
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/source"
 # TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/target"
-# OUTPUT_DIR = "control_v5/train_outputs_gecco"
+# OUTPUT_DIR = "control_early_fusion/train_outputs_gecco"
 
-
-# ICONS
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-OUTPUT_DIR = "control_v5/train_outputs_icons50_512"
-GRID_SIZE = 32
-VAL_SPLIT = 0.1
-EPOCHS = 10000
-SAVE_EVERY = 10
-
-
-# FACES
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_3136/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_3136/target"
-# OUTPUT_DIR = "control_v5/train_outputs_data_celeba_5K_3136"
-# GRID_SIZE = 56
-# VAL_SPLIT = 0.1
-# EPOCHS = 10000
-# SAVE_EVERY = 10
-
-
-# Stress 1
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/source"
 # TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/target"
-# OUTPUT_DIR = "control_v5/train_outputs_data_stress1"
+# OUTPUT_DIR = "control_early_fusion/train_outputs_data_stress1"
 # GRID_SIZE = 32
 # VAL_SPLIT = 0.0
 # EPOCHS = 1000
 # SAVE_EVERY = 100
+
+
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+OUTPUT_DIR = "control_v4/train_outputs_icons50_512"
+GRID_SIZE = 32
+VAL_SPLIT = 0.1
+EPOCHS = 10000
+SAVE_EVERY = 10
 
 
 OFFSETS_DIR = ""
@@ -95,7 +82,9 @@ VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
 GECCO_CH      = 8
 # GRID_SIZE     = 32
+TRUNCATION_RATIO  = 0.30
 EVAL_TIMESTEPS    = 1000
+RESAMPLE_JUMPS    = 2
 
 WANDB_ACTIVE      = True
 # EPOCHS            = 10000
@@ -268,7 +257,7 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, 
 
 
 def sample_eval_batch(diffusion, wrapper, high_res_img, grid_size, device,
-                      n_samples=4, timesteps=1000,
+                      n_samples=4, timesteps=1000, resample_jumps=2,
                       show_tqdm=False, tqdm_desc="sampling"):
     """Run full reverse diffusion conditioned on high_res_img.
 
@@ -282,8 +271,26 @@ def sample_eval_batch(diffusion, wrapper, high_res_img, grid_size, device,
 
     shape = [n_samples, 2, grid_size, grid_size]
     with torch.no_grad():
-        raw = diffusion.p_sample_loop(shape, img=None, cond=None,
-                                      with_tqdm=show_tqdm, with_sampling=True)
+        if resample_jumps <= 0:
+            raw = diffusion.p_sample_loop(shape, img=None, cond=None,
+                                          with_tqdm=show_tqdm, with_sampling=True)
+        else:
+            img = diffusion.noise_fn(shape).to(device)
+            steps = reversed(range(diffusion.num_timesteps - 1))
+            if show_tqdm:
+                steps = tqdm(steps, total=diffusion.num_timesteps - 1,
+                             desc=tqdm_desc, leave=False)
+            for i in steps:
+                t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
+                for u in range(resample_jumps + 1):
+                    img = diffusion.p_sample(img, cond=None, t=t_tensor,
+                                             clip_denoised=diffusion.sample_clip,
+                                             with_sampling=True)
+                    if u == resample_jumps or i == 0:
+                        break
+                    beta_i = diffusion.betas[i]
+                    img = (1 - beta_i).sqrt() * img + beta_i.sqrt() * torch.randn_like(img)
+            raw = img
 
     diffusion.model = original_model
     diffusion.reset_timesteps()
@@ -309,7 +316,9 @@ def main():
     # Model
     parser.add_argument("--gecco-ch",  type=int,   default=GECCO_CH)
     parser.add_argument("--grid-size", type=int,   default=GRID_SIZE)
+    parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO)
     parser.add_argument("--eval-timesteps",   type=int,   default=EVAL_TIMESTEPS)
+    parser.add_argument("--resample-jumps",   type=int,   default=RESAMPLE_JUMPS)
 
     # Training
     parser.add_argument("--epochs",      type=int,   default=EPOCHS)
@@ -332,6 +341,8 @@ def main():
 
     args = parser.parse_args()
 
+    if not (0.0 < args.truncation_ratio <= 1.0):
+        raise ValueError("--truncation-ratio must be in (0, 1]")
     if args.save_every <= 0:
         raise ValueError("--save_every must be >= 1")
 
@@ -367,6 +378,7 @@ def main():
 
     denoiser = diffusion.model
     num_timesteps = diffusion.num_timesteps
+    truncation_cutoff = max(1, int(num_timesteps * args.truncation_ratio))
 
     # -- build wrapper ------------------------------------------------
     wrapper = ImageGECCOWrapper(denoiser, gecco_ch=args.gecco_ch).to(device)
@@ -378,6 +390,7 @@ def main():
     print(f"  of which GECCO extractor     : {gecco_params:,}")
     print(f"  of which denoiser            : {total_params - gecco_params:,}")
     print(f"GECCO channels                 : {args.gecco_ch}")
+    print(f"Truncation ratio               : {args.truncation_ratio:.3f}  ({truncation_cutoff}/{num_timesteps} steps)")
 
     # -- dataset ------------------------------------------------------
     full_dataset = StippleDataset(args.source, args.offsets)
@@ -456,7 +469,7 @@ def main():
                 preview_imgs    = high_res[:k].detach()
                 preview_offsets = x_0[:k].detach()
 
-            t = torch.randint(0, num_timesteps, (x_0.shape[0],), device=device)
+            t = torch.randint(0, truncation_cutoff, (x_0.shape[0],), device=device)
             noise = torch.randn_like(x_0)
             offsets_t = diffusion.q_sample(x_0, t, noise)
 
@@ -481,7 +494,8 @@ def main():
             train_pred = sample_eval_batch(
                 diffusion, wrapper, preview_imgs, args.grid_size, device,
                 n_samples=preview_imgs.shape[0], timesteps=args.eval_timesteps,
-                show_tqdm=True, tqdm_desc=f"Epoch {epoch+1} [train-predict]",
+                resample_jumps=args.resample_jumps, show_tqdm=True,
+                tqdm_desc=f"Epoch {epoch+1} [train-predict]",
             )
             panel_path = os.path.join(args.out, f"train_panel_ep{epoch+1}.png")
             if save_val_panel(panel_path, preview_imgs.cpu().numpy(),
@@ -512,7 +526,7 @@ def main():
                         val_preview_imgs    = high_res[:k].detach()
                         val_preview_offsets = x_0[:k].detach()
 
-                    t = torch.randint(0, num_timesteps, (x_0.shape[0],), device=device)
+                    t = torch.randint(0, truncation_cutoff, (x_0.shape[0],), device=device)
                     noise = torch.randn_like(x_0)
                     offsets_t = diffusion.q_sample(x_0, t, noise)
 
@@ -532,7 +546,8 @@ def main():
                 pred_raw_for_geom = sample_eval_batch(
                     diffusion, wrapper, val_preview_imgs, args.grid_size, device,
                     n_samples=val_preview_imgs.shape[0], timesteps=args.eval_timesteps,
-                    show_tqdm=True, tqdm_desc=f"Epoch {epoch+1} [predict]",
+                    resample_jumps=args.resample_jumps, show_tqdm=True,
+                    tqdm_desc=f"Epoch {epoch+1} [predict]",
                 )
                 panel_path = os.path.join(args.out, f"val_panel_ep{epoch+1}.png")
                 if save_val_panel(panel_path, val_preview_imgs.cpu().numpy(),
@@ -552,6 +567,7 @@ def main():
                     pred_raw_for_geom = sample_eval_batch(
                         diffusion, wrapper, val_preview_imgs[:1], args.grid_size, device,
                         n_samples=1, timesteps=args.eval_timesteps,
+                        resample_jumps=args.resample_jumps,
                     )
                 pred_pts = []
                 for raw in pred_raw_for_geom:

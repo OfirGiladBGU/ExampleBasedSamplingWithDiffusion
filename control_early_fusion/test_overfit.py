@@ -1,8 +1,8 @@
 """Overfit the image-GECCO early-fusion wrapper on a single (source, target) pair.
 
 Usage (from project root):
-    python control_v5/test_overfit.py --steps 5000
-    python control_v5/test_overfit.py --steps 5000 --sample-index 42 --vis-every 200
+    python control_early_fusion/test_overfit.py --steps 5000
+    python control_early_fusion/test_overfit.py --steps 5000 --sample-index 42 --vis-every 200
 """
 
 import argparse
@@ -35,18 +35,20 @@ except ImportError:
     HAS_WANDB = False
 
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
-from control_v5.LightweightAdapter import ImageGECCOWrapper
+from control_early_fusion.LightweightAdapter import ImageGECCOWrapper
 from utils.Config import ParseSampleConfig
 from utils.stippling_metrics import compute_spacing_quality
 
 # ── editable defaults ─────────────────────────────────────────────────────────
 
-DATA_ROOT  = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1"
+# DATA_ROOT  = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1"
+# DATA_ROOT  = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1"
+DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_taksim"
 SOURCE_DIR = os.path.join(DATA_ROOT, "source")
 TARGET_DIR = os.path.join(DATA_ROOT, "target")
 CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH   = "config/GBN/model.ckpt"
-OUTPUT_DIR  = "control_v5/overfit_outputs"
+OUTPUT_DIR  = "control_early_fusion/overfit_outputs"
 WANDB_ENV   = ".env"
 
 GECCO_CH         = 8
@@ -54,14 +56,15 @@ GRID_SIZE        = 32
 N_POINTS         = GRID_SIZE ** 2
 SAMPLE_TIMESTEPS = 1000
 
-WANDB_ACTIVE = False
-STEPS        = 10000
-SAMPLE_INDEX = 0
-LR           = 5e-4
-VIS_EVERY    = 500
-N_SAMPLES    = 2
-SEED         = 42
-DEVICE       = "cuda"
+WANDB_ACTIVE   = False
+STEPS          = 10000
+SAMPLE_INDEX   = 0
+LR             = 5e-4
+VIS_EVERY      = 500
+N_SAMPLES      = 2
+SEED           = 42
+RESAMPLE_JUMPS = 2
+DEVICE         = "cuda"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -137,8 +140,9 @@ def save_vis(out_path, high_res_np, gt_offsets_np, pred_offsets_np, step):
     plt.close()
 
 
-def sample_from_wrapper(diffusion, wrapper, high_res, grid_size, n_samples, timesteps):
-    """Run full reverse diffusion conditioned on high_res."""
+def sample_from_wrapper(diffusion, wrapper, high_res, grid_size, n_samples, timesteps, resample_jumps=2):
+    """Run reverse diffusion conditioned on high_res, with resample jumps."""
+    device = high_res.device
     high_res_batch = high_res.expand(n_samples, -1, -1, -1)
     orig_model = diffusion.model
     wrapper.set_condition(high_res_batch)
@@ -147,14 +151,28 @@ def sample_from_wrapper(diffusion, wrapper, high_res, grid_size, n_samples, time
     diffusion.eval()
 
     shape = [n_samples, 2, grid_size, grid_size]
+    img = torch.randn(shape, device=device)
     with torch.no_grad():
-        raw = diffusion.p_sample_loop(shape, img=None, cond=None,
-                                      with_tqdm=True, with_sampling=True)
+        for i in tqdm(reversed(range(timesteps)), total=timesteps, desc="sampling"):
+            t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
+            for u in range(resample_jumps + 1):
+                img = diffusion.p_sample(
+                    img,
+                    cond=None,
+                    t=t_tensor,
+                    clip_denoised=diffusion.sample_clip,
+                    with_sampling=True,
+                )
+                if u == resample_jumps or i == 0:
+                    break
+                beta_i = diffusion.betas[i]
+                noise = torch.randn_like(img)
+                img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
 
     diffusion.model = orig_model
     diffusion.reset_timesteps()
     diffusion.train()
-    return raw
+    return img
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -170,6 +188,8 @@ def main():
     parser.add_argument("--n-samples",      type=int,   default=N_SAMPLES)
     parser.add_argument("--grid-size",       type=int, default=GRID_SIZE)
     parser.add_argument("--sample-timesteps", type=int, default=SAMPLE_TIMESTEPS)
+    parser.add_argument("--resample-jumps",   type=int, default=RESAMPLE_JUMPS,
+                        help="Resample jumps per timestep during eval sampling (0 = plain DDPM)")
     parser.add_argument("--seed",            type=int, default=SEED)
     parser.add_argument("--device",         default=DEVICE)
     args = parser.parse_args()
@@ -288,6 +308,7 @@ def main():
             raw = sample_from_wrapper(
                 diffusion, wrapper, high_res, args.grid_size,
                 n_samples=args.n_samples, timesteps=args.sample_timesteps,
+                resample_jumps=args.resample_jumps,
             )
             raw_np = raw.detach().cpu().numpy()
 

@@ -1,14 +1,14 @@
-"""Generate stipple point sets using the image-GECCO early-fusion wrapper (control_v5).
+"""Generate stipple point sets using the image-GECCO early-fusion wrapper (control_early_fusion).
 
 Usage (from project root):
-    python control_v5/sample_control.py \
+    python control_early_fusion/sample_control.py \
         --config    config/GBN/config.json \
         --ckpt      config/GBN/model.ckpt  \
-        --wrapper   control_v5/train_out/checkpoints/gecco_wrapper_ep100.pt \
+        --wrapper   control_early_fusion/train_out/checkpoints/gecco_wrapper_ep100.pt \
         --image     /path/to/condition.png \
         --n         1024                   \
         --grid-size 32                     \
-        --out       control_v5/sample_out
+        --out       control_early_fusion/sample_out
 """
 
 import argparse
@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import torch
 from PIL import Image
+from tqdm import tqdm
 
 try:
     import matplotlib
@@ -31,7 +32,7 @@ except Exception:
     HAS_MPL = False
 
 from utils.Config import ParseSampleConfig
-from control_v5.LightweightAdapter import ImageGECCOWrapper
+from control_early_fusion.LightweightAdapter import ImageGECCOWrapper
 from data.Transforms import to_pointset_optimal_transport
 
 # ── editable defaults ─────────────────────────────────────────────────────────
@@ -40,13 +41,14 @@ CONFIG_PATH  = "config/GBN/config.json"
 BASE_CKPT    = "config/GBN/model.ckpt"
 WRAPPER_CKPT = ""   # filled via --wrapper
 IMAGE_PATH   = ""   # filled via --image
-OUTPUT_DIR   = "control_v5/sample_outputs"
+OUTPUT_DIR   = "control_early_fusion/sample_outputs"
 
-GECCO_CH  = 8   # overridden from checkpoint
-GRID_SIZE = 32
-N_SAMPLES = 1
-TIMESTEPS = 1000
-DEVICE    = "cuda"
+GECCO_CH       = 8   # overridden from checkpoint
+GRID_SIZE      = 32
+N_SAMPLES      = 1
+TIMESTEPS      = 1000
+RESAMPLE_JUMPS = 2
+DEVICE         = "cuda"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -75,15 +77,33 @@ def save_pointset(pts: np.ndarray, path: str, title: str = "") -> None:
     plt.close()
 
 
-def run_sampling(diffusion, wrapper, n_samples, grid_size, timesteps, show_tqdm=True):
-    """Run full reverse diffusion and return raw offsets."""
+def run_sampling(diffusion, wrapper, n_samples, grid_size, timesteps, resample_jumps=2, show_tqdm=True):
+    """Run reverse diffusion with resample jumps and return raw offsets."""
+    device = next(wrapper.parameters()).device
     shape = [n_samples, 2, grid_size, grid_size]
     diffusion.set_num_timesteps(timesteps)
+
+    img = torch.randn(shape, device=device)
+    pbar = tqdm(reversed(range(timesteps)), total=timesteps, desc="sampling_v5") if show_tqdm else reversed(range(timesteps))
     with torch.no_grad():
-        raw = diffusion.p_sample_loop(shape, img=None, cond=None,
-                                      with_tqdm=show_tqdm, with_sampling=True)
+        for i in pbar:
+            t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
+            for u in range(resample_jumps + 1):
+                img = diffusion.p_sample(
+                    img,
+                    cond=None,
+                    t=t_tensor,
+                    clip_denoised=diffusion.sample_clip,
+                    with_sampling=True,
+                )
+                if u == resample_jumps or i == 0:
+                    break
+                beta_i = diffusion.betas[i]
+                noise = torch.randn_like(img)
+                img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
+
     diffusion.reset_timesteps()
-    return raw
+    return img
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -103,8 +123,10 @@ def main():
                         help="Number of independent samples to draw")
     parser.add_argument("--gecco-ch",  type=int, default=GECCO_CH,
                         help="Overrides checkpoint gecco_ch when provided explicitly")
-    parser.add_argument("--timesteps", type=int, default=TIMESTEPS)
-    parser.add_argument("--device",    default=DEVICE)
+    parser.add_argument("--timesteps",      type=int, default=TIMESTEPS)
+    parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS,
+                        help="Resample jumps per timestep (0 = plain DDPM, 2 = default)")
+    parser.add_argument("--device",         default=DEVICE)
     args = parser.parse_args()
 
     if not args.wrapper:
@@ -150,6 +172,7 @@ def main():
         n_samples=args.n,
         grid_size=args.grid_size,
         timesteps=args.timesteps,
+        resample_jumps=args.resample_jumps,
         show_tqdm=True,
     )
 
