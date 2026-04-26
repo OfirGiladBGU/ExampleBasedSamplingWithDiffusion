@@ -834,7 +834,7 @@ def main():
             print("Resume requested but no checkpoint found. Starting from scratch.")
         else:
             state = torch.load(latest_path, map_location=device)
-            control_net.load_state_dict(state["control_net"])
+            control_net.load_state_dict(state["control_net"], strict=False)
             if "optimizer" in state and state["optimizer"] is not None:
                 optimizer.load_state_dict(state["optimizer"])
             global_step = int(state.get("global_step", 0))
