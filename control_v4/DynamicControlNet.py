@@ -66,12 +66,24 @@ class DynamicControlNet(nn.Module):
         Number of dynamic channels produced by the GECCO feature extractor.
     """
 
-    def __init__(self, denoiser, grid_size=32, enable_gecco=False, gecco_channels=16):
+    def __init__(
+        self,
+        denoiser,
+        grid_size=32,
+        enable_gecco=False,
+        gecco_channels=16,
+        smart_init_features=True,
+        sdf_features=True,
+        batch_coords_features=True,
+    ):
         super().__init__()
         self.ch = denoiser.ch
         self.grid_size = grid_size
         self.enable_gecco = enable_gecco
         self.gecco_channels = gecco_channels
+        self.smart_init_features = bool(smart_init_features)
+        self.sdf_features = bool(sdf_features)
+        self.batch_coords_features = bool(batch_coords_features)
 
         # grid_centers and coord_grid are computed dynamically in forward() so that
         # the model can run inference on any grid size (e.g. train on 32x32, infer on
@@ -81,8 +93,9 @@ class DynamicControlNet(nn.Module):
 
         # ── optional GECCO feature extractor on high-res condition image ──
         if self.enable_gecco:
+            gecco_in_ch = 1 + (1 if self.sdf_features else 0)
             self.gecco_extractor = nn.Sequential(
-                nn.Conv2d(2, 8, 3, padding=1),
+                nn.Conv2d(gecco_in_ch, 8, 3, padding=1),
                 nn.SiLU(),
                 nn.Conv2d(8, gecco_channels, 3, padding=1),
                 nn.SiLU(),
@@ -96,8 +109,14 @@ class DynamicControlNet(nn.Module):
         self.ctrl_downsamp_layers = copy.deepcopy(denoiser.downsamp_layers)
         self.ctrl_middle = copy.deepcopy(denoiser.middle)
 
-        # ── hint encoder: static 7ch (+ optional GECCO dynamic channels) ──
-        hint_in_ch = 2 + 1 + 1 + 1 + 2  # offsets_t + target_density + target_sdf + smart_init_grid + coord_grid
+        # ── hint encoder: static offsets + enabled conditioning channels (+ optional GECCO) ──
+        hint_in_ch = 2 + 1
+        if self.smart_init_features:
+            hint_in_ch += 1
+        if self.sdf_features:
+            hint_in_ch += 1
+        if self.batch_coords_features:
+            hint_in_ch += 2
         if self.enable_gecco:
             hint_in_ch += gecco_channels
         first_hidden = denoiser.conv1.net[1].weight.shape[0]  # ch_mult[0] = 128
@@ -128,10 +147,10 @@ class DynamicControlNet(nn.Module):
         offsets_t,
         t,
         high_res_image,
-        high_res_sdf,
         target_density_map,
-        target_sdf_map,
-        target_smart_init_map,
+        high_res_sdf=None,
+        target_sdf_map=None,
+        target_smart_init_map=None,
     ):
         """Run control encoder and return injection-ready control signals.
 
@@ -141,10 +160,10 @@ class DynamicControlNet(nn.Module):
             Noisy offset grid; G can differ from the training grid_size.
         t : Tensor (B,)
         high_res_image : Tensor (B, 1, Himg, Wimg)
-        high_res_sdf : Tensor (B, 1, Himg, Wimg)
         target_density_map : Tensor (B, 1, G, G)
-        target_sdf_map : Tensor (B, 1, G, G)
-        target_smart_init_map : Tensor (B, 1, G, G)
+        high_res_sdf : Tensor (B, 1, Himg, Wimg) or None
+        target_sdf_map : Tensor (B, 1, G, G) or None
+        target_smart_init_map : Tensor (B, 1, G, G) or None
 
         Returns
         -------
@@ -152,21 +171,23 @@ class DynamicControlNet(nn.Module):
         """
         B, _, H, W = offsets_t.shape
 
-        # Recompute coord_grid for the actual (possibly different) spatial size.
-        lin_y = torch.linspace(-1, 1, H, device=offsets_t.device)
-        lin_x = torch.linspace(-1, 1, W, device=offsets_t.device)
-        gy2d, gx2d = torch.meshgrid(lin_y, lin_x, indexing="ij")
-        coord_grid = torch.stack([gx2d, gy2d], dim=0).unsqueeze(0)  # (1, 2, H, W)
+        hint_parts = [offsets_t, target_density_map]
+        if self.smart_init_features:
+            if target_smart_init_map is None:
+                raise ValueError("target_smart_init_map is required when smart_init_features=True")
+            hint_parts.append(target_smart_init_map)
+        if self.sdf_features:
+            if target_sdf_map is None:
+                raise ValueError("target_sdf_map is required when sdf_features=True")
+            hint_parts.append(target_sdf_map)
+        if self.batch_coords_features:
+            # Recompute coord_grid for the actual (possibly different) spatial size.
+            lin_y = torch.linspace(-1, 1, H, device=offsets_t.device)
+            lin_x = torch.linspace(-1, 1, W, device=offsets_t.device)
+            gy2d, gx2d = torch.meshgrid(lin_y, lin_x, indexing="ij")
+            coord_grid = torch.stack([gx2d, gy2d], dim=0).unsqueeze(0)  # (1, 2, H, W)
+            hint_parts.append(coord_grid.expand(B, -1, -1, -1))
 
-        batch_coords = coord_grid.expand(B, -1, -1, -1)
-
-        hint_parts = [
-            offsets_t,           # 2ch
-            target_density_map,  # 1ch
-            target_sdf_map,      # 1ch
-            target_smart_init_map,  # 1ch
-            batch_coords,        # 2ch
-        ]
         if self.enable_gecco:
             gecco_dynamic = self.compute_gecco_features(offsets_t, high_res_image, high_res_sdf)
             hint_parts.append(gecco_dynamic)
@@ -202,8 +223,10 @@ class DynamicControlNet(nn.Module):
 
     def compute_gecco_features(self, offsets_t, high_res_image, high_res_sdf):
         """Sample SDF-aware high-res GECCO features at current noisy positions."""
-        if high_res_image is None or high_res_sdf is None:
-            raise ValueError("high_res_image and high_res_sdf are required when enable_gecco=True")
+        if high_res_image is None:
+            raise ValueError("high_res_image is required when enable_gecco=True")
+        if self.sdf_features and high_res_sdf is None:
+            raise ValueError("high_res_sdf is required when sdf_features=True and enable_gecco=True")
 
         # Recompute grid_centers for the actual spatial size (supports grid sizes
         # different from the one used at training time).
@@ -216,7 +239,8 @@ class DynamicControlNet(nn.Module):
         positions = grid_centers + offsets_t / H  # H == W for square grids
         sample_coords = positions.permute(0, 2, 3, 1) * 2.0 - 1.0
 
-        gecco_feats_hr = self.gecco_extractor(torch.cat([high_res_image, high_res_sdf], dim=1))
+        gecco_input = high_res_image if not self.sdf_features else torch.cat([high_res_image, high_res_sdf], dim=1)
+        gecco_feats_hr = self.gecco_extractor(gecco_input)
         return F.grid_sample(
             gecco_feats_hr,
             sample_coords,
@@ -265,14 +289,22 @@ class DynamicControlledDenoiser(nn.Module):
         smart = self._smart_init_grid
         if hrs.shape[0] != x.shape[0]:
             hrs = hrs.expand(x.shape[0], -1, -1, -1)
-        if hrs_sdf.shape[0] != x.shape[0]:
+        if hrs_sdf is not None and hrs_sdf.shape[0] != x.shape[0]:
             hrs_sdf = hrs_sdf.expand(x.shape[0], -1, -1, -1)
         if tgt.shape[0] != x.shape[0]:
             tgt = tgt.expand(x.shape[0], -1, -1, -1)
-        if tgt_sdf.shape[0] != x.shape[0]:
+        if tgt_sdf is not None and tgt_sdf.shape[0] != x.shape[0]:
             tgt_sdf = tgt_sdf.expand(x.shape[0], -1, -1, -1)
-        if smart.shape[0] != x.shape[0]:
+        if smart is not None and smart.shape[0] != x.shape[0]:
             smart = smart.expand(x.shape[0], -1, -1, -1)
 
-        controls = self.control(x, t, hrs, hrs_sdf, tgt, tgt_sdf, smart)
+        controls = self.control(
+            x,
+            t,
+            hrs,
+            tgt,
+            high_res_sdf=hrs_sdf if self.control.sdf_features else None,
+            target_sdf_map=tgt_sdf if self.control.sdf_features else None,
+            target_smart_init_map=smart if self.control.smart_init_features else None,
+        )
         return self.locked(x, t, cond=cond, controls=controls)

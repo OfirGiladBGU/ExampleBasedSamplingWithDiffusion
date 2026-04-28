@@ -67,7 +67,7 @@ OUTPUT_DIR = "control_v4/train_outputs"
 
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
 OFFSETS_DIR = ""
-SMART_INIT_CACHE_DIR = ""
+CACHE_DATA_DIR = ""
 PRELOAD_RAM = False  # Preload all cached data to RAM (eliminates disk I/O per batch)
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
@@ -76,8 +76,9 @@ FREEZE_DENOISER = True
 GRID_SIZE = 32
 ENABLE_GECCO = True
 RESAMPLE_JUMPS = 2
-
-USE_SDF = True
+SMART_INIT_FEATURES = True
+SDF_FEATURES = True
+BATCH_COORDS_FEATURES = True
 SDF_TRUNCATE_PX = 8.0
 
 EVAL_TIMESTEPS = 1000
@@ -266,11 +267,8 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
     return resolved_offsets_dir
 
 
-def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, high_res_sdf,
-                      target_density, target_sdf, smart_init_grid,
-                      device, n_samples=4, timesteps=1000, resample_jumps=2,
-                      show_tqdm=False, tqdm_desc="sampling",
-                      smart_init_offsets=None, truncation_ratio=None):
+def sample_eval_batch(diffusion, denoiser, control_net, batch, device, n_samples=4, timesteps=1000, resample_jumps=2,
+                      show_tqdm=False, tqdm_desc="sampling", truncation_ratio=None):
     """Sample offset grids for intermediate eval with optional resampling.
 
     When ``truncation_ratio`` and ``smart_init_offsets`` are provided the
@@ -279,6 +277,13 @@ def sample_eval_batch(diffusion, denoiser, control_net, high_res_img, high_res_s
     and denoises only from there, matching the truncated training regime.
     """
     controlled = DynamicControlledDenoiser(denoiser, control_net)
+    high_res_img = batch["high_res"]
+    target_density = batch["target_density"]
+    high_res_sdf = batch.get("high_res_sdf")
+    target_sdf = batch.get("target_sdf")
+    smart_init_grid = batch.get("smart_init_grid")
+    smart_init_offsets = batch.get("smart_init_offsets") if control_net.smart_init_features else batch["offsets"]
+
     controlled.set_condition(high_res_img, high_res_sdf, target_density, target_sdf, smart_init_grid)
 
     original_model = diffusion.model
@@ -487,33 +492,41 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, 
 
 def dynamic_collate(batch):
     """Collate samples with variable high-res image sizes by padding per batch."""
-    high_res_list, target_density_list, high_res_sdf_list, target_sdf_list, offsets_list, smart_init_grid_list, smart_init_offsets_list = zip(*batch)
+    sample0 = batch[0]
 
-    max_h = max(t.shape[-2] for t in high_res_list)
-    max_w = max(t.shape[-1] for t in high_res_list)
+    max_h = max(sample["high_res"].shape[-2] for sample in batch)
+    max_w = max(sample["high_res"].shape[-1] for sample in batch)
 
     padded_high_res = []
-    padded_high_res_sdf = []
-    for img in high_res_list:
+    for sample in batch:
+        img = sample["high_res"]
         pad_h = max_h - img.shape[-2]
         pad_w = max_w - img.shape[-1]
         padded = F.pad(img, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
         padded_high_res.append(padded.contiguous())
 
-    for sdf in high_res_sdf_list:
-        pad_h = max_h - sdf.shape[-2]
-        pad_w = max_w - sdf.shape[-1]
-        padded = F.pad(sdf, (0, pad_w, 0, pad_h), mode="constant", value=1.0)
-        padded_high_res_sdf.append(padded.contiguous())
+    collated = {
+        "high_res": torch.stack(padded_high_res, dim=0),
+        "target_density": torch.stack([sample["target_density"].contiguous() for sample in batch], dim=0),
+        "offsets": torch.stack([sample["offsets"].contiguous() for sample in batch], dim=0),
+    }
 
-    high_res_batch = torch.stack(padded_high_res, dim=0)
-    high_res_sdf_batch = torch.stack(padded_high_res_sdf, dim=0)
-    target_density_batch = torch.stack([t.contiguous() for t in target_density_list], dim=0)
-    target_sdf_batch = torch.stack([t.contiguous() for t in target_sdf_list], dim=0)
-    offsets_batch = torch.stack([o.contiguous() for o in offsets_list], dim=0)
-    smart_init_grid_batch = torch.stack([s.contiguous() for s in smart_init_grid_list], dim=0)
-    smart_init_offsets_batch = torch.stack([s.contiguous() for s in smart_init_offsets_list], dim=0)
-    return high_res_batch, target_density_batch, high_res_sdf_batch, target_sdf_batch, offsets_batch, smart_init_grid_batch, smart_init_offsets_batch
+    if "high_res_sdf" in sample0:
+        padded_high_res_sdf = []
+        for sample in batch:
+            sdf = sample["high_res_sdf"]
+            pad_h = max_h - sdf.shape[-2]
+            pad_w = max_w - sdf.shape[-1]
+            padded = F.pad(sdf, (0, pad_w, 0, pad_h), mode="constant", value=1.0)
+            padded_high_res_sdf.append(padded.contiguous())
+        collated["high_res_sdf"] = torch.stack(padded_high_res_sdf, dim=0)
+        collated["target_sdf"] = torch.stack([sample["target_sdf"].contiguous() for sample in batch], dim=0)
+
+    if "smart_init_grid" in sample0:
+        collated["smart_init_grid"] = torch.stack([sample["smart_init_grid"].contiguous() for sample in batch], dim=0)
+        collated["smart_init_offsets"] = torch.stack([sample["smart_init_offsets"].contiguous() for sample in batch], dim=0)
+
+    return collated
 
 
 def main():
@@ -531,8 +544,8 @@ def main():
     parser.add_argument("--offsets",
                         default=OFFSETS_DIR,
                         help="Dir of .npy offset files; if empty/missing, offsets are exported from --target")
-    parser.add_argument("--smart-init-cache-dir", default=SMART_INIT_CACHE_DIR,
-                        help="Optional directory to cache Smart Init grids as .npy")
+    parser.add_argument("--cache-data-dir", default=CACHE_DATA_DIR,
+                        help="Optional directory to cache feature artifacts (SDF and/or Smart Init) as .npy")
     parser.add_argument("--preload-ram", action="store_true", default=PRELOAD_RAM,
                         help="Preload all cached data (SDF, smart init) to RAM for zero disk I/O per batch")
     parser.add_argument("--out", default=OUTPUT_DIR,
@@ -547,14 +560,26 @@ def main():
         default=ENABLE_GECCO,
         help="Enable GECCO dynamic feature sampling in control hint path",
     )
+    parser.add_argument(
+        "--smart-init-features",
+        action=argparse.BooleanOptionalAction,
+        default=SMART_INIT_FEATURES,
+        help="Enable Smart Init conditioning features in the control hint path",
+    )
+    parser.add_argument(
+        "--sdf-features",
+        action=argparse.BooleanOptionalAction,
+        default=SDF_FEATURES,
+        help="Enable SDF conditioning features in the control hint path",
+    )
+    parser.add_argument(
+        "--batch-coords-features",
+        action=argparse.BooleanOptionalAction,
+        default=BATCH_COORDS_FEATURES,
+        help="Enable coordinate-grid conditioning features in the control hint path",
+    )
     parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX,
                         help="Truncate signed distance magnitudes before max-normalization (0 disables)")
-    parser.add_argument(
-        "--use-sdf",
-        action=argparse.BooleanOptionalAction,
-        default=USE_SDF,
-        help="Pass real SDF channels to the model (--no-use-sdf zeroes them out for ablation)",
-    )
     parser.add_argument("--eval-timesteps", type=int, default=EVAL_TIMESTEPS,
                         help="Timesteps used in intermediate eval sampling")
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS,
@@ -648,7 +673,6 @@ def main():
         raise ValueError("--save_every must be >= 1")
     if not (0.0 < args.truncation_ratio <= 1.0):
         raise ValueError("--truncation-ratio must be in (0, 1]")
-
     args.offsets = ensure_offsets_dir(args.source, args.target, args.offsets, args.grid_size)
 
     device = torch.device(args.device)
@@ -695,6 +719,9 @@ def main():
         denoiser,
         grid_size=args.grid_size,
         enable_gecco=args.enable_gecco,
+        smart_init_features=args.smart_init_features,
+        sdf_features=args.sdf_features,
+        batch_coords_features=args.batch_coords_features,
     ).to(device)
     control_net.train()
 
@@ -714,9 +741,12 @@ def main():
         trainable_total = control_params + sum(p.numel() for p in denoiser.parameters() if p.requires_grad)
         print(f"Trainable params (control + denoiser) : {trainable_total:,}")
     print(f"GECCO dynamic features enabled        : {args.enable_gecco}")
+    print(f"Smart Init features enabled           : {args.smart_init_features}")
+    print(f"SDF features enabled                  : {args.sdf_features}")
+    print(f"Batch coords features enabled         : {args.batch_coords_features}")
     print(f"Min-SNR gamma                         : {args.min_snr_gamma}")
     print(f"SDF truncation (px)                   : {args.sdf_truncate_px}")
-    print(f"SDF conditioning enabled              : {args.use_sdf}")
+    print(f"SDF conditioning enabled              : {args.sdf_features}")
     print(f"Smart Init micro-jitter (train, px)  : {args.smart_init_jitter_px}")
     print(f"Smart Init soft-splat sigma (px)     : {args.smart_init_splat_sigma_px}")
     print(f"Smart Init jitter enabled            : {args.enable_smart_init_jitter}")
@@ -726,16 +756,20 @@ def main():
     print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{num_timesteps}")
 
     # ── dataset ──────────────────────────────────────────────────────
-    smart_init_cache_dir = args.smart_init_cache_dir
-    if not smart_init_cache_dir:
-        smart_init_cache_dir = os.path.join(args.out, "smart_init_cache")
+    cache_data_dir = args.cache_data_dir
+    if not (args.smart_init_features or args.sdf_features):
+        cache_data_dir = None
+    elif not cache_data_dir:
+        cache_data_dir = os.path.join(args.out, "cache_data")
     dataset = DynamicStippleDataset(
         args.source,
         args.offsets,
         grid_size=args.grid_size,
         sdf_truncate_px=args.sdf_truncate_px,
-        smart_init_cache_dir=smart_init_cache_dir,
+        cache_data_dir=cache_data_dir,
         smart_init_seed=args.smart_init_seed,
+        smart_init_features=args.smart_init_features,
+        sdf_features=args.sdf_features,
         preload_ram=False,  # Initial scan only, no preload needed
     )
     if len(dataset) == 0:
@@ -757,8 +791,10 @@ def main():
         args.offsets,
         grid_size=args.grid_size,
         sdf_truncate_px=args.sdf_truncate_px,
-        smart_init_cache_dir=smart_init_cache_dir,
+        cache_data_dir=cache_data_dir,
         smart_init_seed=args.smart_init_seed,
+        smart_init_features=args.smart_init_features,
+        sdf_features=args.sdf_features,
         filenames=train_filenames,
         preload_ram=args.preload_ram,
     )
@@ -771,8 +807,10 @@ def main():
             args.offsets,
             grid_size=args.grid_size,
             sdf_truncate_px=args.sdf_truncate_px,
-            smart_init_cache_dir=smart_init_cache_dir,
+            cache_data_dir=cache_data_dir,
             smart_init_seed=args.smart_init_seed,
+            smart_init_features=args.smart_init_features,
+            sdf_features=args.sdf_features,
             filenames=val_filenames,
             preload_ram=args.preload_ram,
         )
@@ -797,7 +835,7 @@ def main():
         )
 
     print(f"Dataset split: train={train_len}, val={val_len}")
-    grid_centers_flat = _grid_centers_flat(args.grid_size, device=device, dtype=torch.float32)
+    grid_centers_flat = _grid_centers_flat(args.grid_size, device=device, dtype=torch.float32) if args.smart_init_features else None
 
     # ── optimizer ────────────────────────────────────────────────────
     if args.freeze_denoiser:
@@ -850,73 +888,37 @@ def main():
     for epoch in range(start_epoch, args.epochs):
         should_save_epoch = ((epoch + 1) % args.save_every == 0) or ((epoch + 1) == args.epochs)
         epoch_loss = 0.0
-        preview_high_res = None
-        preview_target_density = None
-        preview_high_res_sdf = None
-        preview_target_sdf = None
-        preview_offsets = None
-        preview_smart_init_grid = None
-        preview_smart_init_offsets = None
+        preview_batch = None
 
         control_net.train()
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [train]", leave=False)
-        for high_res_img, target_density, high_res_sdf, target_sdf, x_0, smart_init_grid, smart_init_offsets in train_pbar:
-            high_res_img = high_res_img.to(device)
-            target_density = target_density.to(device)
-            high_res_sdf = high_res_sdf.to(device)
-            target_sdf = target_sdf.to(device)
-            x_0 = x_0.to(device)
-            smart_init_offsets = smart_init_offsets.to(device)
-            smart_init_grid = smart_init_grid.to(device)
+        for batch in train_pbar:
+            batch = {key: value.to(device) if torch.is_tensor(value) else value for key, value in batch.items()}
+            high_res_img = batch["high_res"]
+            target_density = batch["target_density"]
+            x_0 = batch["offsets"]
+            high_res_sdf = batch.get("high_res_sdf")
+            target_sdf = batch.get("target_sdf")
+            smart_init_grid = batch.get("smart_init_grid")
+            smart_init_offsets = batch.get("smart_init_offsets")
 
-            smart_coords = None
-            if args.enable_smart_init_jitter or args.enable_smart_init_splat_sigma:
-                smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
-
-            if args.enable_smart_init_jitter:
-                smart_coords = apply_gpu_jitter(
-                    smart_coords,
-                    jitter_strength_px=args.smart_init_jitter_px,
-                    grid_size=args.grid_size,
-                )
-                smart_init_offsets = coords_to_offsets_gpu(smart_coords, args.grid_size, grid_centers_flat)
-
-            if args.enable_smart_init_splat_sigma:
-                smart_init_grid = render_smart_init_gpu(
-                    smart_coords,
-                    grid_size=args.grid_size,
-                    sigma_px=args.smart_init_splat_sigma_px,
-                    grid_centers_flat=grid_centers_flat,
-                )
-            elif args.enable_smart_init_jitter:
-                # Jitter moved the points: re-render occupancy grid from jittered coords so
-                # grid and offsets stay in sync. No Gaussian splat, just hard occupancy.
-                smart_init_grid = render_occupancy_grid_gpu(smart_coords, grid_size=args.grid_size)
-            # else: neither jitter nor splat — use precomputed occupancy grid from the dataloader
-
-            if not args.use_sdf:
-                high_res_sdf = torch.zeros_like(high_res_sdf)
-                target_sdf = torch.zeros_like(target_sdf)
-
-            if preview_high_res is None:
+            if preview_batch is None:
                 keep_train = max(1, min(args.wandb_train_images, high_res_img.shape[0]))
-                preview_high_res = high_res_img[:keep_train].detach()
-                preview_target_density = target_density[:keep_train].detach()
-                preview_high_res_sdf = high_res_sdf[:keep_train].detach()
-                preview_target_sdf = target_sdf[:keep_train].detach()
-                preview_offsets = x_0[:keep_train].detach()
-                preview_smart_init_grid = smart_init_grid[:keep_train].detach()
-                preview_smart_init_offsets = smart_init_offsets[:keep_train].detach()
+                preview_batch = {
+                    key: value[:keep_train].detach()
+                    for key, value in batch.items()
+                    if torch.is_tensor(value)
+                }
 
-                if should_save_epoch and use_wandb and HAS_MPL:
+                if should_save_epoch and use_wandb and HAS_MPL and args.sdf_features and args.smart_init_features:
                     fig, axes = plt.subplots(1, 3, figsize=(9, 3), dpi=140)
-                    axes[0].imshow(preview_target_density[0, 0].cpu().numpy(), cmap="gray", vmin=0.0, vmax=1.0)
+                    axes[0].imshow(preview_batch["target_density"][0, 0].cpu().numpy(), cmap="gray", vmin=0.0, vmax=1.0)
                     axes[0].set_title("target_density")
                     axes[0].axis("off")
-                    axes[1].imshow(sdf_to_display(preview_target_sdf[0, 0].cpu().numpy()), cmap="gray", vmin=0.0, vmax=1.0)
+                    axes[1].imshow(sdf_to_display(preview_batch["target_sdf"][0, 0].cpu().numpy()), cmap="gray", vmin=0.0, vmax=1.0)
                     axes[1].set_title("target_sdf")
                     axes[1].axis("off")
-                    axes[2].imshow(preview_smart_init_grid[0, 0].cpu().numpy(), cmap="gray", vmin=0.0, vmax=1.0)
+                    axes[2].imshow(preview_batch["smart_init_grid"][0, 0].cpu().numpy(), cmap="gray", vmin=0.0, vmax=1.0)
                     axes[2].set_title("smart_init_grid")
                     axes[2].axis("off")
                     plt.tight_layout()
@@ -928,11 +930,46 @@ def main():
                         "visual/hint_channels": wandb.Image(debug_path),
                     }, step=epoch + 1)
 
+            if args.smart_init_features:
+                smart_coords = None
+                if args.enable_smart_init_jitter or args.enable_smart_init_splat_sigma:
+                    smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
+
+                if args.enable_smart_init_jitter:
+                    smart_coords = apply_gpu_jitter(
+                        smart_coords,
+                        jitter_strength_px=args.smart_init_jitter_px,
+                        grid_size=args.grid_size,
+                    )
+                    smart_init_offsets = coords_to_offsets_gpu(smart_coords, args.grid_size, grid_centers_flat)
+
+                if args.enable_smart_init_splat_sigma:
+                    smart_init_grid = render_smart_init_gpu(
+                        smart_coords,
+                        grid_size=args.grid_size,
+                        sigma_px=args.smart_init_splat_sigma_px,
+                        grid_centers_flat=grid_centers_flat,
+                    )
+                elif args.enable_smart_init_jitter:
+                    smart_init_grid = render_occupancy_grid_gpu(smart_coords, grid_size=args.grid_size)
+
+            if not args.sdf_features:
+                high_res_sdf = None
+                target_sdf = None
+
             t = torch.randint(0, truncation_cutoff, (x_0.shape[0],), device=device)
             noise = torch.randn_like(x_0)
             offsets_t = diffusion.q_sample(x_0, t, noise)
 
-            controls = control_net(offsets_t, t, high_res_img, high_res_sdf, target_density, target_sdf, smart_init_grid)
+            controls = control_net(
+                offsets_t,
+                t,
+                high_res_img,
+                target_density,
+                high_res_sdf=high_res_sdf,
+                target_sdf_map=target_sdf,
+                target_smart_init_map=smart_init_grid,
+            )
             noise_pred = denoiser(offsets_t, t, controls=controls)
 
             per_sample_mse = F.mse_loss(noise_pred, noise, reduction="none")
@@ -963,31 +1000,26 @@ def main():
 
         avg_loss = epoch_loss / max(len(train_loader), 1)
 
-        if should_save_epoch and args.wandb_train_images > 0 and preview_high_res is not None and preview_high_res.shape[0] > 0:
+        if should_save_epoch and args.wandb_train_images > 0 and preview_batch is not None and preview_batch["high_res"].shape[0] > 0:
             control_net.eval()
             train_pred_raw = sample_eval_batch(
                 diffusion,
                 denoiser,
                 control_net,
-                preview_high_res,
-                preview_high_res_sdf,
-                preview_target_density,
-                preview_target_sdf,
-                preview_smart_init_grid,
+                preview_batch,
                 device,
-                n_samples=preview_high_res.shape[0],
+                n_samples=preview_batch["high_res"].shape[0],
                 timesteps=args.eval_timesteps,
                 resample_jumps=args.resample_jumps,
                 show_tqdm=True,
                 tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [train-predict]",
-                smart_init_offsets=preview_smart_init_offsets,
                 truncation_ratio=args.truncation_ratio,
             )
             train_panel_path = os.path.join(args.out, f"train_panel_ep{epoch+1}.png")
             train_saved = save_val_panel(
                 train_panel_path,
-                preview_high_res.cpu().numpy(),
-                preview_offsets.cpu().numpy(),
+                preview_batch["high_res"].cpu().numpy(),
+                preview_batch["offsets"].cpu().numpy(),
                 train_pred_raw.cpu().numpy(),
                 max_samples=args.wandb_train_images,
             )
@@ -1002,29 +1034,24 @@ def main():
 
         # Validation loop with tqdm.
         val_avg_loss = None
-        val_preview_high_res = None
-        val_preview_target_density = None
-        val_preview_high_res_sdf = None
-        val_preview_target_sdf = None
-        val_preview_offsets = None
-        val_preview_smart_init_grid = None
-        val_preview_smart_init_offsets = None
+        val_preview_batch = None
         pred_raw_for_geom = None
         if val_loader is not None:
             control_net.eval()
             val_loss_sum = 0.0
             val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [val]", leave=False)
             with torch.no_grad():
-                for high_res_img, target_density, high_res_sdf, target_sdf, x_0, smart_init_grid, smart_init_offsets in val_pbar:
-                    high_res_img = high_res_img.to(device)
-                    target_density = target_density.to(device)
-                    high_res_sdf = high_res_sdf.to(device)
-                    target_sdf = target_sdf.to(device)
-                    x_0 = x_0.to(device)
-                    smart_init_offsets = smart_init_offsets.to(device)
-                    smart_init_grid = smart_init_grid.to(device)
+                for batch in val_pbar:
+                    batch = {key: value.to(device) if torch.is_tensor(value) else value for key, value in batch.items()}
+                    high_res_img = batch["high_res"]
+                    target_density = batch["target_density"]
+                    high_res_sdf = batch.get("high_res_sdf")
+                    target_sdf = batch.get("target_sdf")
+                    x_0 = batch["offsets"]
+                    smart_init_grid = batch.get("smart_init_grid")
+                    smart_init_offsets = batch.get("smart_init_offsets")
 
-                    if args.enable_smart_init_splat_sigma:
+                    if args.smart_init_features and args.enable_smart_init_splat_sigma and smart_init_offsets is not None:
                         smart_coords = offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
                         smart_init_grid = render_smart_init_gpu(
                             smart_coords,
@@ -1032,27 +1059,40 @@ def main():
                             sigma_px=args.smart_init_splat_sigma_px,
                             grid_centers_flat=grid_centers_flat,
                         )
-                    # else: use precomputed occupancy grid from the dataloader (smart_init_grid already on device)
 
-                    if not args.use_sdf:
-                        high_res_sdf = torch.zeros_like(high_res_sdf)
-                        target_sdf = torch.zeros_like(target_sdf)
+                    if not args.sdf_features:
+                        high_res_sdf = None
+                        target_sdf = None
 
-                    if val_preview_high_res is None:
+                    if val_preview_batch is None:
                         keep = min(args.wandb_valid_images, high_res_img.shape[0])
-                        val_preview_high_res = high_res_img[:keep].detach()
-                        val_preview_target_density = target_density[:keep].detach()
-                        val_preview_high_res_sdf = high_res_sdf[:keep].detach()
-                        val_preview_target_sdf = target_sdf[:keep].detach()
-                        val_preview_offsets = x_0[:keep].detach()
-                        val_preview_smart_init_grid = smart_init_grid[:keep].detach()
-                        val_preview_smart_init_offsets = smart_init_offsets[:keep].detach()
+                        val_preview_batch = {
+                            key: value[:keep].detach()
+                            for key, value in batch.items()
+                            if torch.is_tensor(value)
+                        }
+                        if args.smart_init_features and args.enable_smart_init_splat_sigma and val_preview_batch.get("smart_init_offsets") is not None:
+                            smart_coords = offsets_to_coords_gpu(val_preview_batch["smart_init_offsets"], args.grid_size, grid_centers_flat)
+                            val_preview_batch["smart_init_grid"] = render_smart_init_gpu(
+                                smart_coords,
+                                grid_size=args.grid_size,
+                                sigma_px=args.smart_init_splat_sigma_px,
+                                grid_centers_flat=grid_centers_flat,
+                            )
 
                     t = torch.randint(0, truncation_cutoff, (x_0.shape[0],), device=device)
                     noise = torch.randn_like(x_0)
                     offsets_t = diffusion.q_sample(x_0, t, noise)
 
-                    controls = control_net(offsets_t, t, high_res_img, high_res_sdf, target_density, target_sdf, smart_init_grid)
+                    controls = control_net(
+                        offsets_t,
+                        t,
+                        high_res_img,
+                        target_density,
+                        high_res_sdf=high_res_sdf,
+                        target_sdf_map=target_sdf,
+                        target_smart_init_map=smart_init_grid,
+                    )
                     noise_pred = denoiser(offsets_t, t, controls=controls)
 
                     per_sample_mse = F.mse_loss(noise_pred, noise, reduction="none")
@@ -1079,26 +1119,21 @@ def main():
                     diffusion,
                     denoiser,
                     control_net,
-                    val_preview_high_res,
-                    val_preview_high_res_sdf,
-                    val_preview_target_density,
-                    val_preview_target_sdf,
-                    val_preview_smart_init_grid,
+                    val_preview_batch,
                     device,
-                    n_samples=val_preview_high_res.shape[0],
+                    n_samples=val_preview_batch["high_res"].shape[0],
                     timesteps=args.eval_timesteps,
                     resample_jumps=args.resample_jumps,
                     show_tqdm=True,
                     tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [predict]",
-                    smart_init_offsets=val_preview_smart_init_offsets,
                     truncation_ratio=args.truncation_ratio,
                 )
                 pred_raw_for_geom = pred_raw
                 panel_path = os.path.join(args.out, f"val_panel_ep{epoch+1}.png")
                 saved = save_val_panel(
                     panel_path,
-                    val_preview_high_res.cpu().numpy(),
-                    val_preview_offsets.cpu().numpy(),
+                    val_preview_batch["high_res"].cpu().numpy(),
+                    val_preview_batch["offsets"].cpu().numpy(),
                     pred_raw.cpu().numpy(),
                     max_samples=args.wandb_valid_images,
                 )
@@ -1113,25 +1148,20 @@ def main():
 
             # Geometry-gated best checkpoint based on CV + clumped% score.
             # Only compute geometry on epochs where we save checkpoints.
-            if should_save_epoch and val_preview_high_res is not None and val_preview_high_res.shape[0] > 0:
+            if should_save_epoch and val_preview_batch is not None and val_preview_batch["high_res"].shape[0] > 0:
                 control_net.eval()
                 if pred_raw_for_geom is None:
                     pred_raw_for_geom = sample_eval_batch(
                         diffusion,
                         denoiser,
                         control_net,
-                        val_preview_high_res[:1],
-                        val_preview_high_res_sdf[:1],
-                        val_preview_target_density[:1],
-                        val_preview_target_sdf[:1],
-                        val_preview_smart_init_grid[:1],
+                        {key: value[:1] for key, value in val_preview_batch.items()},
                         device,
                         n_samples=1,
                         timesteps=args.eval_timesteps,
                         resample_jumps=args.resample_jumps,
                         show_tqdm=True,
                         tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [geom]",
-                        smart_init_offsets=val_preview_smart_init_offsets[:1],
                         truncation_ratio=args.truncation_ratio,
                     )
 

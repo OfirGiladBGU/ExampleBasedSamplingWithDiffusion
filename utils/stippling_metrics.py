@@ -28,7 +28,7 @@ except Exception:
 
 # ── metric computations (pure numpy, points in [0,1]) ───────────────
 
-def compute_grid_capacity(points, image_01, grid_size=(16, 16)):
+def compute_grid_capacity(points, image_01, grid_size=(16, 16), ignore_white=True, white_threshold=0.9):
     """CCVT-style grid capacity fulfillment.
 
     Parameters
@@ -36,10 +36,18 @@ def compute_grid_capacity(points, image_01, grid_size=(16, 16)):
     points : ndarray (N, 2) in [0, 1]
     image_01 : ndarray (H, W) float in [0, 1]  (0=black/dark, 1=white/light)
     grid_size : (rows, cols)
+    ignore_white : bool
+        If True, cells whose downsampled value exceeds *white_threshold* are
+        treated as background (expected = 0 points).  An empty white cell is
+        shown green (OK); a white cell that contains points is shown red
+        (misplaced dots penalise the score).
+    white_threshold : float
+        Pixel value above which a cell is considered "white" (default 0.9).
 
     Returns
     -------
     dict with grid_status (rows, cols), score, underfilled_pct, overfilled_pct
+    grid_status values: 0=ok (green), -1=underfilled/misplaced (red), 1=overfilled (blue)
     """
     from scipy.ndimage import zoom
 
@@ -51,8 +59,15 @@ def compute_grid_capacity(points, image_01, grid_size=(16, 16)):
     scale_w = W_grid / W_img
     image_down = zoom(image_01, (scale_h, scale_w), order=1)
 
+    white_mask = (image_down > white_threshold) if ignore_white else None
+
+    # Build expected density — white cells get 0 expected points
     expected_weight = 1.0 - image_down + 0.01
-    expected_weight /= expected_weight.sum()
+    if ignore_white and white_mask is not None:
+        expected_weight[white_mask] = 0.0
+    total_weight = expected_weight.sum()
+    if total_weight > 0:
+        expected_weight /= total_weight
     grid_expected = expected_weight * N
 
     pts = np.clip(points, 0, 1 - 1e-6)
@@ -68,7 +83,16 @@ def compute_grid_capacity(points, image_01, grid_size=(16, 16)):
     grid_status[grid_ratio < 0.5] = -1
     grid_status[grid_ratio > 2.0] = 1
 
-    significant = grid_expected > 0.5
+    # Override white cells: empty=green (OK), any points=red (misplaced)
+    if ignore_white and white_mask is not None:
+        grid_status[white_mask & (grid_actual == 0)] = 0   # green — correctly empty
+        grid_status[white_mask & (grid_actual > 0)] = -1   # red — dots in background
+
+    # All cells are significant: dark cells by expected>0.5, white cells always
+    if ignore_white and white_mask is not None:
+        significant = (grid_expected > 0.5) | white_mask
+    else:
+        significant = grid_expected > 0.5
     n_sig = significant.sum()
     if n_sig > 0:
         ok = ((grid_status == 0) & significant).sum()
@@ -290,9 +314,9 @@ def visualize_overfit_metrics(
         status = cap["grid_status"]
         H_g, W_g = status.shape
         rgb = np.zeros((H_g, W_g, 3), dtype=np.float32)
-        rgb[status == 0, 1] = 1.0    # green = ok
-        rgb[status == -1, 0] = 1.0   # red = underfilled
-        rgb[status == 1, 2] = 1.0    # blue = overfilled
+        rgb[status == 0, :] = [0.0, 1.0, 0.0]   # green = ok
+        rgb[status == -1, :] = [1.0, 0.0, 0.0]  # red = underfilled/misplaced
+        rgb[status == 1, :] = [0.0, 0.0, 1.0]   # blue = overfilled
         ax.imshow(rgb, origin="upper", aspect="equal")
         ok_pct = 100.0 - cap["underfilled_pct"] - cap["overfilled_pct"]
         ax.set_title(

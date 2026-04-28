@@ -50,7 +50,9 @@ RESAMPLE_JUMPS = 2
 ENABLE_GECCO = True
 DEVICE = "cuda"
 SDF_TRUNCATE_PX = 8.0
-USE_SDF = True
+SDF_FEATURES = True
+SMART_INIT_FEATURES = True
+BATCH_COORDS_FEATURES = True
 SHOW_DENOISING = False
 SHOW_DENOISING_INTERVAL = 50
 TRUNCATION_RATIO = 0.30
@@ -312,11 +314,15 @@ def _render_smart_init_gpu(coords, grid_size, sigma_px, device):
     return gauss.amax(dim=2).reshape(1, 1, grid_size, grid_size).clamp(0.0, 1.0)
 
 
-def load_condition(image_path, grid_size, device, sdf_truncate_px=0.0):
+def load_condition(image_path, grid_size, device, sdf_features=True, sdf_truncate_px=0.0):
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
         raise FileNotFoundError(f"Cannot read image: {image_path}")
     image_01 = img.astype(np.float32) / 255.0
+    if not sdf_features:
+        high_res = torch.from_numpy(image_01).unsqueeze(0).unsqueeze(0).to(device)
+        target_density = torch.nn.functional.interpolate(high_res, size=(grid_size, grid_size), mode="area")
+        return image_01, high_res, target_density, None, None
     high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_image(
         image_01,
         grid_size,
@@ -362,9 +368,11 @@ def main():
     parser.add_argument("--out-dir", default=OUTPUT_DIR)
     parser.add_argument("--no_ot", action="store_true")
     parser.add_argument("--enable-gecco", default=ENABLE_GECCO, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--smart-init-features", action=argparse.BooleanOptionalAction, default=SMART_INIT_FEATURES)
+    parser.add_argument("--batch-coords-features", action=argparse.BooleanOptionalAction, default=BATCH_COORDS_FEATURES)
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
     parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX)
-    parser.add_argument("--use-sdf", action=argparse.BooleanOptionalAction, default=USE_SDF)
+    parser.add_argument("--sdf-features", action=argparse.BooleanOptionalAction, default=SDF_FEATURES)
     parser.add_argument("--show-denoising", action=argparse.BooleanOptionalAction, default=SHOW_DENOISING)
     parser.add_argument(
         "--show-denoising-interval",
@@ -405,6 +413,9 @@ def main():
         denoiser,
         grid_size=args.grid_size,
         enable_gecco=args.enable_gecco,
+        smart_init_features=args.smart_init_features,
+        sdf_features=args.sdf_features,
+        batch_coords_features=args.batch_coords_features,
     ).to(device)
     ctrl_state = torch.load(args.control_ckpt, map_location="cpu")
     control_net.load_state_dict(_extract_control_state_dict(ctrl_state), strict=False)
@@ -418,29 +429,34 @@ def main():
         args.input_image,
         args.grid_size,
         device,
+        sdf_features=args.sdf_features,
         sdf_truncate_px=args.sdf_truncate_px,
     )
 
-    smart_points, smart_offsets_np, smart_grid_np = build_smart_init_from_image(
-        image_01,
-        grid_size=args.grid_size,
-        n_points=args.grid_size * args.grid_size,
-        seed=args.smart_init_seed,
-    )
-    smart_init_grid_raw = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
-    smart_init_offsets = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
-    grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets.dtype)
-    smart_coords = _offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
-    smart_init_grid = _render_smart_init_gpu(
-        smart_coords,
-        args.grid_size,
-        args.smart_init_splat_sigma_px,
-        device,
-    )
-
-    if not args.use_sdf:
-        high_res_sdf = torch.zeros_like(high_res_sdf)
-        target_sdf = torch.zeros_like(target_sdf)
+    if args.smart_init_features:
+        smart_points, smart_offsets_np, smart_grid_np = build_smart_init_from_image(
+            image_01,
+            grid_size=args.grid_size,
+            n_points=args.grid_size * args.grid_size,
+            seed=args.smart_init_seed,
+        )
+        smart_init_grid_raw = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
+        smart_init_offsets = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
+        grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets.dtype)
+        smart_coords = _offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
+        smart_init_grid = _render_smart_init_gpu(
+            smart_coords,
+            args.grid_size,
+            args.smart_init_splat_sigma_px,
+            device,
+        )
+    else:
+        smart_points = None
+        smart_offsets_np = None
+        smart_grid_np = None
+        smart_init_grid_raw = torch.zeros((1, 1, args.grid_size, args.grid_size), device=device)
+        smart_init_offsets = torch.randn((1, 2, args.grid_size, args.grid_size), device=device)
+        smart_init_grid = None
 
     conditions_dir = os.path.join(sample_base_dir, "conditions")
     _save_condition_debug_tensors(
@@ -453,14 +469,15 @@ def main():
         conditions_dir,
     )
 
-    smart_dir = os.path.join(sample_base_dir, "smart_init")
-    save_smart_init_debug(
-        smart_dir,
-        smart_points,
-        smart_offsets_np,
-        smart_grid_np,
-        model_input_grid=smart_init_grid.detach().cpu().numpy(),
-    )
+    if args.smart_init_features:
+        smart_dir = os.path.join(sample_base_dir, "smart_init")
+        save_smart_init_debug(
+            smart_dir,
+            smart_points,
+            smart_offsets_np,
+            smart_grid_np,
+            model_input_grid=smart_init_grid.detach().cpu().numpy(),
+        )
 
     controlled = DynamicControlledDenoiser(denoiser, control_net)
     controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid)
@@ -481,7 +498,9 @@ def main():
 
     print(f"Loaded checkpoint : {args.control_ckpt}")
     print(f"GECCO enabled     : {args.enable_gecco}")
-    print(f"SDF enabled       : {args.use_sdf}")
+    print(f"Smart Init enabled: {args.smart_init_features}")
+    print(f"Batch coords      : {args.batch_coords_features}")
+    print(f"SDF enabled       : {args.sdf_features}")
     print(f"Timesteps         : {args.timesteps}")
     print(f"t_start           : {t_start}")
     print(f"Resample jumps    : {args.resample_jumps}")

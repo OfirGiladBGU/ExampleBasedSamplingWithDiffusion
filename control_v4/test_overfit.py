@@ -51,7 +51,8 @@ from utils.stippling_metrics import compute_spacing_quality, visualize_overfit_m
 # ── default globals (edit here for quick experiments) ───────────────
 
 # Paths and I/O
-DATA_ROOT = r"C:\Users\User\PycharmProjects\ExampleBasedSamplingWithDiffusion\training\monkey"
+# DATA_ROOT = r"C:\Users\User\PycharmProjects\ExampleBasedSamplingWithDiffusion\training\monkey"
+DATA_ROOT = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1"
 # DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024"
 # DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_1024"
 # DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_taksim"
@@ -72,8 +73,9 @@ TRUNCATION_RATIO = 0.30
 
 ENABLE_GECCO = True
 RESAMPLE_JUMPS = 2
-
-USE_SDF = True
+SMART_INIT_FEATURES = False
+SDF_FEATURES = False
+BATCH_COORDS_FEATURES = False
 SDF_TRUNCATE_PX = 8.0
 
 SMART_INIT_SEED = 42
@@ -139,13 +141,22 @@ def extract_points_from_image(img_path, n_points):
     return pts
 
 
-def load_condition(img_path, grid_size, device, sdf_truncate_px=0.0, cache_dir=None):
+def load_condition(img_path, grid_size, device, sdf_features=True, sdf_truncate_px=0.0, cache_dir=None):
     """Load source image and return image, density, and SDF condition tensors.
     
     If cache_dir is provided, caches the raw SDF to avoid scipy calls on repeated runs.
     """
     img = Image.open(img_path).convert("L")
     img_np = np.array(img, dtype=np.float32) / 255.0
+
+    high_res = torch.from_numpy(img_np).unsqueeze(0).unsqueeze(0)
+    target_density = F.interpolate(high_res, size=(grid_size, grid_size), mode="area")
+
+    if not sdf_features:
+        if device is not None:
+            high_res = high_res.to(device)
+            target_density = target_density.to(device)
+        return high_res, target_density, None, None
     
     # Check for cached raw SDF
     if cache_dir:
@@ -173,8 +184,10 @@ def load_condition(img_path, grid_size, device, sdf_truncate_px=0.0, cache_dir=N
     if device is not None:
         high_res = high_res.to(device)
         target_density = target_density.to(device)
-        high_res_sdf = high_res_sdf.to(device)
-        target_sdf = target_sdf.to(device)
+        if high_res_sdf is not None:
+            high_res_sdf = high_res_sdf.to(device)
+        if target_sdf is not None:
+            target_sdf = target_sdf.to(device)
     
     return high_res, target_density, high_res_sdf, target_sdf
 
@@ -305,7 +318,7 @@ def export_gt_offset_artifacts(out_dir, gt_offsets):
 
 
 def sample_from_model(diffusion, control_net, denoiser, high_res, high_res_sdf,
-                      target_density, target_sdf, smart_init_grid, smart_init_offsets,
+                      target_density, target_sdf, smart_init_grid, x_init_offsets,
                       device, n_samples=2, timesteps=200, resample_jumps=0, truncation_ratio=0.30):
     """Run truncated reverse diffusion from Smart Init (SDEdit-style)."""
     from tqdm import tqdm as _tqdm
@@ -320,7 +333,7 @@ def sample_from_model(diffusion, control_net, denoiser, high_res, high_res_sdf,
     shape = [n_samples, 2, GRID_SIZE, GRID_SIZE]
     t_start = int(np.clip(int(diffusion.num_timesteps * truncation_ratio), 1, diffusion.num_timesteps - 1))
 
-    x_init = smart_init_offsets
+    x_init = x_init_offsets
     if x_init.shape[0] != n_samples:
         x_init = x_init.expand(n_samples, -1, -1, -1).contiguous()
 
@@ -418,10 +431,22 @@ def main():
     parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX,
                         help="Truncate signed distance magnitudes before max-normalization (0 disables)")
     parser.add_argument(
-        "--use-sdf",
+        "--sdf-features",
         action=argparse.BooleanOptionalAction,
-        default=USE_SDF,
-        help="Pass real SDF channels to the model (--no-use-sdf zeroes them out for ablation)",
+        default=SDF_FEATURES,
+        help="Enable SDF feature channels for conditioning (disable for ablation)",
+    )
+    parser.add_argument(
+        "--smart-init-features",
+        action=argparse.BooleanOptionalAction,
+        default=SMART_INIT_FEATURES,
+        help="Enable Smart Init conditioning features in the control hint path",
+    )
+    parser.add_argument(
+        "--batch-coords-features",
+        action=argparse.BooleanOptionalAction,
+        default=BATCH_COORDS_FEATURES,
+        help="Enable batch-coordinate conditioning features in the control hint path",
     )
     parser.add_argument(
         "--smart-init-jitter-px",
@@ -535,25 +560,32 @@ def main():
         source_path,
         GRID_SIZE,
         device,
+        sdf_features=args.sdf_features,
         sdf_truncate_px=args.sdf_truncate_px,
         cache_dir=out_dir,  # Cache raw SDF for faster repeated runs
     )
 
-    source_img_01 = np.array(Image.open(source_path).convert("L"), dtype=np.float32) / 255.0
-    _, smart_offsets_np, smart_grid_np = build_smart_init_from_image(
-        source_img_01,
-        grid_size=GRID_SIZE,
-        n_points=N_POINTS,
-        seed=SMART_INIT_SEED,
-    )
-    smart_init_offsets_base = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
-    smart_init_grid_base = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
-    smart_grid_centers_flat = _grid_centers_flat(GRID_SIZE, device, smart_init_offsets_base.dtype)
-    smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, GRID_SIZE, smart_grid_centers_flat)
+    if args.smart_init_features:
+        source_img_01 = np.array(Image.open(source_path).convert("L"), dtype=np.float32) / 255.0
+        _, smart_offsets_np, smart_grid_np = build_smart_init_from_image(
+            source_img_01,
+            grid_size=GRID_SIZE,
+            n_points=N_POINTS,
+            seed=SMART_INIT_SEED,
+        )
+        smart_init_offsets_base = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
+        smart_init_grid_base = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
+        smart_grid_centers_flat = _grid_centers_flat(GRID_SIZE, device, smart_init_offsets_base.dtype)
+        smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, GRID_SIZE, smart_grid_centers_flat)
+    else:
+        smart_init_offsets_base = None
+        smart_init_grid_base = None
+        smart_grid_centers_flat = None
+        smart_points_base = None
 
-    if not args.use_sdf:
-        high_res_sdf = torch.zeros_like(high_res_sdf)
-        target_sdf = torch.zeros_like(target_sdf)
+    if not args.sdf_features:
+        high_res_sdf = None
+        target_sdf = None
 
     source_np = np.array(Image.open(source_path).convert("L"))
     target_np = np.array(Image.open(target_path).convert("L"))
@@ -582,7 +614,14 @@ def main():
     truncation_cutoff = max(1, int(num_timesteps * TRUNCATION_RATIO))
 
     # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
-    control_net = DynamicControlNet(denoiser, grid_size=GRID_SIZE, enable_gecco=args.enable_gecco).to(device)
+    control_net = DynamicControlNet(
+        denoiser,
+        grid_size=GRID_SIZE,
+        enable_gecco=args.enable_gecco,
+        smart_init_features=args.smart_init_features,
+        sdf_features=args.sdf_features,
+        batch_coords_features=args.batch_coords_features,
+    ).to(device)
     control_net.train()
 
     # Freeze/unfreeze denoiser based on flag (AFTER control_net creation)
@@ -602,10 +641,13 @@ def main():
         trainable_total = control_params + sum(p.numel() for p in denoiser.parameters() if p.requires_grad)
         print(f"  Trainable params (control + denoiser): {trainable_total:,}")
     print(f"  GECCO dynamic features enabled: {args.enable_gecco}")
+    print(f"  Smart Init features enabled    : {args.smart_init_features}")
+    print(f"  SDF features enabled           : {args.sdf_features}")
+    print(f"  Batch coords features enabled   : {args.batch_coords_features}")
     print(f"  Min-SNR gamma: {args.min_snr_gamma}")
     print(f"  Resample jumps (RePaint): {args.resample_jumps}")
     print(f"  SDF truncation (px): {args.sdf_truncate_px}")
-    print(f"  SDF conditioning enabled: {args.use_sdf}")
+    print(f"  SDF conditioning enabled: {args.sdf_features}")
     print(f"  Smart Init micro-jitter (px): {args.smart_init_jitter_px}")
     print(f"  Smart Init soft-splat sigma (px): {args.smart_init_splat_sigma_px}")
     print(f"  Smart Init jitter enabled: {args.enable_smart_init_jitter}")
@@ -632,37 +674,47 @@ def main():
     losses = []
     for step in range(1, args.steps + 1):
         # Reset to base values each step (mirrors train's fresh dataloader unpack)
-        smart_init_grid = smart_init_grid_base
-        smart_init_offsets = smart_init_offsets_base
+        if args.smart_init_features:
+            smart_init_grid = smart_init_grid_base
+            smart_init_offsets = smart_init_offsets_base
 
-        smart_coords = None
-        if args.enable_smart_init_jitter or args.enable_smart_init_splat:
-            smart_coords = smart_points_base.clone()
+            smart_coords = None
+            if args.enable_smart_init_jitter or args.enable_smart_init_splat:
+                smart_coords = smart_points_base.clone()
 
-        if args.enable_smart_init_jitter:
-            smart_coords = apply_gpu_jitter(
-                smart_coords,
-                jitter_strength_px=args.smart_init_jitter_px,
-                grid_size=GRID_SIZE,
-            )
-            smart_init_offsets = coords_to_offsets_gpu(smart_coords, GRID_SIZE, smart_grid_centers_flat)
+            if args.enable_smart_init_jitter:
+                smart_coords = apply_gpu_jitter(
+                    smart_coords,
+                    jitter_strength_px=args.smart_init_jitter_px,
+                    grid_size=GRID_SIZE,
+                )
+                smart_init_offsets = coords_to_offsets_gpu(smart_coords, GRID_SIZE, smart_grid_centers_flat)
 
-        if args.enable_smart_init_splat:
-            smart_init_grid = render_smart_init_gpu(
-                smart_coords,
-                grid_size=GRID_SIZE,
-                sigma_px=args.smart_init_splat_sigma_px,
-            )
-        elif args.enable_smart_init_jitter:
-            # Jitter moved the points: re-render occupancy grid so it stays in sync.
-            smart_init_grid = render_occupancy_grid_gpu(smart_coords, grid_size=GRID_SIZE)
-        # else: use precomputed grid (smart_init_grid already holds the right value)
+            if args.enable_smart_init_splat:
+                smart_init_grid = render_smart_init_gpu(
+                    smart_coords,
+                    grid_size=GRID_SIZE,
+                    sigma_px=args.smart_init_splat_sigma_px,
+                )
+            elif args.enable_smart_init_jitter:
+                smart_init_grid = render_occupancy_grid_gpu(smart_coords, grid_size=GRID_SIZE)
+        else:
+            smart_init_grid = None
+            smart_init_offsets = x_0
 
         t = torch.randint(0, truncation_cutoff, (1,), device=device)
         noise = torch.randn_like(x_0)
         offsets_t = diffusion.q_sample(x_0, t, noise)
 
-        controls = control_net(offsets_t, t, high_res, high_res_sdf, target_density, target_sdf, smart_init_grid)
+        controls = control_net(
+            offsets_t,
+            t,
+            high_res,
+            target_density,
+            high_res_sdf=high_res_sdf,
+            target_sdf_map=target_sdf,
+            target_smart_init_map=smart_init_grid,
+        )
         noise_pred = denoiser(offsets_t, t, controls=controls)
 
         per_sample_mse = F.mse_loss(noise_pred, noise, reduction="none")
@@ -707,7 +759,7 @@ def main():
                 target_density,
                 target_sdf,
                 smart_init_grid,
-                smart_init_offsets,
+                smart_init_offsets if args.smart_init_features else x_0,
                 device,
                 n_samples=args.n_samples,
                 timesteps=args.sample_timesteps,

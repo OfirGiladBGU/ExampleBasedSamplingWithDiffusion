@@ -1,10 +1,10 @@
 """Advanced stippling metrics and GBN-style density visualization.
 
 Extends stippling_metrics.py with:
-  - M1–M6 quality metrics (Voronoi, Sinkhorn, Adaptive-NND, CVT, Spectrum, EMD)
-  - GBN Algorithm 2 adaptive density reconstruction
-  - 4-row overfit panel with M1-M6 text row
-  - AKDE density-map visualization panel (GBN paper style)
+    - M1-M5 quality metrics (Voronoi, Sinkhorn, EMD, Adaptive-NND, CVT)
+    - GBN Algorithm 2 adaptive density reconstruction
+    - 4-row overfit panel with M1-M5 text row
+    - AKDE density-map visualization panel (GBN paper style)
 """
 
 import os
@@ -36,14 +36,13 @@ from utils.stippling_metrics import (
 # ── Advanced text formatting ──────────────────────────────────────────
 
 def _format_advanced_text(metrics):
-    """Format M1–M6 metrics as a compact monospace string for text axes."""
+    """Format M1-M5 metrics as a compact monospace string for text axes."""
     return (
         f"M1 Voronoi CV : {metrics.get('M1_voronoi_mass_cv', 0.0):.4f}\n"
         f"M2 Sinkhorn OT: {metrics.get('M2_sinkhorn_ot_cost', 0.0):.4f}\n"
         f"M3 EMD Dist   : {metrics.get('M3_emd_distance', 0.0):.4f}\n"
         f"M4 Adapt NND  : {metrics.get('M4_adaptive_nnd_cv', 0.0):.4f}\n"
-        f"M5 CVT Energy : {metrics.get('M5_cvt_energy', 0.0):.4f}\n"
-        f"M6 Spec Slope : {metrics.get('M6_spectrum_slope', 0.0):.4f}"
+        f"M5 CVT Energy : {metrics.get('M5_cvt_energy', 0.0):.4f}"
     )
 
 
@@ -55,7 +54,7 @@ _ADV_ROW_EXTRA_HEIGHT   = 3.5  # inches added to base figure height
 
 
 def _render_advanced_metrics_row(axes_row, points_list, labels, image_01):
-    """Fill one matplotlib axes row with M1-M6 metric text boxes.
+    """Fill one matplotlib axes row with M1-M5 metric text boxes.
 
     Parameters
     ----------
@@ -89,7 +88,7 @@ def _render_advanced_metrics_row(axes_row, points_list, labels, image_01):
         ax.set_title(f"{label} Adv. Metrics", fontsize=_ADV_ROW_TITLE_FONTSIZE)
 
 
-# ── Advanced Metrics M1–M6 ──────────────────────────────────────────
+# ── Advanced Metrics M1-M5 ──────────────────────────────────────────
 
 def compute_voronoi_mass_variance(points, image_01):
     """M1: Voronoi-based density mass variance.
@@ -310,95 +309,6 @@ def compute_cvt_energy(points, image_01):
         return {"cvt_energy": 0.0}
 
 
-def compute_ot_warped_spectrum(points, image_01):
-    """M6: Spectral analysis of OT-warped point distribution.
-
-    Uses Optimal Transport to map the adaptive points to a uniform grid
-    before computing the radial power spectrum. This removes the
-    low-frequency signature of the target density itself, so the spectrum
-    reflects only the blue-noise / regularity properties of the point set.
-
-    Parameters
-    ----------
-    points : ndarray (N, 2) in [0, 1]
-    image_01 : ndarray (H, W) float in [0, 1]  (unused post-warp, kept for API)
-
-    Returns
-    -------
-    dict with spectrum_slope, spectrum_peak_freq
-    """
-    try:
-        import ot as _ot
-
-        N = len(points)
-        if N < 10:
-            return {"spectrum_slope": 0.0, "spectrum_peak_freq": 0.0}
-
-        H, W = image_01.shape
-        grid_size = max(H, W)
-
-        # ── 1. OT warp: map adaptive points → uniform grid ──────────────
-        grid_dim = int(np.ceil(np.sqrt(N)))
-        x_lin = np.linspace(0.05, 0.95, grid_dim)
-        y_lin = np.linspace(0.05, 0.95, grid_dim)
-        xv, yv = np.meshgrid(x_lin, y_lin)
-        uniform_points = np.column_stack([xv.ravel(), yv.ravel()])[:N]  # trim to N
-
-        M_cost = _ot.dist(points, uniform_points, metric="sqeuclidean")
-        a = np.ones(N, dtype=np.float64) / N
-        b = np.ones(len(uniform_points), dtype=np.float64) / len(uniform_points)
-        assignment = _ot.emd(a, b, M_cost)           # exact 1-to-1 mapping
-        match_idx = np.argmax(assignment, axis=1)
-        warped_points = uniform_points[match_idx]
-
-        # ── 2. Rasterise warped points and run FFT ────────────────────
-        point_grid = np.zeros((grid_size, grid_size), dtype=np.float32)
-        for px, py in warped_points:
-            x_idx = int(np.clip(px * grid_size, 0, grid_size - 1))
-            y_idx = int(np.clip(py * grid_size, 0, grid_size - 1))
-            point_grid[y_idx, x_idx] = 1.0
-
-        fft_result = np.fft.fft2(point_grid)
-        power = np.abs(fft_result) ** 2
-        power_shifted = np.fft.fftshift(power)      # zero-freq at centre
-
-        yy, xx = np.mgrid[0:grid_size, 0:grid_size]
-        rr = np.sqrt((xx - grid_size / 2) ** 2 + (yy - grid_size / 2) ** 2)
-        rr = np.maximum(rr, 1.0)
-
-        radial_bins = np.arange(1, grid_size // 2, dtype=np.float32)
-        radial_power = []
-        for r in radial_bins:
-            mask = (rr >= r) & (rr < r + 1)
-            if mask.sum() > 0:
-                radial_power.append(power_shifted[mask].mean())
-            else:
-                radial_power.append(0.0)
-        radial_power = np.array(radial_power)
-
-        if radial_power.max() < 1e-8:
-            return {"spectrum_slope": 0.0, "spectrum_peak_freq": 0.0}
-
-        valid_idx = (radial_bins > 0) & (radial_power > 1e-10)
-        if valid_idx.sum() > 2:
-            log_freq = np.log(radial_bins[valid_idx])
-            log_power = np.log(radial_power[valid_idx])
-            slope = np.polyfit(log_freq, log_power, 1)[0]
-        else:
-            slope = 0.0
-
-        peak_freq_idx = np.argmax(radial_power)
-        peak_freq = radial_bins[peak_freq_idx] if len(radial_bins) > 0 else 0.0
-
-        return {
-            "spectrum_slope": float(np.clip(slope, -5, 5)),
-            "spectrum_peak_freq": float(peak_freq / grid_size),
-        }
-    except Exception as e:
-        print(f"M6 warped-spectrum error: {e}")
-        return {"spectrum_slope": 0.0, "spectrum_peak_freq": 0.0}
-
-
 def compute_emd_stats(points, target_points=None, image_01=None):
     """M3: Earth Mover's Distance (EMD) statistics.
 
@@ -446,7 +356,7 @@ def compute_emd_stats(points, target_points=None, image_01=None):
 
 
 def compute_all_advanced_metrics(points, image_01, image_input_u8=None):
-    """Compute all M1–M6 metrics and return merged dict.
+    """Compute all M1-M5 metrics and return merged dict.
 
     Parameters
     ----------
@@ -456,7 +366,7 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None):
 
     Returns
     -------
-    dict with all M1–M6 keys prefixed accordingly
+    dict with all M1-M5 keys prefixed accordingly
     """
     result = {}
     m1 = compute_voronoi_mass_variance(points, image_01)
@@ -469,8 +379,6 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None):
     result.update({f"M4_{k}": v for k, v in m4.items()})
     m5 = compute_cvt_energy(points, image_01)
     result.update({f"M5_{k}": v for k, v in m5.items()})
-    m6 = compute_ot_warped_spectrum(points, image_01)
-    result.update({f"M6_{k}": v for k, v in m6.items()})
     return result
 
 
@@ -700,7 +608,7 @@ def visualize_adaptive_sampling_density_map(
     return save_path
 
 
-# ── 4-row overfit panel (with optional M1-M6 text row) ───────────────
+# ── 4-row overfit panel (with optional M1-M5 text row) ───────────────
 
 def visualize_overfit_metrics(
     source_img,
@@ -715,13 +623,13 @@ def visualize_overfit_metrics(
     pred_labels=None,
     compute_advanced=False,
 ):
-    """4-row comparison panel (adds M1-M6 text row when compute_advanced=True).
+    """4-row comparison panel (adds M1-M5 text row when compute_advanced=True).
 
     Columns: INPUT | GT | Pred0 | Pred1 | …
       Row 0  Point clouds
-      Row 1  Grid Capacity heatmaps
-      Row 2  Spacing Quality scatter
-      Row 3  (optional) M1-M6 numeric metrics text
+      Row 1  (optional) M1-M5 numeric metrics text
+      Row 2  Grid Capacity heatmaps
+      Row 3  Spacing Quality scatter
     """
     if not HAS_MPL:
         return None
@@ -733,7 +641,7 @@ def visualize_overfit_metrics(
         fig, axes = plt.subplots(
             4, n_cols,
             figsize=(4.5 * n_cols, 4.5 * 3 + _ADV_ROW_EXTRA_HEIGHT),
-            gridspec_kw={"height_ratios": [3, 3, 3, _ADV_ROW_HEIGHT_RATIO]},
+            gridspec_kw={"height_ratios": [3, _ADV_ROW_HEIGHT_RATIO, 3, 3]},
         )
     else:
         fig, axes = plt.subplots(3, n_cols, figsize=(4.5 * n_cols, 4.5 * 3))
@@ -777,6 +685,9 @@ def visualize_overfit_metrics(
     all_cap = [compute_grid_capacity(p, image_01, grid_size=cap_grid_shape) for p in all_points]
     all_spa = [compute_spacing_quality(p) for p in all_points]
 
+    cap_row = 2 if compute_advanced else 1
+    spa_row = 3 if compute_advanced else 2
+
     # Row 1: grid capacity
     if gt_offsets is not None:
         try:
@@ -790,23 +701,23 @@ def visualize_overfit_metrics(
             for x_idx, y_idx in ij:
                 counts[y_idx, x_idx] += 1
             binary_img = (counts > 0).astype(np.uint8) * 255
-            axes[1, 0].imshow(binary_img, cmap="gray", vmin=0, vmax=255, origin="upper")
-            axes[1, 0].set_title("GT Binary\n(32×32 OT grid)", fontsize=9)
-            axes[1, 0].axis("off")
+            axes[cap_row, 0].imshow(binary_img, cmap="gray", vmin=0, vmax=255, origin="upper")
+            axes[cap_row, 0].set_title("GT Binary\n(32×32 OT grid)", fontsize=9)
+            axes[cap_row, 0].axis("off")
         except Exception:
-            axes[1, 0].axis("off")
+            axes[cap_row, 0].axis("off")
     else:
-        axes[1, 0].axis("off")
+        axes[cap_row, 0].axis("off")
 
     col_labels = ["GT (Target)"] + pred_labels
     for j, (cap, label) in enumerate(zip(all_cap, col_labels)):
-        ax = axes[1, 1 + j]
+        ax = axes[cap_row, 1 + j]
         status = cap["grid_status"]
         H_g, W_g = status.shape
         rgb = np.zeros((H_g, W_g, 3), dtype=np.float32)
-        rgb[status == 0, 1] = 1.0
-        rgb[status == -1, 0] = 1.0
-        rgb[status == 1, 2] = 1.0
+        rgb[status == 0, :] = [0.0, 1.0, 0.0]   # green = ok
+        rgb[status == -1, :] = [1.0, 0.0, 0.0]  # red = underfilled/misplaced
+        rgb[status == 1, :] = [0.0, 0.0, 1.0]   # blue = overfilled
         ax.imshow(rgb, origin="upper", aspect="equal")
         ok_pct = 100.0 - cap["underfilled_pct"] - cap["overfilled_pct"]
         ax.set_title(
@@ -825,7 +736,7 @@ def visualize_overfit_metrics(
             yy, xx = np.mgrid[0:n, 0:n]
             dx, dy = gt_offsets[0], gt_offsets[1]
             mag = np.sqrt(dx * dx + dy * dy)
-            ax = axes[2, 0]
+            ax = axes[spa_row, 0]
             q = ax.quiver(xx, yy, dx, dy, mag, angles="xy", scale_units="xy", scale=1.0,
                           cmap="viridis", width=0.004)
             ax.invert_yaxis()
@@ -836,16 +747,16 @@ def visualize_overfit_metrics(
             ax.tick_params(labelsize=7)
             fig.colorbar(q, ax=ax, shrink=0.7, label="|offset|")
         except Exception:
-            axes[2, 0].axis("off")
+            axes[spa_row, 0].axis("off")
     else:
-        axes[2, 0].axis("off")
+        axes[spa_row, 0].axis("off")
 
     all_nn = [s["nn_distances"] for s in all_spa]
     vmin = min(d.min() for d in all_nn)
     vmax = max(d.max() for d in all_nn)
 
     for j, (spa, pts, label) in enumerate(zip(all_spa, all_points, col_labels)):
-        ax = axes[2, 1 + j]
+        ax = axes[spa_row, 1 + j]
         sc = ax.scatter(pts[:, 0], 1 - pts[:, 1], c=spa["nn_distances"],
                         cmap="RdYlBu", s=point_size * 3, alpha=0.8, vmin=vmin, vmax=vmax)
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
@@ -859,10 +770,10 @@ def visualize_overfit_metrics(
         ax.axis("off")
         plt.colorbar(sc, ax=ax, shrink=0.7, label="NN dist")
 
-    # Row 3: M1-M6 text (optional)
+    # Row 1: M1-M5 text (optional)
     if compute_advanced:
         adv_points = [gt_points] + [pred_pointsets[i] for i in range(n_preds)]
-        _render_advanced_metrics_row(axes[3, :], adv_points, col_labels, image_01)
+        _render_advanced_metrics_row(axes[1, :], adv_points, col_labels, image_01)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -880,7 +791,7 @@ def visualize_advanced_metrics_panel(
     gt_points=None,
     gt_label="GT",
 ):
-    """Bar-chart panel of M1–M6 for predictions and optional GT."""
+    """Bar-chart panel of M1-M5 for predictions and optional GT."""
     if not HAS_MPL:
         return None
 
@@ -909,7 +820,7 @@ def visualize_advanced_metrics_panel(
 
     all_metrics = [compute_all_advanced_metrics(pts, image_01) for pts in all_pointsets]
 
-    fig, axes = plt.subplots(6, n_cols, figsize=(5 * n_cols, 5 * 6))
+    fig, axes = plt.subplots(5, n_cols, figsize=(5 * n_cols, 5 * 5))
     if n_cols == 1:
         axes = axes[:, np.newaxis]
 
@@ -919,14 +830,13 @@ def visualize_advanced_metrics_panel(
         ("M3", "EMD Distance",     "M3_emd_distance"),
         ("M4", "Adaptive NND CV",  "M4_adaptive_nnd_cv"),
         ("M5", "CVT Energy",       "M5_cvt_energy"),
-        ("M6", "Spectrum Slope",   "M6_spectrum_slope"),
     ]
 
     for m_idx, (m_short, m_long, m_key) in enumerate(metrics_names):
         for p_idx in range(n_cols):
             ax = axes[m_idx, p_idx]
             value = all_metrics[p_idx].get(m_key, 0.0)
-            ax.bar([0], [value], color=plt.cm.viridis(m_idx / 6), width=0.5)
+            ax.bar([0], [value], color=plt.cm.viridis(m_idx / 5), width=0.5)
             ax.set_ylim(0, max(1.0, value * 1.2))
             ax.set_xlim(-0.5, 0.5)
             ax.set_xticks([])
@@ -1368,7 +1278,7 @@ def visualize_spatial_metrics_panel(
     gt_label="GT",
     clip_to_domain=True,
 ):
-    """4-row spatial-visual panel: M1 Voronoi / M3 NND / M4 CVT / M5 Spectrum.
+    """3-row spatial-visual panel: M1 Voronoi / M4 NND / M5 CVT.
 
     Each column is one point set (GT first if provided, then predictions).
     Each row is one spatial metric visualisation.
@@ -1419,13 +1329,11 @@ def visualize_spatial_metrics_panel(
         "M1: Voronoi Mass Deviation",
         "M4: Adaptive NND Hotspots",
         "M5: CVT Relaxation Vectors",
-        "M6: Power Spectrum",
     ]
     plot_fns = [
         plot_visual_m1_voronoi_mass,
         plot_visual_m3_adaptive_nnd,
         plot_visual_m4_cvt_vectors,
-        plot_visual_m5_spectrum,
     ]
     n_rows = len(plot_fns)
 

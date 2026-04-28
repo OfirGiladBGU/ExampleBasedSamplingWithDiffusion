@@ -27,7 +27,7 @@ from control_v4.smart_init import (
 
 
 class DynamicStippleDataset(Dataset):
-    """Dataset that yields (high_res_image, target_density, high_res_sdf, target_sdf, offsets).
+    """Dataset that yields a dict of tensors for the enabled feature set.
 
     Parameters
     ----------
@@ -48,8 +48,10 @@ class DynamicStippleDataset(Dataset):
         offsets_dir,
         grid_size=32,
         sdf_truncate_px=0.0,
-        smart_init_cache_dir=None,
+        cache_data_dir=None,
         smart_init_seed=42,
+        smart_init_features=True,
+        sdf_features=True,
         filenames=None,
         preload_ram=False,
     ):
@@ -57,13 +59,15 @@ class DynamicStippleDataset(Dataset):
         self.offsets_dir = offsets_dir
         self.grid_size = grid_size
         self.sdf_truncate_px = sdf_truncate_px
-        self.smart_init_cache_dir = smart_init_cache_dir
+        self.smart_init_features = bool(smart_init_features)
+        self.sdf_features = bool(sdf_features)
+        self.cache_data_dir = cache_data_dir if (self.smart_init_features or self.sdf_features) else None
         self.smart_init_seed = int(smart_init_seed)
         self.preload_ram = preload_ram
         self._ram_cache = {}  # stem -> dict with cached numpy arrays
 
-        if self.smart_init_cache_dir:
-            os.makedirs(self.smart_init_cache_dir, exist_ok=True)
+        if self.cache_data_dir:
+            os.makedirs(self.cache_data_dir, exist_ok=True)
 
         if filenames is not None:
             self.filenames = list(filenames)
@@ -89,11 +93,11 @@ class DynamicStippleDataset(Dataset):
             self.filenames = sorted(source_stems[stem] for stem in source_stems if stem in offset_stems)
 
         # Preload everything to RAM if requested (eliminates all disk I/O per batch)
-        if self.preload_ram and self.smart_init_cache_dir:
+        if self.preload_ram and self.cache_data_dir:
             self._preload_to_ram()
 
     def _preload_to_ram(self):
-        """Load all cached data (SDF, smart init, offsets, images) into RAM."""
+        """Load all cached data (optional SDF / smart init / offsets / images) into RAM."""
         from tqdm import tqdm
         print(f"[DynamicStippleDataset] Preloading {len(self.filenames)} samples to RAM...")
         for filename in tqdm(self.filenames, desc="Preloading"):
@@ -104,37 +108,39 @@ class DynamicStippleDataset(Dataset):
             img = cv2.imread(os.path.join(self.source_dir, filename), cv2.IMREAD_GRAYSCALE)
             cache_entry["img"] = img.astype(np.float32) / 255.0
 
-            # Load or compute raw SDF
-            sdf_path = os.path.join(self.smart_init_cache_dir, stem + "_sdf_raw.npy")
-            if os.path.exists(sdf_path):
-                cache_entry["raw_sdf"] = np.load(sdf_path)
-            else:
-                raw_sdf = compute_raw_sdf(cache_entry["img"])
-                os.makedirs(os.path.dirname(sdf_path), exist_ok=True)
-                np.save(sdf_path, raw_sdf)
-                cache_entry["raw_sdf"] = raw_sdf
+            if self.sdf_features:
+                # Load or compute raw SDF
+                sdf_path = os.path.join(self.cache_data_dir, stem + "_sdf_raw.npy")
+                if os.path.exists(sdf_path):
+                    cache_entry["raw_sdf"] = np.load(sdf_path)
+                else:
+                    raw_sdf = compute_raw_sdf(cache_entry["img"])
+                    os.makedirs(os.path.dirname(sdf_path), exist_ok=True)
+                    np.save(sdf_path, raw_sdf)
+                    cache_entry["raw_sdf"] = raw_sdf
 
             # Load offsets
             cache_entry["offsets"] = np.load(os.path.join(self.offsets_dir, stem + ".npy"))
 
-            # Load or compute smart init
-            smart_path = os.path.join(self.smart_init_cache_dir, stem + ".npy")
-            smart_offsets_path = os.path.join(self.smart_init_cache_dir, stem + "_offsets.npy")
-            if os.path.exists(smart_path) and os.path.exists(smart_offsets_path):
-                cache_entry["smart_init_grid"] = np.load(smart_path)
-                cache_entry["smart_init_offsets"] = np.load(smart_offsets_path)
-            else:
-                _, smart_offsets_np, smart_grid = build_smart_init_from_image(
-                    cache_entry["img"],
-                    grid_size=self.grid_size,
-                    n_points=self.grid_size * self.grid_size,
-                    seed=self.smart_init_seed,
-                )
-                os.makedirs(os.path.dirname(smart_path), exist_ok=True)
-                np.save(smart_path, smart_grid)
-                np.save(smart_offsets_path, smart_offsets_np)
-                cache_entry["smart_init_grid"] = smart_grid
-                cache_entry["smart_init_offsets"] = smart_offsets_np
+            if self.smart_init_features:
+                # Load or compute smart init
+                smart_path = os.path.join(self.cache_data_dir, stem + ".npy")
+                smart_offsets_path = os.path.join(self.cache_data_dir, stem + "_offsets.npy")
+                if os.path.exists(smart_path) and os.path.exists(smart_offsets_path):
+                    cache_entry["smart_init_grid"] = np.load(smart_path)
+                    cache_entry["smart_init_offsets"] = np.load(smart_offsets_path)
+                else:
+                    _, smart_offsets_np, smart_grid = build_smart_init_from_image(
+                        cache_entry["img"],
+                        grid_size=self.grid_size,
+                        n_points=self.grid_size * self.grid_size,
+                        seed=self.smart_init_seed,
+                    )
+                    os.makedirs(os.path.dirname(smart_path), exist_ok=True)
+                    np.save(smart_path, smart_grid)
+                    np.save(smart_offsets_path, smart_offsets_np)
+                    cache_entry["smart_init_grid"] = smart_grid
+                    cache_entry["smart_init_offsets"] = smart_offsets_np
 
             self._ram_cache[stem] = cache_entry
         print(f"[DynamicStippleDataset] Preload complete. RAM cache size: {len(self._ram_cache)} samples.")
@@ -152,24 +158,41 @@ class DynamicStippleDataset(Dataset):
         if stem in self._ram_cache:
             cache = self._ram_cache[stem]
             img_np = cache["img"]
-            raw_sdf = cache["raw_sdf"]
             offsets_np = cache["offsets"]
-            smart_init_grid_np = cache["smart_init_grid"]
-            smart_init_offsets_np = cache["smart_init_offsets"]
 
-            high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_cached_sdf(
-                img_np, raw_sdf, self.grid_size, sdf_truncate_px=self.sdf_truncate_px
-            )
+            if self.sdf_features:
+                raw_sdf = cache["raw_sdf"]
+                high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_cached_sdf(
+                    img_np, raw_sdf, self.grid_size, sdf_truncate_px=self.sdf_truncate_px
+                )
+                high_res_sdf = high_res_sdf.squeeze(0).contiguous()
+                target_sdf = target_sdf.squeeze(0).contiguous()
+            else:
+                # Fast path when SDF features are disabled: avoid any distance-transform work.
+                high_res = torch.from_numpy(img_np).unsqueeze(0).unsqueeze(0)
+                target_density = F.interpolate(high_res, size=(self.grid_size, self.grid_size), mode="area")
+                high_res_sdf = None
+                target_sdf = None
+
             high_res = high_res.squeeze(0).contiguous()
             target_density = target_density.squeeze(0).contiguous()
-            high_res_sdf = high_res_sdf.squeeze(0).contiguous()
-            target_sdf = target_sdf.squeeze(0).contiguous()
-
             offsets = torch.from_numpy(offsets_np).to(torch.float32).clone().contiguous()
-            smart_init_grid = torch.from_numpy(smart_init_grid_np).to(torch.float32).clone().contiguous()
-            smart_init_offsets = torch.from_numpy(smart_init_offsets_np).to(torch.float32).clone().contiguous()
 
-            return high_res, target_density, high_res_sdf, target_sdf, offsets, smart_init_grid, smart_init_offsets
+            sample = {
+                "high_res": high_res,
+                "target_density": target_density,
+                "offsets": offsets,
+            }
+            if self.sdf_features:
+                sample["high_res_sdf"] = high_res_sdf
+                sample["target_sdf"] = target_sdf
+            if self.smart_init_features:
+                smart_init_grid_np = cache["smart_init_grid"]
+                smart_init_offsets_np = cache["smart_init_offsets"]
+                sample["smart_init_grid"] = torch.from_numpy(smart_init_grid_np).to(torch.float32).clone().contiguous()
+                sample["smart_init_offsets"] = torch.from_numpy(smart_init_offsets_np).to(torch.float32).clone().contiguous()
+
+            return sample
 
         # ═══════════════════════════════════════════════════════════════
         # DISK PATH: Load image, use cached SDF if available
@@ -179,46 +202,75 @@ class DynamicStippleDataset(Dataset):
         img = cv2.imread(os.path.join(self.source_dir, filename), cv2.IMREAD_GRAYSCALE)
         img_np = img.astype(np.float32) / 255.0
 
-        # ── SDF with disk caching (avoids scipy.ndimage per epoch) ───
-        if self.smart_init_cache_dir:
-            sdf_path = os.path.join(self.smart_init_cache_dir, stem + "_sdf_raw.npy")
-            if os.path.exists(sdf_path):
-                # FAST: load pre-computed raw SDF
-                raw_sdf = np.load(sdf_path)
-            else:
-                # SLOW: compute and cache raw SDF
-                raw_sdf = compute_raw_sdf(img_np)
-                os.makedirs(os.path.dirname(sdf_path), exist_ok=True)
-                np.save(sdf_path, raw_sdf)
+        if self.sdf_features:
+            # ── SDF with disk caching (avoids scipy.ndimage per epoch) ───
+            if self.cache_data_dir:
+                sdf_path = os.path.join(self.cache_data_dir, stem + "_sdf_raw.npy")
+                if os.path.exists(sdf_path):
+                    # FAST: load pre-computed raw SDF
+                    raw_sdf = np.load(sdf_path)
+                else:
+                    # SLOW: compute and cache raw SDF
+                    raw_sdf = compute_raw_sdf(img_np)
+                    os.makedirs(os.path.dirname(sdf_path), exist_ok=True)
+                    np.save(sdf_path, raw_sdf)
 
-            high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_cached_sdf(
-                img_np, raw_sdf, self.grid_size, sdf_truncate_px=self.sdf_truncate_px
-            )
+                high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_cached_sdf(
+                    img_np, raw_sdf, self.grid_size, sdf_truncate_px=self.sdf_truncate_px
+                )
+            else:
+                # No cache dir: compute SDF every time (slow path)
+                from control_v4.conditioning import build_condition_tensors_from_image
+                high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_image(
+                    img_np, self.grid_size, sdf_truncate_px=self.sdf_truncate_px
+                )
+
+            high_res_sdf = high_res_sdf.squeeze(0).contiguous()
+            target_sdf = target_sdf.squeeze(0).contiguous()
         else:
-            # No cache dir: compute SDF every time (slow path)
-            from control_v4.conditioning import build_condition_tensors_from_image
-            high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_image(
-                img_np, self.grid_size, sdf_truncate_px=self.sdf_truncate_px
-            )
+            # Fast path when SDF features are disabled: avoid any distance-transform work.
+            high_res = torch.from_numpy(img_np).unsqueeze(0).unsqueeze(0)
+            target_density = F.interpolate(high_res, size=(self.grid_size, self.grid_size), mode="area")
+            high_res_sdf = None
+            target_sdf = None
 
         high_res = high_res.squeeze(0).contiguous()
         target_density = target_density.squeeze(0).contiguous()
-        high_res_sdf = high_res_sdf.squeeze(0).contiguous()
-        target_sdf = target_sdf.squeeze(0).contiguous()
 
         # ── ground-truth offsets ─────────────────────────────────────
         offsets = np.load(os.path.join(self.offsets_dir, stem + ".npy"))
         offsets = torch.from_numpy(offsets).to(torch.float32).clone().contiguous()
 
-        # ── Smart Init with disk caching ─────────────────────────────
-        smart_init_grid = None
-        smart_init_offsets_np = None
-        if self.smart_init_cache_dir:
-            smart_path = os.path.join(self.smart_init_cache_dir, stem + ".npy")
-            smart_offsets_path = os.path.join(self.smart_init_cache_dir, stem + "_offsets.npy")
-            if os.path.exists(smart_path) and os.path.exists(smart_offsets_path):
-                smart_init_grid = np.load(smart_path)
-                smart_init_offsets_np = np.load(smart_offsets_path)
+        sample = {
+            "high_res": high_res,
+            "target_density": target_density,
+            "offsets": offsets,
+        }
+
+        if self.sdf_features:
+            sample["high_res_sdf"] = high_res_sdf
+            sample["target_sdf"] = target_sdf
+
+        if self.smart_init_features:
+            # ── Smart Init with disk caching ─────────────────────────────
+            smart_init_grid = None
+            smart_init_offsets_np = None
+            if self.cache_data_dir:
+                smart_path = os.path.join(self.cache_data_dir, stem + ".npy")
+                smart_offsets_path = os.path.join(self.cache_data_dir, stem + "_offsets.npy")
+                if os.path.exists(smart_path) and os.path.exists(smart_offsets_path):
+                    smart_init_grid = np.load(smart_path)
+                    smart_init_offsets_np = np.load(smart_offsets_path)
+                else:
+                    _, smart_init_offsets_np, smart_init_grid = build_smart_init_from_image(
+                        img_np,
+                        grid_size=self.grid_size,
+                        n_points=self.grid_size * self.grid_size,
+                        seed=self.smart_init_seed,
+                    )
+                    os.makedirs(os.path.dirname(smart_path), exist_ok=True)
+                    np.save(smart_path, smart_init_grid)
+                    np.save(smart_offsets_path, smart_init_offsets_np)
             else:
                 _, smart_init_offsets_np, smart_init_grid = build_smart_init_from_image(
                     img_np,
@@ -226,18 +278,8 @@ class DynamicStippleDataset(Dataset):
                     n_points=self.grid_size * self.grid_size,
                     seed=self.smart_init_seed,
                 )
-                os.makedirs(os.path.dirname(smart_path), exist_ok=True)
-                np.save(smart_path, smart_init_grid)
-                np.save(smart_offsets_path, smart_init_offsets_np)
-        else:
-            _, smart_init_offsets_np, smart_init_grid = build_smart_init_from_image(
-                img_np,
-                grid_size=self.grid_size,
-                n_points=self.grid_size * self.grid_size,
-                seed=self.smart_init_seed,
-            )
 
-        smart_init_grid = torch.from_numpy(smart_init_grid).to(torch.float32).clone().contiguous()
-        smart_init_offsets = torch.from_numpy(smart_init_offsets_np).to(torch.float32).clone().contiguous()
+            sample["smart_init_grid"] = torch.from_numpy(smart_init_grid).to(torch.float32).clone().contiguous()
+            sample["smart_init_offsets"] = torch.from_numpy(smart_init_offsets_np).to(torch.float32).clone().contiguous()
 
-        return high_res, target_density, high_res_sdf, target_sdf, offsets, smart_init_grid, smart_init_offsets
+        return sample

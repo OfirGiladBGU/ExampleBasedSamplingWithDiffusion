@@ -75,9 +75,11 @@ BASELINE_TRUNCATION_RATIO = 1.0
 TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 0
 ENABLE_GECCO = True
-USE_SDF = True
+SDF_FEATURES = True
 SDF_TRUNCATE_PX = 8.0
 SMART_INIT_SEED = 42
+SMART_INIT_FEATURES = True
+BATCH_COORDS_FEATURES = True
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 VALID_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
@@ -219,8 +221,12 @@ def render_occupancy_grid_gpu(coords, grid_size=32):
     return (grid_flat / mx).reshape(bsz, 1, grid_size, grid_size)
 
 
-def load_condition(image_path, grid_size, device, sdf_truncate_px=0.0):
+def load_condition(image_path, grid_size, device, sdf_features=True, sdf_truncate_px=0.0):
     image_01 = np.array(Image.open(image_path).convert("L"), dtype=np.float32) / 255.0
+    if not sdf_features:
+        high_res = torch.from_numpy(image_01).unsqueeze(0).unsqueeze(0).to(device)
+        target_density = torch.nn.functional.interpolate(high_res, size=(grid_size, grid_size), mode="area")
+        return image_01, high_res, target_density, None, None
     high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_image(
         image_01,
         grid_size,
@@ -372,6 +378,8 @@ def main():
                         help="Truncation ratio for Baseline (1.0 = full denoising from pure noise)")
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
+    parser.add_argument("--smart-init-features", action=argparse.BooleanOptionalAction, default=SMART_INIT_FEATURES)
+    parser.add_argument("--batch-coords-features", action=argparse.BooleanOptionalAction, default=BATCH_COORDS_FEATURES)
     parser.add_argument("--smart-init-splat-sigma-px", type=float, default=0.5)
     parser.add_argument(
         "--enable-smart-init-splat-sigma",
@@ -380,7 +388,7 @@ def main():
         help="Use Gaussian soft-splat smart-init hint (otherwise use hard occupancy, matching no_splat runs)",
     )
     parser.add_argument("--enable-gecco", action=argparse.BooleanOptionalAction, default=ENABLE_GECCO)
-    parser.add_argument("--use-sdf", action=argparse.BooleanOptionalAction, default=USE_SDF)
+    parser.add_argument("--sdf-features", action=argparse.BooleanOptionalAction, default=SDF_FEATURES)
     parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX)
     parser.add_argument("--device", default=DEVICE)
     parser.add_argument("--n-examples", type=int, default=N_EXAMPLES,
@@ -445,6 +453,9 @@ def main():
         control_backbone,
         grid_size=args.grid_size,
         enable_gecco=args.enable_gecco,
+        smart_init_features=args.smart_init_features,
+        sdf_features=args.sdf_features,
+        batch_coords_features=args.batch_coords_features,
     ).to(device)
     ctrl_state = torch.load(args.control_ckpt, map_location="cpu")
     control_net.load_state_dict(_extract_control_state_dict(ctrl_state), strict=True)
@@ -460,6 +471,7 @@ def main():
             src_path,
             args.grid_size,
             device,
+            sdf_features=args.sdf_features,
             sdf_truncate_px=args.sdf_truncate_px,
         )
         condition_images_01.append(image_01)
@@ -479,49 +491,52 @@ def main():
 
     high_res = torch.cat(high_res_list, dim=0)
     target_density = torch.cat(target_density_list, dim=0)
-    high_res_sdf = torch.cat(high_res_sdf_list, dim=0)
-    target_sdf = torch.cat(target_sdf_list, dim=0)
+    if args.sdf_features:
+        high_res_sdf = torch.cat(high_res_sdf_list, dim=0)
+        target_sdf = torch.cat(target_sdf_list, dim=0)
+    else:
+        high_res_sdf = None
+        target_sdf = None
 
     gt_points_batch = [
         target_image_to_points(np.array(Image.open(path).convert("L"), dtype=np.float32) / 255.0)
         for path in tqdm(target_image_paths, desc="Extracting GT points", leave=False)
     ]
 
-    if not args.use_sdf:
-        high_res_sdf = torch.zeros_like(high_res_sdf)
-        target_sdf = torch.zeros_like(target_sdf)
-
-    smart_init_offsets_tensors = []
-    for image_01 in condition_images_01:
-        _, smart_offsets_np, _ = build_smart_init_from_image(
-            image_01,
-            grid_size=args.grid_size,
-            n_points=args.grid_size * args.grid_size,
-            seed=args.smart_init_seed,
-        )
-        smart_init_offsets_tensors.append(torch.from_numpy(smart_offsets_np).unsqueeze(0))
-    smart_init_offsets_base = torch.cat(smart_init_offsets_tensors, dim=0).to(device)
-    grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets_base.dtype)
-    smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, args.grid_size, grid_centers_flat)
-    if args.enable_smart_init_splat_sigma:
-        smart_init_grid = render_smart_init_gpu(
-            smart_points_base,
-            grid_size=args.grid_size,
-            sigma_px=args.smart_init_splat_sigma_px,
-        )
+    if args.smart_init_features:
+        smart_init_offsets_tensors = []
+        for image_01 in condition_images_01:
+            _, smart_offsets_np, _ = build_smart_init_from_image(
+                image_01,
+                grid_size=args.grid_size,
+                n_points=args.grid_size * args.grid_size,
+                seed=args.smart_init_seed,
+            )
+            smart_init_offsets_tensors.append(torch.from_numpy(smart_offsets_np).unsqueeze(0))
+        smart_init_offsets_base = torch.cat(smart_init_offsets_tensors, dim=0).to(device)
+        grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets_base.dtype)
+        smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, args.grid_size, grid_centers_flat)
+        if args.enable_smart_init_splat_sigma:
+            smart_init_grid = render_smart_init_gpu(
+                smart_points_base,
+                grid_size=args.grid_size,
+                sigma_px=args.smart_init_splat_sigma_px,
+            )
+        else:
+            smart_init_grid = render_occupancy_grid_gpu(
+                smart_points_base,
+                grid_size=args.grid_size,
+            )
+        x_init = smart_init_offsets_base.contiguous()
     else:
-        smart_init_grid = render_occupancy_grid_gpu(
-            smart_points_base,
-            grid_size=args.grid_size,
-        )
+        smart_init_grid = None
+        x_init = torch.randn((high_res.shape[0], 2, args.grid_size, args.grid_size), device=device)
 
     controlled = DynamicControlledDenoiser(control_backbone, control_net)
     controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid)
     controlled.eval()
 
     baseline_diffusion.set_num_timesteps(args.sample_timesteps)
-
-    x_init = smart_init_offsets_base.contiguous()
 
     # Baseline: starts from pure noise (full schedule)
     x_noisy_baseline = torch.randn_like(x_init)
@@ -541,6 +556,9 @@ def main():
 
     print(f"Baseline: full denoising ({int(args.baseline_truncation_ratio * args.sample_timesteps)} steps from pure noise)")
     print(f"Control V4: SDEdit from smart_init ({control_t_start} steps, truncation_ratio={args.truncation_ratio})")
+    print(f"Smart Init enabled: {args.smart_init_features}")
+    print(f"Batch coords      : {args.batch_coords_features}")
+    print(f"SDF enabled       : {args.sdf_features}")
 
     models_to_run = [
         ("Baseline",   baseline_diffusion, baseline_denoiser, "baseline",   x_noisy_baseline, args.baseline_truncation_ratio),
