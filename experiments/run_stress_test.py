@@ -59,7 +59,7 @@ CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1_no_random/checkpoi
 # # Control V4 configuration
 # CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2_V2_no_random/checkpoints/dynamic_controlnet_v4_ep5500.pt"
+# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2_V2_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
 
 # Common settings

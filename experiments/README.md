@@ -1,10 +1,18 @@
-# Stress Test: Baseline vs Control V4
+# Experiments Workspace
 
-This folder contains scripts to reproduce a Figure-12-style stress comparison between:
-- a trained baseline diffusion model, and
-- a Control V4 model (base diffusion backbone + trained control weights).
+This folder is the home for multiple experiments.
 
-## What You Need
+Current and planned experiments:
+- Experiment 1: Stress Test (Baseline vs Control V4)
+- Experiment 2: Quadratic Gradient Stippler Comparison (planned)
+
+## Experiment 1: Stress Test (Baseline vs Control V4)
+
+This experiment reproduces a Figure-12-style stress comparison between:
+- a trained baseline diffusion model
+- a Control V4 model (base diffusion backbone + trained control weights)
+
+### What You Need
 
 1. Input condition image:
 - Either generated stress map (synthetic), or
@@ -34,12 +42,21 @@ Expected path layout for this repo:
   - `config/GBN/model.ckpt` (or `config/GBN/model.ckp`)
   - `control_v4/train_outputs/checkpoints/<best_controlnet...>.pt`
 
-## Workflow
+### Workflow
 
-1. Generate stress map (optional if using a real image):
+1. Generate a quadratic density gradient (optional if using a real image):
 
 ```bash
-python experiments/generate_stress_map.py
+python experiments/generate_map.py gradient
+```
+
+This saves:
+- `experiments/quadratic_density_gradient_25x100.png`
+
+To generate the original stress map instead:
+
+```bash
+python experiments/generate_map.py stress
 ```
 
 This saves:
@@ -60,7 +77,7 @@ This saves:
 
 ```bash
 python experiments/run_stress_test.py \
-  --compare-image experiments/stress_test_density.png \
+  --compare-image experiments/quadratic_density_gradient_25x100.png \
   --baseline-config GBN/config.json \
   --baseline-ckpt GBN/model.ckpt \
   --control-base-config config/GBN/config.json \
@@ -70,7 +87,7 @@ python experiments/run_stress_test.py \
 
 You can also run on a real image by replacing `--image` with your image path.
 
-## Key CLI Arguments
+### Key CLI Arguments
 
 Required model file paths (5 total):
 - Baseline (2):
@@ -105,7 +122,7 @@ Useful optional knobs:
 - `--use-sdf` / `--no-use-sdf`
 - `--enable-gecco` / `--no-enable-gecco`
 
-## Outputs
+### Outputs
 
 By default results are saved under:
 - `experiments/outputs/<image_stem>/`
@@ -121,8 +138,43 @@ Multi-sample behavior:
 - `baseline_points.npy` and `control_v4_points.npy` store all generated point sets with leading sample dimension.
 - Printed metrics include one line per sample for baseline and control.
 
-## Notes
+### Notes
 
 - The compare script uses a shared noisy start (`x_noisy`) for both branches.
 - This keeps baseline vs control comparison fair at inference time.
 - If you add future predict scripts, consider extracting shared model-loading and condition-building helpers from `run_stress_test.py` into a common module to avoid duplication.
+
+## Experiment 2: Quadratic Gradient Stippler Comparison (Planned)
+
+Goal:
+- compare different stipplers on the same quadratic density profile
+- report quarter capacities and visual agreement with the target profile
+- generate side-by-side panels similar to the reference figure you shared
+
+Planned inputs:
+- the quadratic condition image from `python experiments/generate_map.py gradient`
+- stippler outputs from multiple methods (for example: Lloyd, Balzer et al., and your method)
+- optional metadata per method (name, point count, seed)
+
+Planned script:
+- `python experiments/compare_quadratic_stipplers.py`
+
+Usage pattern:
+- edit the `RESULT_SPECS` list inside `experiments/compare_quadratic_stipplers.py`
+- each dictionary must contain `label` and `path`
+- the order of the dictionaries is the order of the rows in the comparison panel
+- each point file may be `.npy`, `.npz`, `.csv`, or `.txt`, as long as it contains an `N x 2` array of normalized points in `[0, 1]`
+- the script reads the reference image from `experiments/quadratic_density_gradient_25x100.png` and writes the panel to `experiments/outputs/quadratic_comparison/comparison_panel.png`
+
+The script will:
+- compute empirical quarter percentages dynamically from each point set's own total point count
+- print those percentages to the console
+- save a stacked, publication-ready comparison panel
+
+Suggested default output directory:
+- `experiments/outputs/quadratic_comparison/`
+
+When the new script is added, update this README with:
+- exact CLI usage
+- expected input formats for each stippler output
+- generated files and metric definitions
