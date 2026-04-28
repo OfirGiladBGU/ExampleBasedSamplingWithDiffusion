@@ -171,15 +171,17 @@ class DynamicControlNet(nn.Module):
         """
         B, _, H, W = offsets_t.shape
 
+        # Keep the original legacy ordering so checkpoints trained before the
+        # feature-flag split still receive the same channel semantics.
         hint_parts = [offsets_t, target_density_map]
-        if self.smart_init_features:
-            if target_smart_init_map is None:
-                raise ValueError("target_smart_init_map is required when smart_init_features=True")
-            hint_parts.append(target_smart_init_map)
         if self.sdf_features:
             if target_sdf_map is None:
                 raise ValueError("target_sdf_map is required when sdf_features=True")
             hint_parts.append(target_sdf_map)
+        if self.smart_init_features:
+            if target_smart_init_map is None:
+                raise ValueError("target_smart_init_map is required when smart_init_features=True")
+            hint_parts.append(target_smart_init_map)
         if self.batch_coords_features:
             # Recompute coord_grid for the actual (possibly different) spatial size.
             lin_y = torch.linspace(-1, 1, H, device=offsets_t.device)
