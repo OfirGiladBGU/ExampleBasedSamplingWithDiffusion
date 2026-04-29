@@ -22,7 +22,13 @@ except Exception:
 
 from control_v4.conditioning import build_condition_tensors_from_image
 from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
-from control_v4.smart_init import build_smart_init_from_image, save_smart_init_debug, add_noise_at_t
+from control_v4.smart_init import (
+    add_noise_at_t,
+    generate_smart_init_points_from_density,
+    render_smart_init_grid,
+    save_smart_init_debug,
+    smart_init_points_to_offsets,
+)
 from data.Transforms import to_pointset_optimal_transport
 from utils.Config import ParseSampleConfig
 from utils.stippling_metrics import (
@@ -256,6 +262,8 @@ def _save_condition_debug_tensors(
         "smart_init_grid_model_input": smart_init_grid_model,
     }
     for name, tensor in cond_map.items():
+        if tensor is None:
+            continue
         arr = tensor.detach().cpu().float().numpy().squeeze()
         np.save(os.path.join(out_dir, f"{name}.npy"), arr)
 
@@ -270,10 +278,12 @@ def _save_condition_debug_tensors(
         ]
         fig, axes = plt.subplots(2, 3, figsize=(10, 7), dpi=140)
         for ax, name in zip(axes.flat, ordered_names):
-            if name == "_":
+            tensor = cond_map[name]
+            if tensor is None:
                 ax.axis("off")
+                ax.set_title(f"{name} (disabled)")
                 continue
-            arr = cond_map[name].detach().cpu().float().numpy().squeeze()
+            arr = tensor.detach().cpu().float().numpy().squeeze()
             if arr.ndim != 2:
                 ax.axis("off")
                 ax.set_title(f"{name} (invalid)")
@@ -433,15 +443,17 @@ def main():
         sdf_truncate_px=args.sdf_truncate_px,
     )
 
+    smart_points = generate_smart_init_points_from_density(
+        image_01,
+        n_points=args.grid_size * args.grid_size,
+        seed=args.smart_init_seed,
+    )
+    smart_offsets_np = smart_init_points_to_offsets(smart_points)
+    smart_init_offsets = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
+
     if args.smart_init_features:
-        smart_points, smart_offsets_np, smart_grid_np = build_smart_init_from_image(
-            image_01,
-            grid_size=args.grid_size,
-            n_points=args.grid_size * args.grid_size,
-            seed=args.smart_init_seed,
-        )
+        smart_grid_np = render_smart_init_grid(smart_points, grid_size=args.grid_size)
         smart_init_grid_raw = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
-        smart_init_offsets = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
         grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets.dtype)
         smart_coords = _offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
         smart_init_grid = _render_smart_init_gpu(
@@ -451,11 +463,8 @@ def main():
             device,
         )
     else:
-        smart_points = None
-        smart_offsets_np = None
         smart_grid_np = None
-        smart_init_grid_raw = torch.zeros((1, 1, args.grid_size, args.grid_size), device=device)
-        smart_init_offsets = torch.randn((1, 2, args.grid_size, args.grid_size), device=device)
+        smart_init_grid_raw = None
         smart_init_grid = None
 
     conditions_dir = os.path.join(sample_base_dir, "conditions")

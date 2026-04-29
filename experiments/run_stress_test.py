@@ -20,7 +20,12 @@ except Exception:
 
 from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from control_v4.conditioning import build_condition_tensors_from_image
-from control_v4.smart_init import add_noise_at_t, build_smart_init_from_image
+from control_v4.smart_init import (
+    add_noise_at_t,
+    generate_smart_init_points_from_density,
+    render_smart_init_grid,
+    smart_init_points_to_offsets,
+)
 from data.Transforms import to_pointset_optimal_transport
 from utils.Config import ParseSampleConfig
 from utils.stippling_metrics import compute_spacing_quality, visualize_overfit_metrics
@@ -503,17 +508,17 @@ def main():
         for path in tqdm(target_image_paths, desc="Extracting GT points", leave=False)
     ]
 
+    smart_init_offsets_tensors = []
+    for image_01 in condition_images_01:
+        smart_points = generate_smart_init_points_from_density(
+            image_01,
+            n_points=args.grid_size * args.grid_size,
+            seed=args.smart_init_seed,
+        )
+        smart_offsets_np = smart_init_points_to_offsets(smart_points)
+        smart_init_offsets_tensors.append(torch.from_numpy(smart_offsets_np).unsqueeze(0))
+    smart_init_offsets_base = torch.cat(smart_init_offsets_tensors, dim=0).to(device)
     if args.smart_init_features:
-        smart_init_offsets_tensors = []
-        for image_01 in condition_images_01:
-            _, smart_offsets_np, _ = build_smart_init_from_image(
-                image_01,
-                grid_size=args.grid_size,
-                n_points=args.grid_size * args.grid_size,
-                seed=args.smart_init_seed,
-            )
-            smart_init_offsets_tensors.append(torch.from_numpy(smart_offsets_np).unsqueeze(0))
-        smart_init_offsets_base = torch.cat(smart_init_offsets_tensors, dim=0).to(device)
         grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets_base.dtype)
         smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, args.grid_size, grid_centers_flat)
         if args.enable_smart_init_splat_sigma:
@@ -527,10 +532,9 @@ def main():
                 smart_points_base,
                 grid_size=args.grid_size,
             )
-        x_init = smart_init_offsets_base.contiguous()
     else:
         smart_init_grid = None
-        x_init = torch.randn((high_res.shape[0], 2, args.grid_size, args.grid_size), device=device)
+    x_init = smart_init_offsets_base.contiguous()
 
     controlled = DynamicControlledDenoiser(control_backbone, control_net)
     controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid)

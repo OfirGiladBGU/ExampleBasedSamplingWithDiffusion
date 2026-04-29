@@ -43,7 +43,9 @@ from control_v4.conditioning import (
 from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from control_v4.smart_init import (
     add_noise_at_t,
-    build_smart_init_from_image,
+    generate_smart_init_points_from_density,
+    render_smart_init_grid,
+    smart_init_points_to_offsets,
 )
 from utils.Config import ParseSampleConfig
 from utils.stippling_metrics import compute_spacing_quality, visualize_overfit_metrics
@@ -565,23 +567,22 @@ def main():
         cache_dir=out_dir,  # Cache raw SDF for faster repeated runs
     )
 
+    source_img_01 = np.array(Image.open(source_path).convert("L"), dtype=np.float32) / 255.0
+    smart_points_base = generate_smart_init_points_from_density(
+        source_img_01,
+        n_points=N_POINTS,
+        seed=SMART_INIT_SEED,
+    )
+    smart_offsets_np = smart_init_points_to_offsets(smart_points_base)
+    smart_init_offsets_base = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
     if args.smart_init_features:
-        source_img_01 = np.array(Image.open(source_path).convert("L"), dtype=np.float32) / 255.0
-        _, smart_offsets_np, smart_grid_np = build_smart_init_from_image(
-            source_img_01,
-            grid_size=GRID_SIZE,
-            n_points=N_POINTS,
-            seed=SMART_INIT_SEED,
-        )
-        smart_init_offsets_base = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
+        smart_grid_np = render_smart_init_grid(smart_points_base, grid_size=GRID_SIZE)
         smart_init_grid_base = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
         smart_grid_centers_flat = _grid_centers_flat(GRID_SIZE, device, smart_init_offsets_base.dtype)
         smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, GRID_SIZE, smart_grid_centers_flat)
     else:
-        smart_init_offsets_base = None
         smart_init_grid_base = None
         smart_grid_centers_flat = None
-        smart_points_base = None
 
     if not args.sdf_features:
         high_res_sdf = None
@@ -700,7 +701,7 @@ def main():
                 smart_init_grid = render_occupancy_grid_gpu(smart_coords, grid_size=GRID_SIZE)
         else:
             smart_init_grid = None
-            smart_init_offsets = x_0
+            smart_init_offsets = smart_init_offsets_base
 
         t = torch.randint(0, truncation_cutoff, (1,), device=device)
         noise = torch.randn_like(x_0)
@@ -758,8 +759,8 @@ def main():
                 high_res_sdf,
                 target_density,
                 target_sdf,
-                smart_init_grid,
-                smart_init_offsets if args.smart_init_features else x_0,
+                smart_init_grid if args.smart_init_features else None,
+                smart_init_offsets,
                 device,
                 n_samples=args.n_samples,
                 timesteps=args.sample_timesteps,

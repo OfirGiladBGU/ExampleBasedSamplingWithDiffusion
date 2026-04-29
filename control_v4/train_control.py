@@ -46,6 +46,7 @@ from utils.Config import ParseSampleConfig
 from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from control_v4.DynamicStippleDataset import DynamicStippleDataset
 from control_v4.smart_init import add_noise_at_t
+from control_v4.smart_init import build_smart_init_from_image
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
 from utils.stippling_metrics import geometric_validation_score
 
@@ -282,7 +283,18 @@ def sample_eval_batch(diffusion, denoiser, control_net, batch, device, n_samples
     high_res_sdf = batch.get("high_res_sdf")
     target_sdf = batch.get("target_sdf")
     smart_init_grid = batch.get("smart_init_grid")
-    smart_init_offsets = batch.get("smart_init_offsets") if control_net.smart_init_features else batch["offsets"]
+    smart_init_offsets = batch.get("smart_init_offsets")
+    if smart_init_offsets is None:
+        smart_init_offsets_list = []
+        for image_01 in high_res_img[:, 0].detach().cpu().numpy():
+            _, smart_offsets_np, _ = build_smart_init_from_image(
+                image_01,
+                grid_size=target_density.shape[-1],
+                n_points=target_density.shape[-1] * target_density.shape[-1],
+                seed=42,
+            )
+            smart_init_offsets_list.append(torch.from_numpy(smart_offsets_np).unsqueeze(0))
+        smart_init_offsets = torch.cat(smart_init_offsets_list, dim=0)
 
     controlled.set_condition(high_res_img, high_res_sdf, target_density, target_sdf, smart_init_grid)
 
