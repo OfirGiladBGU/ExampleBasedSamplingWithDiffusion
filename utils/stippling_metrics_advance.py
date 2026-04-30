@@ -258,10 +258,10 @@ def compute_m5_spatial_measure(points, image_01):
             mean_density = 1.0
         D_x = N * (local_img_density / (mean_density + 1e-10))
         
-        # Compute maximal spacing: r_max = sqrt(1.0 / (2.0 * sqrt(3.0) * D_x))
+        # Compute maximal spacing: r_max = sqrt(2.0 / (sqrt(3.0) * D_x))
         # Handle zeros safely: clamp D_x to minimum value
         D_x_safe = np.maximum(D_x, 1e-8)
-        r_max = np.sqrt(1.0 / (2.0 * np.sqrt(3.0) * D_x_safe))
+        r_max = np.sqrt(2.0 / (np.sqrt(3.0) * D_x_safe))
         
         # Compute point-wise uniformity: rho = r_min / r_max
         rho_values = np.clip(r_min / (r_max + 1e-10), 0.0, 2.0)
@@ -1200,9 +1200,9 @@ def plot_visual_m5_spatial_measure(points, image_01, ax):
         mean_density = 1.0
     D_x = N * (local_img_density / (mean_density + 1e-10))
     
-    # Compute maximal spacing: r_max = sqrt(1.0 / (2.0 * sqrt(3.0) * D_x))
+    # Compute maximal spacing: r_max = sqrt(2.0 / (sqrt(3.0) * D_x))
     D_x_safe = np.maximum(D_x, 1e-8)
-    r_max = np.sqrt(1.0 / (2.0 * np.sqrt(3.0) * D_x_safe))
+    r_max = np.sqrt(2.0 / (np.sqrt(3.0) * D_x_safe))
     
     # Compute spatial uniformity: rho = r_min / r_max
     rho_values = np.clip(r_min / (r_max + 1e-10), 0.0, 2.0)
