@@ -38,11 +38,11 @@ from utils.stippling_metrics import (
 def _format_advanced_text(metrics):
     """Format M1-M5 metrics as a compact monospace string for text axes."""
     return (
-        f"M1 Voronoi CV : {metrics.get('M1_voronoi_mass_cv', 0.0):.4f}\n"
-        f"M2 Sinkhorn OT: {metrics.get('M2_sinkhorn_ot_cost', 0.0):.4f}\n"
-        f"M3 EMD Dist   : {metrics.get('M3_emd_distance', 0.0):.4f}\n"
-        f"M4 Adapt NND  : {metrics.get('M4_adaptive_nnd_cv', 0.0):.4f}\n"
-        f"M5 CVT Energy : {metrics.get('M5_cvt_energy', 0.0):.4f}"
+        f"M1 CVT Energy        : {metrics.get('M1_cvt_energy', 0.0):.4f}\n"
+        f"M2 Capacity Constraint: {metrics.get('M2_voronoi_mass_cv', 0.0):.4f}\n"
+        f"M3 EMD               : {metrics.get('M3_emd_distance', 0.0):.4f}\n"
+        f"M4 Sinkhorn Distance : {metrics.get('M4_sinkhorn_ot_cost', 0.0):.4f}\n"
+        f"M5 Spatial Measure   : {metrics.get('M5_spatial_measure_rho_mean', 0.0):.4f}"
     )
 
 
@@ -90,8 +90,8 @@ def _render_advanced_metrics_row(axes_row, points_list, labels, image_01):
 
 # ── Advanced Metrics M1-M5 ──────────────────────────────────────────
 
-def compute_voronoi_mass_variance(points, image_01):
-    """M1: Voronoi-based density mass variance.
+def compute_m2_capacity_constraint(points, image_01):
+    """M2: Capacity Constraint (Voronoi-based density mass variance).
 
     Parameters
     ----------
@@ -168,8 +168,8 @@ def compute_voronoi_mass_variance(points, image_01):
         return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
 
 
-def compute_sinkhorn_wasserstein(points, image_01, target_density=None):
-    """M2: Sinkhorn-Wasserstein distance to target density.
+def compute_m4_sinkhorn(points, image_01, target_density=None):
+    """M4: Sinkhorn-Wasserstein distance to target density.
 
     Parameters
     ----------
@@ -213,8 +213,13 @@ def compute_sinkhorn_wasserstein(points, image_01, target_density=None):
         return {"sinkhorn_ot_cost": 0.0}
 
 
-def compute_adaptive_nnd(points, image_01):
-    """M4: Adaptive nearest-neighbor distance (density-weighted).
+def compute_m5_spatial_measure(points, image_01):
+    """M5: Spatial Measure (rho = r_min / r_max, density-weighted).
+
+    Calculates local spatial uniformity based on actual point density.
+    - r_min: nearest-neighbor distance
+    - r_max: maximal packing distance for local density D(x_i)
+    - rho = r_min / r_max (ideal ~0.75 for blue noise)
 
     Parameters
     ----------
@@ -223,37 +228,62 @@ def compute_adaptive_nnd(points, image_01):
 
     Returns
     -------
-    dict with adaptive_nnd_mean, adaptive_nnd_cv
+    dict with spatial_measure_rho_mean, spatial_measure_rho_cv
     """
     try:
         from scipy.spatial import cKDTree
         N = len(points)
         if N < 2:
-            return {"adaptive_nnd_mean": 0.0, "adaptive_nnd_cv": 0.0}
+            return {
+                "spatial_measure_rho_mean": 0.0,
+                "spatial_measure_rho_cv": 0.0
+            }
+        
+        # Compute nearest-neighbor distances (r_min)
         tree = cKDTree(points)
         nn_dists, _ = tree.query(points, k=2)
-        nn_dists = nn_dists[:, 1]
+        r_min = nn_dists[:, 1]  # Distance to nearest neighbor
+        
+        # Get local image density at each point
         H, W = image_01.shape
-        local_density = np.zeros(N)
+        local_img_density = np.zeros(N)
         for i, (px, py) in enumerate(points):
             grid_x = int(np.clip(px * (W - 1), 0, W - 1))
             grid_y = int(np.clip(py * (H - 1), 0, H - 1))
-            local_density[i] = image_01[grid_y, grid_x]
-        expected_nn = (local_density + 0.1) ** (-0.5) * 0.5
-        adaptive_nnd = nn_dists / (expected_nn + 1e-8)
-        adaptive_mean = adaptive_nnd.mean()
-        adaptive_std = adaptive_nnd.std()
-        adaptive_cv = adaptive_std / (adaptive_mean + 1e-8)
+            local_img_density[i] = image_01[grid_y, grid_x]
+        
+        # Compute local point density: D_x = N * (local_density / mean(local_density))
+        mean_density = local_img_density.mean()
+        if mean_density < 1e-10:
+            mean_density = 1.0
+        D_x = N * (local_img_density / (mean_density + 1e-10))
+        
+        # Compute maximal spacing: r_max = sqrt(1.0 / (2.0 * sqrt(3.0) * D_x))
+        # Handle zeros safely: clamp D_x to minimum value
+        D_x_safe = np.maximum(D_x, 1e-8)
+        r_max = np.sqrt(1.0 / (2.0 * np.sqrt(3.0) * D_x_safe))
+        
+        # Compute point-wise uniformity: rho = r_min / r_max
+        rho_values = np.clip(r_min / (r_max + 1e-10), 0.0, 2.0)
+        
+        # Return mean and CV of rho values
+        rho_mean = float(rho_values.mean())
+        rho_std = float(rho_values.std())
+        rho_cv = rho_std / (rho_mean + 1e-8)
+        
         return {
-            "adaptive_nnd_mean": float(np.clip(adaptive_mean, 0, 10)),
-            "adaptive_nnd_cv": float(np.clip(adaptive_cv, 0, 10)),
+            "spatial_measure_rho_mean": rho_mean,
+            "spatial_measure_rho_cv": float(np.clip(rho_cv, 0, 10))
         }
     except Exception:
-        return {"adaptive_nnd_mean": 0.0, "adaptive_nnd_cv": 0.0}
+        return {
+            "spatial_measure_rho_mean": 0.0,
+            "spatial_measure_rho_cv": 0.0
+        }
 
 
-def compute_cvt_energy(points, image_01):
-    """M5: CVT-like energy (mass-weighted second moment in Voronoi cells).
+def compute_m1_cvt_energy(points, image_01):
+    """M1: Spatial Relaxation (CVT-like energy, mass-weighted second moment in Voronoi cells).
 
     Parameters
     ----------
@@ -309,7 +339,7 @@ def compute_cvt_energy(points, image_01):
         return {"cvt_energy": 0.0}
 
 
-def compute_emd_stats(points, target_points=None, image_01=None):
+def compute_m3_emd(points, target_points=None, image_01=None):
     """M3: Earth Mover's Distance (EMD) statistics.
 
     Parameters
@@ -369,15 +399,15 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None):
     dict with all M1-M5 keys prefixed accordingly
     """
     result = {}
-    m1 = compute_voronoi_mass_variance(points, image_01)
+    m1 = compute_m1_cvt_energy(points, image_01)
     result.update({f"M1_{k}": v for k, v in m1.items()})
-    m2 = compute_sinkhorn_wasserstein(points, image_01)
+    m2 = compute_m2_capacity_constraint(points, image_01)
     result.update({f"M2_{k}": v for k, v in m2.items()})
-    m3 = compute_emd_stats(points, None, image_01)
+    m3 = compute_m3_emd(points, None, image_01)
     result.update({f"M3_{k}": v for k, v in m3.items()})
-    m4 = compute_adaptive_nnd(points, image_01)
+    m4 = compute_m4_sinkhorn(points, image_01)
     result.update({f"M4_{k}": v for k, v in m4.items()})
-    m5 = compute_cvt_energy(points, image_01)
+    m5 = compute_m5_spatial_measure(points, image_01)
     result.update({f"M5_{k}": v for k, v in m5.items()})
     return result
 
@@ -825,11 +855,11 @@ def visualize_advanced_metrics_panel(
         axes = axes[:, np.newaxis]
 
     metrics_names = [
-        ("M1", "Voronoi Mass CV",  "M1_voronoi_mass_cv"),
-        ("M2", "Sinkhorn OT Cost", "M2_sinkhorn_ot_cost"),
-        ("M3", "EMD Distance",     "M3_emd_distance"),
-        ("M4", "Adaptive NND CV",  "M4_adaptive_nnd_cv"),
-        ("M5", "CVT Energy",       "M5_cvt_energy"),
+        ("M1", "Spatial Relaxation", "M1_cvt_energy"),
+        ("M2", "Capacity Constraint", "M2_voronoi_mass_cv"),
+        ("M3", "EMD",                "M3_emd_distance"),
+        ("M4", "Sinkhorn Distance",  "M4_sinkhorn_ot_cost"),
+        ("M5", "Spatial Measure",    "M5_spatial_measure_rho_mean"),
     ]
 
     for m_idx, (m_short, m_long, m_key) in enumerate(metrics_names):
@@ -1034,8 +1064,8 @@ def _extract_subject_contour(density_map, bg_threshold=0.05):
         return None
 
 
-def plot_visual_m1_voronoi_mass(points, image_01, ax, clip_to_domain=True):
-    """Visual M1: Voronoi cells colored by mass deviation from the mean.
+def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True):
+    """Visual M2: Voronoi cells colored by mass deviation from the mean.
 
     Red = over-filled (too much density mass), Blue = under-filled.
 
@@ -1065,7 +1095,7 @@ def plot_visual_m1_voronoi_mass(points, image_01, ax, clip_to_domain=True):
     try:
         vor = Voronoi(pts_clip)
     except Exception:
-        ax.set_title("M1: Voronoi Mass Deviation\n(insufficient points)", fontsize=9)
+        ax.set_title("M2: Voronoi Mass Deviation\n(insufficient points)", fontsize=9)
         return
 
     def _cell_mass(verts):
@@ -1137,46 +1167,60 @@ def plot_visual_m1_voronoi_mass(points, image_01, ax, clip_to_domain=True):
     ax.invert_yaxis()
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title("M1: Voronoi Mass Deviation\n(Red=Over, Blue=Under)", fontsize=9)
+    ax.set_title("[M2] Capacity Constraint (Voronoi Mass Deviation)\n(Red=Over, Blue=Under)", fontsize=9)
 
 
-def plot_visual_m3_adaptive_nnd(points, image_01, ax):
-    """Visual M3: Points colored by density-adapted nearest-neighbor distance.
+def plot_visual_m5_spatial_measure(points, image_01, ax):
+    """Visual M5: Points colored by spatial measure rho = r_min / r_max.
 
-    Clumped regions (blue-noise violations) appear as bright hotspots.
+    Uniformity hotspots: red = clumped (low rho), blue = uniform (high rho).
+    Ideal rho ≈ 0.75 for blue-noise distributions.
     """
     from scipy.spatial import cKDTree
 
     N = len(points)
     if N < 2:
-        ax.set_title("M3: Adaptive NND Hotspots\n(insufficient points)", fontsize=9)
+        ax.set_title("[M5] Spatial Measure (ρ) Hotspots\n(insufficient points)", fontsize=9)
         return
 
+    # Compute nearest-neighbor distances (r_min)
     tree = cKDTree(points)
     nn_dists, _ = tree.query(points, k=2)
-    nn_dists = nn_dists[:, 1]
+    r_min = nn_dists[:, 1]
 
+    # Get local image density at each point (stippling density: dark = 1, white = 0)
     H, W = image_01.shape
     gx = np.clip((points[:, 0] * (W - 1)).astype(int), 0, W - 1)
     gy = np.clip((points[:, 1] * (H - 1)).astype(int), 0, H - 1)
-    # Stippling density: dark = dense (1), white background = 0
-    local_density = 1.0 - image_01[gy, gx]
+    local_img_density = 1.0 - image_01[gy, gx]
+    
+    # Compute local point density: D_x = N * (local_density / mean(local_density))
+    mean_density = local_img_density.mean()
+    if mean_density < 1e-10:
+        mean_density = 1.0
+    D_x = N * (local_img_density / (mean_density + 1e-10))
+    
+    # Compute maximal spacing: r_max = sqrt(1.0 / (2.0 * sqrt(3.0) * D_x))
+    D_x_safe = np.maximum(D_x, 1e-8)
+    r_max = np.sqrt(1.0 / (2.0 * np.sqrt(3.0) * D_x_safe))
+    
+    # Compute spatial uniformity: rho = r_min / r_max
+    rho_values = np.clip(r_min / (r_max + 1e-10), 0.0, 2.0)
 
-    expected_nn = (local_density + 0.1) ** (-0.5) * 0.5
-    adaptive_nnd = nn_dists / (expected_nn + 1e-8)
-
-    sc = ax.scatter(points[:, 0], points[:, 1], c=adaptive_nnd, cmap="viridis", s=2.0)
-    plt.colorbar(sc, ax=ax, shrink=0.7, label="Adaptive NND")
+    # Use diverging colormap centered at rho=0.75 (ideal blue-noise value)
+    sc = ax.scatter(points[:, 0], points[:, 1], c=rho_values,
+                    cmap="RdYlBu", s=2.0, vmin=0.4, vmax=1.1)
+    plt.colorbar(sc, ax=ax, shrink=0.7, label="ρ (uniformity)")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.invert_yaxis()
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title("M3: Adaptive NND Hotspots", fontsize=9)
+    ax.set_title("[M5] Spatial Measure (ρ) Hotspots", fontsize=9)
 
 
-def plot_visual_m4_cvt_vectors(points, image_01, ax):
-    """Visual M4: Voronoi boundaries + red lines to each cell's geometric centroid.
+def plot_visual_m1_cvt_vectors(points, image_01, ax):
+    """Visual M1: Voronoi boundaries + red lines to each cell's geometric centroid.
 
     Arrow length/direction show how far and which way each point should move
     to reach the density-weighted CVT optimum.
@@ -1188,7 +1232,7 @@ def plot_visual_m4_cvt_vectors(points, image_01, ax):
     try:
         vor = Voronoi(pts_clip)
     except Exception:
-        ax.set_title("M4: CVT Relaxation Vectors\n(insufficient points)", fontsize=9)
+        ax.set_title("[M1] Spatial Relaxation (CVT Vectors)\n(insufficient points)", fontsize=9)
         return
 
     voronoi_plot_2d(
@@ -1213,7 +1257,7 @@ def plot_visual_m4_cvt_vectors(points, image_01, ax):
     ax.invert_yaxis()
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title("M4: CVT Relaxation Vectors", fontsize=9)
+    ax.set_title("[M1] Spatial Relaxation (CVT Vectors)", fontsize=9)
 
 
 def plot_visual_m5_spectrum(points, image_01, ax):
@@ -1292,7 +1336,7 @@ def visualize_spatial_metrics_panel(
     gt_points : ndarray (N, 2) or None
     gt_label : str
     clip_to_domain : bool, default True
-        Passed to plot_visual_m1_voronoi_mass.  When True, boundary Voronoi
+        Passed to plot_visual_m2_capacity_constraint.  When True, boundary Voronoi
         cells are clipped to [0,1] and drawn white instead of being omitted.
 
     Returns
@@ -1326,14 +1370,14 @@ def visualize_spatial_metrics_panel(
         return None
 
     row_titles = [
-        "M1: Voronoi Mass Deviation",
-        "M4: Adaptive NND Hotspots",
-        "M5: CVT Relaxation Vectors",
+        "[M1] Spatial Relaxation (CVT Vectors)",
+        "[M2] Capacity Constraint (Voronoi Mass Deviation)",
+        "[M5] Spatial Measure (ρ) Hotspots",
     ]
     plot_fns = [
-        plot_visual_m1_voronoi_mass,
-        plot_visual_m3_adaptive_nnd,
-        plot_visual_m4_cvt_vectors,
+        plot_visual_m1_cvt_vectors,
+        plot_visual_m2_capacity_constraint,
+        plot_visual_m5_spatial_measure,
     ]
     n_rows = len(plot_fns)
 
@@ -1345,7 +1389,7 @@ def visualize_spatial_metrics_panel(
         for row_idx, fn in enumerate(plot_fns):
             ax = axes[row_idx, col_idx]
             try:
-                if fn is plot_visual_m1_voronoi_mass:
+                if fn is plot_visual_m2_capacity_constraint:
                     fn(pts, image_01, ax, clip_to_domain=clip_to_domain)
                 else:
                     fn(pts, image_01, ax)
