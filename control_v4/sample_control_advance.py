@@ -1,6 +1,7 @@
 """Generate stipple point sets using Dynamic ControlNet V4 (Truncated Control)."""
 
 import argparse
+import ast
 import json
 import os
 import sys
@@ -54,11 +55,32 @@ from utils.stippling_metrics_advance import (
 # Editable defaults 
 CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT = "config/GBN/model.ckpt"
-CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep1100.pt"
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/gradient0deg.png"
-# GT_IMAGE_PATH = ""
-INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT/source/emoji-one_4_monkey.png"
-GT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT/target/emoji-one_4_monkey.png"
+
+# CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep1900.pt"
+CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep6250.pt"
+
+INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/source/emoji-one_4_monkey.png"
+COMPARE_IMAGE_LIST = [
+    {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/target/emoji-one_4_monkey.png"},
+    {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_GBN/target/emoji-one_4_monkey.png"},
+    {"ControlNet": 0},
+]
+CLIP_TO_DOMAIN = True
+
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_GBN/original/gradient0deg.png"
+# COMPARE_IMAGE_LIST = [
+#     {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/target/gradient0deg.png"},
+#     {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_GBN/target/gradient0deg.png"},
+#     {"ControlNet": 0},
+# ]
+# CLIP_TO_DOMAIN = False
+
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic/source/quadratic_density_gradient.png"
+# COMPARE_IMAGE_LIST = [
+#     {"ControlNet": 0},
+# ]
+# CLIP_TO_DOMAIN = False
+
 OUTPUT_DIR = "control_v4/sample_outputs_advance"
 N_SAMPLES = 1
 TIMESTEPS = 1000
@@ -67,21 +89,190 @@ RESAMPLE_JUMPS = 2
 ENABLE_GECCO = True
 DEVICE = "cuda"
 SDF_TRUNCATE_PX = 8.0
-SDF_FEATURES = True
-SMART_INIT_FEATURES = True
-BATCH_COORDS_FEATURES = True
+SDF_FEATURES = False
+SMART_INIT_FEATURES = False
+BATCH_COORDS_FEATURES = False
 SHOW_DENOISING = False
 SHOW_DENOISING_INTERVAL = 50
 TRUNCATION_RATIO = 0.30
 T_START_STEP = -1
 SMART_INIT_SEED = 42
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
+SHOW_COLORBAR = True
 CAPACITY_GRID_SIZE = 32
 # CAPACITY_GRID_SIZE = -1  # -1 for full input resolution
 CAPACITY_IGNORE_WHITE = True   # exclude near-white background cells from capacity scoring
 METRICS_ADVANCE = True
 ADAPTIVE_SAMPLING_DENSITY_MAP = True
-CLIP_TO_DOMAIN = True  # Whether to clip predicted points to [0,1]² before metrics and visualisation (recommended for truncated control)
+# CLIP_TO_DOMAIN = True  # Whether to clip predicted points to [0,1]² before metrics and visualisation (recommended for truncated control)
+
+
+def _parse_compare_image_list(raw_text, arg_name):
+    """Parse a Python list literal of single-item dicts into ordered compare entries."""
+    try:
+        parsed = ast.literal_eval(raw_text)
+    except (ValueError, SyntaxError) as exc:
+        raise ValueError(f"{arg_name} must be a Python list literal, got: {raw_text}") from exc
+
+    if not isinstance(parsed, list):
+        raise ValueError(f"{arg_name} must be a list, got: {type(parsed).__name__}")
+
+    entries = []
+    for idx, item in enumerate(parsed):
+        if not isinstance(item, dict):
+            raise ValueError(f"{arg_name}[{idx}] must be a dict, got: {type(item).__name__}")
+        if len(item) != 1:
+            raise ValueError(f"{arg_name}[{idx}] must contain exactly one key/value pair")
+        label, value = next(iter(item.items()))
+        if not isinstance(label, str) or not label.strip():
+            raise ValueError(f"{arg_name}[{idx}] key must be a non-empty string")
+        if not (isinstance(value, str) or isinstance(value, int)):
+            raise ValueError(
+                f"{arg_name}[{idx}] value must be a string image path or an integer sample index"
+            )
+        entries.append((label, value))
+    return entries
+
+
+def _load_grayscale_image_u8(image_path):
+    img_u8 = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if img_u8 is None:
+        raise FileNotFoundError(f"Could not read image: {image_path}")
+    return img_u8
+
+
+def visualize_compare_panel(source_img_u8, compare_entries, compare_payloads, save_path, point_size=0.5, capacity_grid_size=16, compute_advanced=False):
+    """Create a comparison panel where each entry is either an image path or a predicted sample index."""
+    if not HAS_MPL:
+        return None
+    if len(compare_entries) == 0:
+        return None
+
+    n_cols = 1 + len(compare_entries)
+    n_rows = 3 + (1 if compute_advanced else 0)
+
+    if compute_advanced:
+        fig, axes = plt.subplots(
+            n_rows,
+            n_cols,
+            figsize=(4.5 * n_cols, 4.5 * 3 + _ADV_ROW_EXTRA_HEIGHT),
+            gridspec_kw={"height_ratios": [3, _ADV_ROW_HEIGHT_RATIO, 3, 3]},
+        )
+    else:
+        fig, axes = plt.subplots(3, n_cols, figsize=(4.5 * n_cols, 4.5 * 3))
+
+    if n_cols == 1:
+        axes = axes[:, np.newaxis]
+
+    image_01 = source_img_u8.astype(np.float64) / 255.0
+
+    ax = axes[0, 0]
+    ax.imshow(source_img_u8, cmap="gray", vmin=0, vmax=255)
+    ax.set_title("Condition (Input)")
+    ax.axis("off")
+
+    compare_points = []
+    compare_labels = []
+
+    for i, (label, value) in enumerate(compare_entries):
+        ax = axes[0, 1 + i]
+        payload = compare_payloads[i]
+        compare_labels.append(label)
+
+        if payload["kind"] == "image":
+            pts = payload["points"]
+            compare_points.append(pts)
+            ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.set_aspect("equal")
+            ax.set_facecolor("white")
+            ax.set_title(f"{label} [image]")
+            ax.axis("off")
+        else:
+            pts = payload["points"]
+            compare_points.append(pts)
+            ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.set_aspect("equal")
+            ax.set_facecolor("white")
+            ax.set_title(f"{label} [sample {value}]")
+            ax.axis("off")
+
+    cap_row = 2 if compute_advanced else 1
+    spa_row = 3 if compute_advanced else 2
+
+    axes[cap_row, 0].axis("off")
+    axes[spa_row, 0].axis("off")
+
+    cap_grid_shape = resolve_capacity_grid_size(image_01, capacity_grid_size)
+    pred_caps = [
+        compute_grid_capacity(compare_points[i], image_01, grid_size=cap_grid_shape, ignore_white=CAPACITY_IGNORE_WHITE)
+        for i in range(len(compare_points))
+    ]
+    pred_spa = [compute_spacing_quality(compare_points[i]) for i in range(len(compare_points))]
+
+    for i in range(len(compare_points)):
+        cap = pred_caps[i]
+        ax = axes[cap_row, 1 + i]
+        status = cap["grid_status"]
+        h_grid, w_grid = status.shape
+        rgb = np.zeros((h_grid, w_grid, 3), dtype=np.float32)
+        rgb[status == 0, :] = [0.0, 1.0, 0.0]
+        rgb[status == -1, :] = [1.0, 0.0, 0.0]
+        rgb[status == 1, :] = [0.0, 0.0, 1.0]
+        ax.imshow(rgb, origin="upper", aspect="equal")
+        ok_pct = 100.0 - cap["underfilled_pct"] - cap["overfilled_pct"]
+        ax.set_title(
+            f"{compare_labels[i]} Capacity\n"
+            f"Grid:{cap_grid_shape[0]}x{cap_grid_shape[1]} | "
+            f"OK:{ok_pct:.0f}% Under:{cap['underfilled_pct']:.0f}% Over:{cap['overfilled_pct']:.0f}%\n"
+            f"Score: {cap['score']:.3f}",
+            fontsize=9,
+        )
+        ax.axis("off")
+
+    all_nn = [s["nn_distances"] for s in pred_spa]
+    vmin = min(d.min() for d in all_nn)
+    vmax = max(d.max() for d in all_nn)
+    if not np.isfinite(vmin) or not np.isfinite(vmax) or abs(vmax - vmin) < 1e-12:
+        vmin, vmax = 0.0, 1.0
+
+    for i in range(len(compare_points)):
+        spa = pred_spa[i]
+        pts = compare_points[i]
+        ax = axes[spa_row, 1 + i]
+        sc = ax.scatter(
+            pts[:, 0],
+            1 - pts[:, 1],
+            c=spa["nn_distances"],
+            cmap="RdYlBu",
+            s=point_size * 3,
+            alpha=0.8,
+            vmin=vmin,
+            vmax=vmax,
+        )
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_aspect("equal")
+        ax.set_facecolor("white")
+        ax.set_title(
+            f"{compare_labels[i]} Spacing\n"
+            f"CV:{spa['nn_cv']:.3f}  Clumped:{spa['clumped_pct']:.1f}%\n"
+            f"Score: {spa['spacing_score']:.3f}",
+            fontsize=9,
+        )
+        ax.axis("off")
+        plt.colorbar(sc, ax=ax, shrink=0.7, label="NN dist")
+
+    if compute_advanced:
+        _render_advanced_metrics_row(axes[1, :], compare_points, compare_labels, image_01)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    return save_path
 
 
 def extract_points_from_target(img_path, n_points):
@@ -399,9 +590,9 @@ def main():
     parser.add_argument("--control_ckpt", default=CONTROL_CKPT)
     parser.add_argument("--input-image", "--image", dest="input_image", default=INPUT_IMAGE_PATH)
     parser.add_argument(
-        "--gt-image",
-        default=GT_IMAGE_PATH,
-        help="Optional GT stipple image path. If empty, GT column is omitted in the metrics panel.",
+        "--compare-image-list",
+        default=str(COMPARE_IMAGE_LIST),
+        help="Python list literal of single-item dicts. Each value is either an image path or a predicted sample index.",
     )
     parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
     parser.add_argument("--timesteps", type=int, default=TIMESTEPS)
@@ -453,6 +644,8 @@ def main():
         raise ValueError("--truncation-ratio must be in (0,1]")
     if args.capacity_grid_size == 0 or args.capacity_grid_size < -1:
         raise ValueError("--capacity-grid-size must be > 0, or -1 for full input resolution")
+
+    compare_entries = _parse_compare_image_list(args.compare_image_list, "--compare-image-list")
 
     device = torch.device(args.device)
 
@@ -623,35 +816,50 @@ def main():
         input_img_u8 = cv2.imread(args.input_image, cv2.IMREAD_GRAYSCALE)
         panel_path = os.path.join(metrics_dir, "results_panel.png")
         panel_saved = None
+        compare_payloads = []
+        compare_pointsets = []
+        compare_labels = []
         gt_points = None
         if input_img_u8 is None:
             print(f"Skipped metrics panel: failed to read input image: {args.input_image}")
         elif len(pred_pointsets) == 0:
             print("Skipped metrics panel: no predicted point sets were generated.")
-        elif args.gt_image:
-            gt_img_u8 = cv2.imread(args.gt_image, cv2.IMREAD_GRAYSCALE)
-            if gt_img_u8 is None:
-                print(f"GT image was provided but could not be read, falling back to no-GT panel: {args.gt_image}")
-                panel_saved = visualize_sample_metrics_no_gt(
-                    input_img_u8,
-                    pred_pointsets,
-                    panel_path,
-                    capacity_grid_size=args.capacity_grid_size,
-                    compute_advanced=args.metrics_advance,
-                )
-            else:
-                gt_points = extract_points_from_target(args.gt_image, pred_pointsets[0].shape[0])
-                panel_saved = visualize_overfit_metrics_advance(
-                    input_img_u8,
-                    gt_img_u8,
-                    gt_points,
-                    pred_pointsets,
-                    panel_path,
-                    step=None,
-                    gt_offsets=None,
-                    capacity_grid_size=args.capacity_grid_size,
-                    compute_advanced=args.metrics_advance,
-                )
+        elif len(compare_entries) > 0:
+            n_points = pred_pointsets[0].shape[0]
+            for label, value in compare_entries:
+                compare_labels.append(label)
+                if isinstance(value, int):
+                    if value < 0 or value >= len(pred_pointsets):
+                        raise IndexError(
+                            f"Compare sample index {value} for '{label}' is out of range for {len(pred_pointsets)} predicted samples"
+                        )
+                    compare_pointsets.append(pred_pointsets[value])
+                    compare_payloads.append({
+                        "kind": "sample",
+                        "label": label,
+                        "index": value,
+                        "points": pred_pointsets[value],
+                    })
+                else:
+                    compare_img_u8 = _load_grayscale_image_u8(value)
+                    compare_pts = extract_points_from_target(value, n_points)
+                    compare_pointsets.append(compare_pts)
+                    compare_payloads.append({
+                        "kind": "image",
+                        "label": label,
+                        "path": value,
+                        "image_u8": compare_img_u8,
+                        "points": compare_pts,
+                    })
+
+            panel_saved = visualize_compare_panel(
+                input_img_u8,
+                compare_entries,
+                compare_payloads,
+                panel_path,
+                capacity_grid_size=args.capacity_grid_size,
+                compute_advanced=args.metrics_advance,
+            )
         else:
             panel_saved = visualize_sample_metrics_no_gt(
                 input_img_u8,
@@ -680,50 +888,42 @@ def main():
                 metrics_advance_dir = os.path.join(sample_base_dir, "metrics_advance")
                 os.makedirs(metrics_advance_dir, exist_ok=True)
 
-                gt_metrics = None
-                if gt_points is not None:
-                    gt_metrics = compute_all_advanced_metrics(gt_points, image_01)
-                    gt_json_path = os.path.join(metrics_advance_dir, "metrics_gt.json")
-                    with open(gt_json_path, "w") as f:
-                        json.dump(gt_metrics, f, indent=2)
-                    print(
-                        "GT advanced metrics | "
-                        f"M1_CV={gt_metrics.get('M1_voronoi_mass_cv', 0.0):.4f} | "
-                        f"M2_OT={gt_metrics.get('M2_sinkhorn_ot_cost', 0.0):.4f} | "
-                        f"M3_EMD={gt_metrics.get('M3_emd_distance', 0.0):.4f} | "
-                        f"M4_NND={gt_metrics.get('M4_adaptive_nnd_cv', 0.0):.4f}"
-                    )
+                if compare_entries:
+                    for idx, (label, value) in enumerate(compare_entries):
+                        if isinstance(value, int):
+                            pts = pred_pointsets[value]
+                            source_desc = f"pred[{value}]"
+                        else:
+                            pts = extract_points_from_target(value, pred_pointsets[0].shape[0])
+                            source_desc = value
 
-                # Compute and save detailed M1-M5 metrics for each prediction
-                for idx, pts in enumerate(pred_pointsets):
-                    metrics_dict = compute_all_advanced_metrics(pts, image_01)
-                    metrics_json_path = os.path.join(metrics_advance_dir, f"metrics_pred_{idx + 1}.json")
+                        metrics_dict = compute_all_advanced_metrics(pts, image_01)
+                        metrics_json_path = os.path.join(metrics_advance_dir, f"metrics_{idx + 1}_{label}.json")
+                        with open(metrics_json_path, "w") as f:
+                            json.dump(metrics_dict, f, indent=2)
 
-                    with open(metrics_json_path, "w") as f:
-                        json.dump(metrics_dict, f, indent=2)
-
-                    if gt_metrics is not None:
-                        comparable_keys = sorted(set(gt_metrics.keys()) & set(metrics_dict.keys()))
-                        compare = {k: float(metrics_dict[k] - gt_metrics[k]) for k in comparable_keys}
-                        compare_json_path = os.path.join(metrics_advance_dir, f"metrics_compare_pred_{idx + 1}_minus_gt.json")
-                        with open(compare_json_path, "w") as f:
-                            json.dump(compare, f, indent=2)
-
-                    # Print summary
-                    print(f"Pred {idx + 1} advanced metrics | "
-                          f"M1_CV={metrics_dict.get('M1_voronoi_mass_cv', 0.0):.4f} | "
-                          f"M2_OT={metrics_dict.get('M2_sinkhorn_ot_cost', 0.0):.4f} | "
-                          f"M3_EMD={metrics_dict.get('M3_emd_distance', 0.0):.4f} | "
-                          f"M4_NND={metrics_dict.get('M4_adaptive_nnd_cv', 0.0):.4f}")
-
-                    if gt_metrics is not None:
                         print(
-                            f"Pred {idx + 1} - GT deltas | "
-                            f"dM1_CV={metrics_dict.get('M1_voronoi_mass_cv', 0.0) - gt_metrics.get('M1_voronoi_mass_cv', 0.0):+.4f} | "
-                            f"dM2_OT={metrics_dict.get('M2_sinkhorn_ot_cost', 0.0) - gt_metrics.get('M2_sinkhorn_ot_cost', 0.0):+.4f} | "
-                            f"dM3_EMD={metrics_dict.get('M3_emd_distance', 0.0) - gt_metrics.get('M3_emd_distance', 0.0):+.4f} | "
-                            f"dM4_NND={metrics_dict.get('M4_adaptive_nnd_cv', 0.0) - gt_metrics.get('M4_adaptive_nnd_cv', 0.0):+.4f}"
+                            f"{label} advanced metrics ({source_desc}) | "
+                            f"M1_CV={metrics_dict.get('M1_voronoi_mass_cv', 0.0):.4f} | "
+                            f"M2_OT={metrics_dict.get('M2_sinkhorn_ot_cost', 0.0):.4f} | "
+                            f"M3_EMD={metrics_dict.get('M3_emd_distance', 0.0):.4f} | "
+                            f"M4_NND={metrics_dict.get('M4_adaptive_nnd_cv', 0.0):.4f}"
                         )
+
+                if not compare_entries:
+                    # Compute and save detailed M1-M5 metrics for each prediction
+                    for idx, pts in enumerate(pred_pointsets):
+                        metrics_dict = compute_all_advanced_metrics(pts, image_01)
+                        metrics_json_path = os.path.join(metrics_advance_dir, f"metrics_pred_{idx + 1}.json")
+
+                        with open(metrics_json_path, "w") as f:
+                            json.dump(metrics_dict, f, indent=2)
+
+                        print(f"Pred {idx + 1} advanced metrics | "
+                              f"M1_CV={metrics_dict.get('M1_voronoi_mass_cv', 0.0):.4f} | "
+                              f"M2_OT={metrics_dict.get('M2_sinkhorn_ot_cost', 0.0):.4f} | "
+                              f"M3_EMD={metrics_dict.get('M3_emd_distance', 0.0):.4f} | "
+                              f"M4_NND={metrics_dict.get('M4_adaptive_nnd_cv', 0.0):.4f}")
             except Exception as e:
                 print(f"Warning: advanced metrics computation failed: {e}")
 
@@ -735,10 +935,11 @@ def main():
                 akde_path = os.path.join(akde_dir, "density_map.png")
                 akde_saved = visualize_adaptive_sampling_density_map(
                     input_img_u8,
-                    pred_pointsets,
+                    compare_pointsets if compare_entries else pred_pointsets,
                     akde_path,
-                    gt_points=gt_points,
+                    gt_points=None,
                     device=str(device),
+                    pred_labels=compare_labels if compare_entries else None,
                 )
                 if akde_saved:
                     print(f"Saved AKDE density map : {akde_saved}")
@@ -754,10 +955,12 @@ def main():
                 image_01 = input_img_u8.astype(np.float64) / 255.0
                 spatial_saved = visualize_spatial_metrics_panel(
                     image_01,
-                    pred_pointsets,
+                    compare_pointsets if compare_entries else pred_pointsets,
                     spatial_path,
-                    gt_points=gt_points,
+                    gt_points=None,
+                    pred_labels=compare_labels if compare_entries else None,
                     clip_to_domain=CLIP_TO_DOMAIN,
+                    show_colorbar=SHOW_COLORBAR,
                 )
                 if spatial_saved:
                     print(f"Saved spatial metrics panel: {spatial_saved}")

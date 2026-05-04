@@ -1064,7 +1064,7 @@ def _extract_subject_contour(density_map, bg_threshold=0.05):
         return None
 
 
-def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True):
+def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True, show_colorbar=True):
     """Visual M2: Voronoi cells colored by mass deviation from the mean.
 
     Red = over-filled (too much density mass), Blue = under-filled.
@@ -1080,10 +1080,15 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
         is rendered; the white background is fully masked.
         When False, all finite Voronoi cells are colored by deviation without
         any contour clipping or background classification.
+    show_colorbar : bool, default True
+        When True, displays colorbar legend with Under/Avg/Over buckets and percentages.
+        When False, hides the colorbar (useful for paper figures).
     """
     from matplotlib.patches import Polygon as MplPolygon, PathPatch
     from matplotlib.collections import PatchCollection
     from matplotlib.path import Path, Path as MplPath
+    from matplotlib import colors as mcolors
+    from matplotlib.colors import BoundaryNorm, ListedColormap
     from scipy.spatial import Voronoi
 
     # Stippling density: dark = subject (high), white bg = 0
@@ -1127,15 +1132,22 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
     # Deviation relative to the mean of all cells
     mean_mass = cell_masses.mean() if len(cell_masses) > 0 else 1.0
     deviations = np.clip((cell_masses - mean_mass) / (mean_mass + 1e-8), -1.0, 1.0)
+    dev_count = int(len(deviations))
+
+    # Three readable buckets: under / avg / over.
+    under_thr = -0.15
+    over_thr = 0.15
+    bucket_edges = np.array([-1.0, under_thr, over_thr, 1.0], dtype=np.float32)
+    bucket_colors = ListedColormap(["#2b6cb0", "#d9d9d9", "#c53030"])
+    bucket_norm = BoundaryNorm(bucket_edges, bucket_colors.N)
 
     ax.set_facecolor("white")
 
     if cell_polys:
         col = PatchCollection(
-            cell_polys, cmap="coolwarm", alpha=0.8, edgecolor="black", linewidth=0.2
+            cell_polys, cmap=bucket_colors, norm=bucket_norm, alpha=0.8, edgecolor="black", linewidth=0.2
         )
         col.set_array(deviations)
-        col.set_clim(-1.0, 1.0)
 
         if clip_to_domain:
             # ── clip_to_domain=True: extract subject contour and clip the
@@ -1161,13 +1173,43 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
         # clip_to_domain=False: draw all finite cells as-is, no contour
         ax.add_collection(col)
 
+        # Legend: range + percentage for each signed deviation bucket.
+        # This makes the M2 color distribution easier to read at a glance.
+        if show_colorbar:
+            hist, _ = np.histogram(deviations, bins=bucket_edges)
+            total = max(dev_count, 1)
+            tick_positions = [
+                (bucket_edges[0] + bucket_edges[1]) / 2.0,
+                (bucket_edges[1] + bucket_edges[2]) / 2.0,
+                (bucket_edges[2] + bucket_edges[3]) / 2.0,
+            ]
+            tick_labels = [
+                f"Under\n{bucket_edges[0]:.2f} to {bucket_edges[1]:.2f}\n{(hist[0] / total) * 100:.0f}%",
+                f"Avg\n{bucket_edges[1]:.2f} to {bucket_edges[2]:.2f}\n{(hist[1] / total) * 100:.0f}%",
+                f"Over\n{bucket_edges[2]:.2f} to {bucket_edges[3]:.2f}\n{(hist[2] / total) * 100:.0f}%",
+            ]
+            cbar = plt.colorbar(col, ax=ax, fraction=0.046, pad=0.04, ticks=tick_positions)
+            cbar.ax.set_yticklabels(tick_labels, fontsize=7)
+            cbar.set_label("Voronoi mass deviation", fontsize=8)
+            cbar.ax.tick_params(length=0)
+
     ax.scatter(pts_clip[:, 0], pts_clip[:, 1], c="black", s=0.5, zorder=5)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.invert_yaxis()
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title("[M2] Capacity Constraint (Voronoi Mass Deviation)\n(Red=Over, Blue=Under)", fontsize=9)
+    if dev_count > 0:
+        under_pct = float((deviations < under_thr).mean() * 100.0)
+        avg_pct = float(((deviations >= under_thr) & (deviations <= over_thr)).mean() * 100.0)
+        over_pct = float((deviations > over_thr).mean() * 100.0)
+        ax.set_title(
+            "[M2] Capacity Constraint (Voronoi Mass Deviation)\n"
+            f"(Under:{under_pct:.0f}% Avg:{avg_pct:.0f}% Over:{over_pct:.0f}%)",
+            fontsize=9,
+        )
+    else:
+        ax.set_title("[M2] Capacity Constraint (Voronoi Mass Deviation)\n(Under / Avg / Over)", fontsize=9)
 
 
 def plot_visual_m5_spatial_measure(points, image_01, ax):
@@ -1321,10 +1363,11 @@ def visualize_spatial_metrics_panel(
     gt_points=None,
     gt_label="GT",
     clip_to_domain=True,
+    show_colorbar=True,
 ):
     """3-row spatial-visual panel: M1 Voronoi / M4 NND / M5 CVT.
 
-    Each column is one point set (GT first if provided, then predictions).
+    Each column is one point set (an arbitrary number of methods can be shown).
     Each row is one spatial metric visualisation.
 
     Parameters
@@ -1338,6 +1381,9 @@ def visualize_spatial_metrics_panel(
     clip_to_domain : bool, default True
         Passed to plot_visual_m2_capacity_constraint.  When True, boundary Voronoi
         cells are clipped to [0,1] and drawn white instead of being omitted.
+    show_colorbar : bool, default True
+        When True, displays colorbar legend on M2 visualization.
+        When False, hides the colorbar (useful for paper figures).
 
     Returns
     -------
@@ -1346,7 +1392,6 @@ def visualize_spatial_metrics_panel(
     if not HAS_MPL:
         return None
 
-    n_preds = min(len(pred_pointsets), 4)
     all_pointsets = []
     all_labels = []
 
@@ -1354,15 +1399,15 @@ def visualize_spatial_metrics_panel(
         all_pointsets.append(np.asarray(gt_points, dtype=np.float64))
         all_labels.append(str(gt_label))
 
-    for i in range(n_preds):
+    for i in range(len(pred_pointsets)):
         all_pointsets.append(np.asarray(pred_pointsets[i], dtype=np.float64))
 
     if pred_labels is None:
-        all_labels.extend([f"Pred {i}" for i in range(n_preds)])
+        all_labels.extend([f"Pred {i}" for i in range(len(pred_pointsets))])
     else:
-        pred_labels = [str(l) for l in pred_labels[:n_preds]]
-        if len(pred_labels) < n_preds:
-            pred_labels.extend(f"Pred {i}" for i in range(len(pred_labels), n_preds))
+        pred_labels = [str(l) for l in pred_labels[:len(pred_pointsets)]]
+        if len(pred_labels) < len(pred_pointsets):
+            pred_labels.extend(f"Pred {i}" for i in range(len(pred_labels), len(pred_pointsets)))
         all_labels.extend(pred_labels)
 
     n_cols = len(all_pointsets)
@@ -1390,7 +1435,7 @@ def visualize_spatial_metrics_panel(
             ax = axes[row_idx, col_idx]
             try:
                 if fn is plot_visual_m2_capacity_constraint:
-                    fn(pts, image_01, ax, clip_to_domain=clip_to_domain)
+                    fn(pts, image_01, ax, clip_to_domain=clip_to_domain, show_colorbar=show_colorbar)
                 else:
                     fn(pts, image_01, ax)
             except Exception as exc:
