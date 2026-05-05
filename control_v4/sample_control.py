@@ -43,11 +43,20 @@ from utils.stippling_metrics import (
 # Editable defaults 
 CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT = "config/GBN/model.ckpt"
-CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep1100.pt"
+
+# CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep1900.pt"
+CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep6250.pt"
+
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/gradient0deg.png"
 # GT_IMAGE_PATH = ""
-INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT/source/emoji-one_4_monkey.png"
-GT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT/target/emoji-one_4_monkey.png"
+
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT/source/emoji-one_4_monkey.png"
+# GT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT/target/emoji-one_4_monkey.png"
+
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic/source/quadratic_density_gradient.png"
+INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/source/quadratic_density_gradient.png"
+GT_IMAGE_PATH = ""
+
 OUTPUT_DIR = "control_v4/sample_outputs"
 N_SAMPLES = 1
 TIMESTEPS = 1000
@@ -56,9 +65,9 @@ RESAMPLE_JUMPS = 2
 ENABLE_GECCO = True
 DEVICE = "cuda"
 SDF_TRUNCATE_PX = 8.0
-SDF_FEATURES = True
-SMART_INIT_FEATURES = True
-BATCH_COORDS_FEATURES = True
+SDF_FEATURES = False
+SMART_INIT_FEATURES = False
+BATCH_COORDS_FEATURES = False
 SHOW_DENOISING = False
 SHOW_DENOISING_INTERVAL = 50
 TRUNCATION_RATIO = 0.30
@@ -194,29 +203,27 @@ def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, poi
 
 
 def save_sample_image(image_path, pts, out_png_path):
-    if not HAS_MPL:
-        return
-
     cond_img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if cond_img is None:
         return
-    cond_img = cond_img.astype(float) / 255.0
 
-    fig, (ax_cond, ax_stipple) = plt.subplots(1, 2, figsize=(8, 4), dpi=150)
-    ax_cond.imshow(cond_img, cmap="gray", vmin=0.0, vmax=1.0)
-    ax_cond.axis("off")
-    ax_cond.set_title("Condition")
+    h, w = cond_img.shape
+    # Save only the predicted stipple at exact input resolution.
+    out_img = np.full((h, w), 255, dtype=np.uint8)
 
-    ax_stipple.scatter(pts[:, 0], 1.0 - pts[:, 1], c="black", s=0.8, alpha=0.8)
-    ax_stipple.set_xlim(0, 1)
-    ax_stipple.set_ylim(0, 1)
-    ax_stipple.set_aspect("equal")
-    ax_stipple.axis("off")
-    ax_stipple.set_title("Predicted stipple")
+    pts = np.asarray(pts, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 2 or pts.shape[0] == 0:
+        cv2.imwrite(out_png_path, out_img)
+        return
 
-    plt.tight_layout()
-    plt.savefig(out_png_path, dpi=150, bbox_inches="tight")
-    plt.close()
+    px = np.rint(pts[:, 0] * (w - 1)).astype(np.int32)
+    py = np.rint((1.0 - pts[:, 1]) * (h - 1)).astype(np.int32)
+    px = np.clip(px, 0, w - 1)
+    py = np.clip(py, 0, h - 1)
+
+    # Each predicted point is exactly one pixel.
+    out_img[py, px] = 0
+    cv2.imwrite(out_png_path, out_img)
 
 
 def _save_denoise_step(img_tensor, timestep_i, t_start, out_path):

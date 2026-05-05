@@ -59,13 +59,42 @@ WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-di
 
 CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH = "config/GBN/model.ckpt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/target"
 
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/target"
-OUTPUT_DIR = "control_v3/train_outputs"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_1024/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_1024/target"
+
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Div2K/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Div2K/target"
+# OUTPUT_DIR = "control_v3/train_outputs_div2k"
+
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/CUB-200-2011/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/CUB-200-2011/target"
+# OUTPUT_DIR = "control_v3/train_outputs_cub200"
+
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/MPEG7dataset/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/MPEG7dataset/target"
+# OUTPUT_DIR = "control_v3/train_outputs_MPEG7"
+
+# ------------------------------------------------------------------------------
+
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+OUTPUT_DIR = "control_v3/train_outputs_icons50_512"
+
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/DUTS/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/DUTS/target"
+# OUTPUT_DIR = "control_v3/train_outputs_DUTS"
+
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/DUTS_partial/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/DUTS_partial/target"
+# OUTPUT_DIR = "control_v3/train_outputs_DUTS_partial"
+
 
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
 OFFSETS_DIR = ""
+OUTPUT_DIR = "control_v3/train_outputs"
 GRID_SIZE = 32
 
 # EPOCHS = 100

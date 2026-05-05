@@ -21,8 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # ── editable defaults ────────────────────────────────────────────────
 CONFIG_PATH   = "config/GBN/config.json"
 BASE_CKPT     = "config/GBN/model.ckpt"
-CONTROL_CKPT  = "control_v3/train_outputs_wave/dynamic_controlnet_v3_ep25.pt"
-IMAGE_PATH    = "/groups/asharf_group/ofirgila/ControlNet/training/data_taksim/source/taksim-circle.png"
+CONTROL_CKPT  = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v3/train_outputs_icons50_512/dynamic_controlnet_v3_ep250.pt"
+IMAGE_PATH    = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source/Icons-50/monkey/emoji-one_4_monkey.png"
 OUTPUT_DIR    = "control_v3/sample_outputs"
 N_SAMPLES     = 2
 TIMESTEPS     = 1000

@@ -62,7 +62,8 @@ def run_stress(args):
 
 def build_gradient_parser():
     DEFAULT_WIDTH = 1000
-    DEFAULT_HEIGHT = 250
+    # DEFAULT_HEIGHT = 250
+    DEFAULT_HEIGHT = 1000
     DEFAULT_EXPONENT = 2.0
     DEFAULT_OUTPUT = Path("experiments") / "quadratic_density_gradient.png"
 
