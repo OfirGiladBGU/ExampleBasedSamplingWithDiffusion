@@ -46,6 +46,51 @@ def _format_advanced_text(metrics):
     )
 
 
+def _polygon_sample_points(vertices_clip, image_shape, mc_approx=True, rng=None):
+    """Return points and pixel indices inside a polygon.
+
+    When mc_approx is True, samples points randomly inside the polygon bbox.
+    When mc_approx is False, uses all pixel centers inside the bbox.
+    """
+    from matplotlib.path import Path
+
+    H, W = image_shape
+    x_min, x_max = vertices_clip[:, 0].min(), vertices_clip[:, 0].max()
+    y_min, y_max = vertices_clip[:, 1].min(), vertices_clip[:, 1].max()
+    if x_max - x_min < 1e-8 or y_max - y_min < 1e-8:
+        return None
+
+    poly_path = Path(vertices_clip)
+
+    if mc_approx:
+        if rng is None:
+            rng = np.random.default_rng(42)
+        n_samples = max(10, min(50, int((x_max - x_min) * (y_max - y_min) * W * H * 0.5)))
+        xs = rng.uniform(x_min, x_max, n_samples)
+        ys = rng.uniform(y_min, y_max, n_samples)
+        points_test = np.column_stack([xs, ys])
+    else:
+        x0 = max(0, int(np.floor(x_min * W)))
+        x1 = min(W - 1, int(np.ceil(x_max * W)))
+        y0 = max(0, int(np.floor(y_min * H)))
+        y1 = min(H - 1, int(np.ceil(y_max * H)))
+        if x1 < x0 or y1 < y0:
+            return None
+        xs = (np.arange(x0, x1 + 1, dtype=np.float64) + 0.5) / float(W)
+        ys = (np.arange(y0, y1 + 1, dtype=np.float64) + 0.5) / float(H)
+        gx, gy = np.meshgrid(xs, ys)
+        points_test = np.column_stack([gx.ravel(), gy.ravel()])
+
+    inside = poly_path.contains_points(points_test)
+    if inside.sum() == 0:
+        return None
+
+    points_inside = points_test[inside]
+    px = np.clip((points_inside[:, 0] * W).astype(int), 0, W - 1)
+    py = np.clip((points_inside[:, 1] * H).astype(int), 0, H - 1)
+    return points_inside, px, py
+
+
 # ── constants for the shared advanced-metrics row ──────────────────
 _ADV_ROW_FONTSIZE       = 14
 _ADV_ROW_TITLE_FONTSIZE = 13
@@ -53,7 +98,7 @@ _ADV_ROW_HEIGHT_RATIO   = 2.0
 _ADV_ROW_EXTRA_HEIGHT   = 3.5  # inches added to base figure height
 
 
-def _render_advanced_metrics_row(axes_row, points_list, labels, image_01):
+def _render_advanced_metrics_row(axes_row, points_list, labels, image_01, metrics_list=None, mc_approx=True):
     """Fill one matplotlib axes row with M1-M5 metric text boxes.
 
     Parameters
@@ -67,13 +112,19 @@ def _render_advanced_metrics_row(axes_row, points_list, labels, image_01):
         Column label for each entry in *points_list*.
     image_01 : ndarray (H, W) float32
         Reference density image used by the metric functions.
+    metrics_list : list of dict or None
+        Optional precomputed M1-M5 dicts. When provided, these are used instead
+        of recomputing the metrics inside the renderer.
     """
     axes_row[0].axis("off")
     for j, (pts, label) in enumerate(zip(points_list, labels)):
         ax = axes_row[1 + j]
         ax.axis("off")
         try:
-            m    = compute_all_advanced_metrics(pts, image_01)
+            if metrics_list is not None and j < len(metrics_list) and metrics_list[j] is not None:
+                m = metrics_list[j]
+            else:
+                m = compute_all_advanced_metrics(pts, image_01, mc_approx=mc_approx)
             text = _format_advanced_text(m)
         except Exception:
             text = "(metrics unavailable)"
@@ -90,7 +141,7 @@ def _render_advanced_metrics_row(axes_row, points_list, labels, image_01):
 
 # ── Advanced Metrics M1-M5 ──────────────────────────────────────────
 
-def compute_m2_capacity_constraint(points, image_01):
+def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
     """M2: Capacity Constraint (Voronoi-based density mass variance).
 
     Parameters
@@ -106,6 +157,9 @@ def compute_m2_capacity_constraint(points, image_01):
         from scipy.spatial import Voronoi
         import warnings
         warnings.filterwarnings("ignore")
+
+        if rng is None:
+            rng = np.random.default_rng(42)
 
         N = len(points)
         if N < 3:
@@ -128,27 +182,12 @@ def compute_m2_capacity_constraint(points, image_01):
                     continue
                 vertices = vor.vertices[region]
                 vertices_clip = np.clip(vertices, 0, 1)
-                x_min, x_max = vertices_clip[:, 0].min(), vertices_clip[:, 0].max()
-                y_min, y_max = vertices_clip[:, 1].min(), vertices_clip[:, 1].max()
-                if x_max - x_min < 1e-8 or y_max - y_min < 1e-8:
+                sample = _polygon_sample_points(vertices_clip, (H_img, W_img), mc_approx=mc_approx, rng=rng)
+                if sample is None:
                     masses[region_idx] = 0.0
                     continue
-                n_samples = max(10, min(50, int((x_max - x_min) * (y_max - y_min) * W_img * H_img)))
-                xs = np.random.uniform(x_min, x_max, n_samples)
-                ys = np.random.uniform(y_min, y_max, n_samples)
-                from matplotlib.path import Path
-                poly_path = Path(vertices_clip)
-                points_test = np.column_stack([xs, ys])
-                inside = poly_path.contains_points(points_test)
-                if inside.sum() > 0:
-                    sample_density = []
-                    for x, y in points_test[inside]:
-                        px = int(np.clip(x * W_img, 0, W_img - 1))
-                        py = int(np.clip(y * H_img, 0, H_img - 1))
-                        sample_density.append(image_01[py, px])
-                    masses[region_idx] = np.mean(sample_density)
-                else:
-                    masses[region_idx] = 0.0
+                _, px, py = sample
+                masses[region_idx] = float(image_01[py, px].mean())
             except Exception:
                 masses[region_idx] = 0.0
 
@@ -282,7 +321,7 @@ def compute_m5_spatial_measure(points, image_01):
         }
 
 
-def compute_m1_cvt_energy(points, image_01):
+def compute_m1_cvt_energy(points, image_01, rng=None, mc_approx=True):
     """M1: Spatial Relaxation (CVT-like energy, mass-weighted second moment in Voronoi cells).
 
     Parameters
@@ -296,6 +335,8 @@ def compute_m1_cvt_energy(points, image_01):
     """
     try:
         from scipy.spatial import Voronoi
+        if rng is None:
+            rng = np.random.default_rng(42)
         N = len(points)
         if N < 3:
             return {"cvt_energy": 0.0}
@@ -314,24 +355,18 @@ def compute_m1_cvt_energy(points, image_01):
                 vertices = vor.vertices[region]
                 vertices_clip = np.clip(vertices, 0, 1)
                 point = points[region_idx]
-                x_min, x_max = vertices_clip[:, 0].min(), vertices_clip[:, 0].max()
-                y_min, y_max = vertices_clip[:, 1].min(), vertices_clip[:, 1].max()
-                if x_max - x_min < 1e-8 or y_max - y_min < 1e-8:
+                sample = _polygon_sample_points(vertices_clip, (H, W), mc_approx=mc_approx, rng=rng)
+                if sample is None:
                     continue
-                n_samples = max(10, min(50, int((x_max - x_min) * (y_max - y_min) * W * H)))
-                xs = np.random.uniform(x_min, x_max, n_samples)
-                ys = np.random.uniform(y_min, y_max, n_samples)
-                from matplotlib.path import Path
-                poly_path = Path(vertices_clip)
-                points_test = np.column_stack([xs, ys])
-                inside = poly_path.contains_points(points_test)
-                if inside.sum() > 0:
-                    for x, y in points_test[inside]:
-                        px = int(np.clip(x * W, 0, W - 1))
-                        py = int(np.clip(y * H, 0, H - 1))
-                        density = image_01[py, px]
+                points_inside, px, py = sample
+                if mc_approx:
+                    for x, y, ix, iy in zip(points_inside[:, 0], points_inside[:, 1], px, py):
+                        density = image_01[iy, ix]
                         dist_sq = (x - point[0]) ** 2 + (y - point[1]) ** 2
                         total_energy += density * dist_sq
+                else:
+                    dist_sq = (points_inside[:, 0] - point[0]) ** 2 + (points_inside[:, 1] - point[1]) ** 2
+                    total_energy += float(np.sum(image_01[py, px] * dist_sq))
             except Exception:
                 continue
         return {"cvt_energy": float(np.clip(total_energy, 0, 1000))}
@@ -339,7 +374,7 @@ def compute_m1_cvt_energy(points, image_01):
         return {"cvt_energy": 0.0}
 
 
-def compute_m3_emd(points, target_points=None, image_01=None):
+def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_approx=True):
     """M3: Earth Mover's Distance (EMD) statistics.
 
     Parameters
@@ -363,12 +398,20 @@ def compute_m3_emd(points, target_points=None, image_01=None):
             else:
                 H, W = image_01.shape
                 yy, xx = np.mgrid[0:H, 0:W]
-                grid_points = np.column_stack([xx.ravel() / W, yy.ravel() / H])
-                density_weights = image_01.ravel() / (image_01.sum() + 1e-8)
-                density_weights = np.maximum(density_weights, 1e-10)
-                if len(grid_points) > 5000:
-                    idx = np.random.choice(len(grid_points), 5000, p=density_weights)
+                grid_points = np.column_stack([(xx.ravel() + 0.5) / W, (yy.ravel() + 0.5) / H])
+                density_weights = image_01.ravel().astype(np.float64)
+                density_sum = density_weights.sum()
+                if density_sum <= 1e-12:
+                    return {"emd_distance": 0.0}
+                density_weights = density_weights / density_sum
+                if mc_approx and len(grid_points) > 5000:
+                    if rng is None:
+                        rng = np.random.default_rng(42)
+                    idx = rng.choice(len(grid_points), 5000, replace=False, p=density_weights)
                     target_points = grid_points[idx]
+                elif len(grid_points) > 20000:
+                    stride = max(1, int(np.ceil(np.sqrt(len(grid_points) / 20000.0))))
+                    target_points = grid_points.reshape(H, W, 2)[::stride, ::stride].reshape(-1, 2)
                 else:
                     target_points = grid_points
         if len(target_points) == 0:
@@ -385,7 +428,7 @@ def compute_m3_emd(points, target_points=None, image_01=None):
         return {"emd_distance": 0.0}
 
 
-def compute_all_advanced_metrics(points, image_01, image_input_u8=None):
+def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_approx=True):
     """Compute all M1-M5 metrics and return merged dict.
 
     Parameters
@@ -399,11 +442,12 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None):
     dict with all M1-M5 keys prefixed accordingly
     """
     result = {}
-    m1 = compute_m1_cvt_energy(points, image_01)
+    rng = np.random.default_rng(42)
+    m1 = compute_m1_cvt_energy(points, image_01, rng=rng, mc_approx=mc_approx)
     result.update({f"M1_{k}": v for k, v in m1.items()})
-    m2 = compute_m2_capacity_constraint(points, image_01)
+    m2 = compute_m2_capacity_constraint(points, image_01, rng=rng, mc_approx=mc_approx)
     result.update({f"M2_{k}": v for k, v in m2.items()})
-    m3 = compute_m3_emd(points, None, image_01)
+    m3 = compute_m3_emd(points, None, image_01, rng=rng, mc_approx=mc_approx)
     result.update({f"M3_{k}": v for k, v in m3.items()})
     m4 = compute_m4_sinkhorn(points, image_01)
     result.update({f"M4_{k}": v for k, v in m4.items()})
@@ -652,6 +696,7 @@ def visualize_overfit_metrics(
     capacity_grid_size=16,
     pred_labels=None,
     compute_advanced=False,
+    mc_approx=True,
 ):
     """4-row comparison panel (adds M1-M5 text row when compute_advanced=True).
 
@@ -803,7 +848,7 @@ def visualize_overfit_metrics(
     # Row 1: M1-M5 text (optional)
     if compute_advanced:
         adv_points = [gt_points] + [pred_pointsets[i] for i in range(n_preds)]
-        _render_advanced_metrics_row(axes[1, :], adv_points, col_labels, image_01)
+        _render_advanced_metrics_row(axes[1, :], adv_points, col_labels, image_01, mc_approx=mc_approx)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -820,6 +865,7 @@ def visualize_advanced_metrics_panel(
     pred_labels=None,
     gt_points=None,
     gt_label="GT",
+    mc_approx=True,
 ):
     """Bar-chart panel of M1-M5 for predictions and optional GT."""
     if not HAS_MPL:
@@ -848,7 +894,7 @@ def visualize_advanced_metrics_panel(
     if n_cols == 0:
         return None
 
-    all_metrics = [compute_all_advanced_metrics(pts, image_01) for pts in all_pointsets]
+    all_metrics = [compute_all_advanced_metrics(pts, image_01, mc_approx=mc_approx) for pts in all_pointsets]
 
     fig, axes = plt.subplots(5, n_cols, figsize=(5 * n_cols, 5 * 5))
     if n_cols == 1:
@@ -1064,7 +1110,7 @@ def _extract_subject_contour(density_map, bg_threshold=0.05):
         return None
 
 
-def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True, show_colorbar=True):
+def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True, show_colorbar=True, rng=None, mc_approx=True):
     """Visual M2: Voronoi cells colored by mass deviation from the mean.
 
     Red = over-filled (too much density mass), Blue = under-filled.
@@ -1083,6 +1129,10 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
     show_colorbar : bool, default True
         When True, displays colorbar legend with Under/Avg/Over buckets and percentages.
         When False, hides the colorbar (useful for paper figures).
+    rng : numpy.random.Generator or None
+        Optional seeded RNG for the Monte-Carlo cell-mass estimate.
+    mc_approx : bool, default True
+        When False, evaluates cell mass from all pixel centers inside each cell.
     """
     from matplotlib.patches import Polygon as MplPolygon, PathPatch
     from matplotlib.collections import PatchCollection
@@ -1094,6 +1144,9 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
     # Stippling density: dark = subject (high), white bg = 0
     density_map = 1.0 - image_01
 
+    if rng is None:
+        rng = np.random.default_rng(42)
+
     H, W = image_01.shape
     pts_clip = np.clip(points, 1e-5, 1 - 1e-5)
 
@@ -1104,17 +1157,10 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
         return
 
     def _cell_mass(verts):
-        """Mean stippling density inside a polygon (Monte-Carlo sampling)."""
-        x_min, x_max = verts[:, 0].min(), verts[:, 0].max()
-        y_min, y_max = verts[:, 1].min(), verts[:, 1].max()
-        n = max(10, int((x_max - x_min) * (y_max - y_min) * W * H * 0.5))
-        xs = np.random.uniform(x_min, x_max, n)
-        ys = np.random.uniform(y_min, y_max, n)
-        inside = Path(verts).contains_points(np.column_stack([xs, ys]))
-        if inside.sum() == 0:
+        sample = _polygon_sample_points(verts, (H, W), mc_approx=mc_approx, rng=rng)
+        if sample is None:
             return 0.0
-        px = np.clip((xs[inside] * W).astype(int), 0, W - 1)
-        py = np.clip((ys[inside] * H).astype(int), 0, H - 1)
+        _, px, py = sample
         return float(density_map[py, px].mean())
 
     # ── Build Voronoi cell polygons (finite cells only in both modes) ─────

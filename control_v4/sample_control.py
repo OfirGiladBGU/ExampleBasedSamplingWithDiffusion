@@ -50,12 +50,12 @@ CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynam
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/gradient0deg.png"
 # GT_IMAGE_PATH = ""
 
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT/source/emoji-one_4_monkey.png"
-# GT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT/target/emoji-one_4_monkey.png"
+INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/source/emoji-one_4_monkey.png"
+GT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/target/emoji-one_4_monkey.png"
 
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic/source/quadratic_density_gradient.png"
-INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/source/quadratic_density_gradient.png"
-GT_IMAGE_PATH = ""
+# # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic/source/quadratic_density_gradient.png"
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/source/quadratic_density_gradient.png"
+# GT_IMAGE_PATH = ""
 
 OUTPUT_DIR = "control_v4/sample_outputs"
 N_SAMPLES = 1
@@ -217,7 +217,7 @@ def save_sample_image(image_path, pts, out_png_path):
         return
 
     px = np.rint(pts[:, 0] * (w - 1)).astype(np.int32)
-    py = np.rint((1.0 - pts[:, 1]) * (h - 1)).astype(np.int32)
+    py = np.rint(pts[:, 1] * (h - 1)).astype(np.int32)
     px = np.clip(px, 0, w - 1)
     py = np.clip(py, 0, h - 1)
 

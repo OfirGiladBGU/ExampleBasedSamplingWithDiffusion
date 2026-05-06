@@ -42,13 +42,15 @@ from utils.stippling_metrics import (
 from utils.stippling_metrics_advance import (
     compute_all_advanced_metrics,
     visualize_adaptive_sampling_density_map,
-    visualize_spatial_metrics_panel,
     visualize_overfit_metrics as visualize_overfit_metrics_advance,
     _render_advanced_metrics_row,
     _ADV_ROW_FONTSIZE,
     _ADV_ROW_TITLE_FONTSIZE,
     _ADV_ROW_HEIGHT_RATIO,
     _ADV_ROW_EXTRA_HEIGHT,
+    plot_visual_m1_cvt_vectors,
+    plot_visual_m2_capacity_constraint,
+    plot_visual_m5_spatial_measure,
 )
 
 
@@ -59,21 +61,32 @@ BASE_CKPT = "config/GBN/model.ckpt"
 # CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep1900.pt"
 CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep6250.pt"
 
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/source/emoji-one_4_monkey.png"
-# COMPARE_IMAGE_LIST = [
-#     {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/target/emoji-one_4_monkey.png"},
-#     {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_GBN/target/emoji-one_4_monkey.png"},
-#     {"ControlNet": 0},
-# ]
-# CLIP_TO_DOMAIN = True
-
-INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_GBN/original/gradient0deg.png"
+INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/source/emoji-one_4_monkey.png"
 COMPARE_IMAGE_LIST = [
-    {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/target/gradient0deg.png"},
-    {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_GBN/target/gradient0deg.png"},
+    {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/target/emoji-one_4_monkey.png"},
+    {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_GBN/target/emoji-one_4_monkey.png"},
     {"ControlNet": 0},
 ]
-CLIP_TO_DOMAIN = False
+CLIP_TO_DOMAIN = True
+MC_APPROX = True
+
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_GBN/original/gradient0deg.png"
+# COMPARE_IMAGE_LIST = [
+#     {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/target/gradient0deg.png"},
+#     {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_GBN/target/gradient0deg.png"},
+#     {"ControlNet": 0},
+# ]
+# CLIP_TO_DOMAIN = False
+# MC_APPROX = True
+
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/source/quadratic_density_gradient.png"
+# COMPARE_IMAGE_LIST = [
+#     {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_WVS_1024/quadratic_density_gradient.png"},
+#     {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_GBN_1024/quadratic_density_gradient.png"},
+#     {"ControlNet": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_CN_1024/quadratic_density_gradient.png"},
+# ]
+# CLIP_TO_DOMAIN = False
+# MC_APPROX = True
 
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic/source/quadratic_density_gradient.png"
 # COMPARE_IMAGE_LIST = [
@@ -141,7 +154,17 @@ def _load_grayscale_image_u8(image_path):
     return img_u8
 
 
-def visualize_compare_panel(source_img_u8, compare_entries, compare_payloads, save_path, point_size=0.5, capacity_grid_size=16, compute_advanced=False):
+def visualize_compare_panel(
+    source_img_u8,
+    compare_entries,
+    compare_payloads,
+    save_path,
+    point_size=0.5,
+    capacity_grid_size=16,
+    compute_advanced=False,
+    advanced_metrics=None,
+    mc_approx=True,
+):
     """Create a comparison panel where each entry is either an image path or a predicted sample index."""
     if not HAS_MPL:
         return None
@@ -149,17 +172,15 @@ def visualize_compare_panel(source_img_u8, compare_entries, compare_payloads, sa
         return None
 
     n_cols = 1 + len(compare_entries)
-    n_rows = 3 + (1 if compute_advanced else 0)
 
-    if compute_advanced:
-        fig, axes = plt.subplots(
-            n_rows,
-            n_cols,
-            figsize=(4.5 * n_cols, 4.5 * 3 + _ADV_ROW_EXTRA_HEIGHT),
-            gridspec_kw={"height_ratios": [3, _ADV_ROW_HEIGHT_RATIO, 3, 3]},
-        )
-    else:
-        fig, axes = plt.subplots(3, n_cols, figsize=(4.5 * n_cols, 4.5 * 3))
+    # Metric functions and titles (we want M1, M2, M5 rows beneath the top points row)
+    plot_fns = [plot_visual_m1_cvt_vectors, plot_visual_m2_capacity_constraint, plot_visual_m5_spatial_measure]
+    row_titles = ["[M1] Spatial Relaxation (CVT Vectors)", "[M2] Capacity Constraint (Voronoi Mass Deviation)", "[M5] Spatial Measure (ρ) Hotspots"]
+    n_metric_rows = len(plot_fns)
+
+    # Total rows = top points row + metric rows only (no advanced table here)
+    n_rows = 1 + n_metric_rows
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.5 * n_cols, 4.5 * n_rows))
 
     if n_cols == 1:
         axes = axes[:, np.newaxis]
@@ -179,95 +200,40 @@ def visualize_compare_panel(source_img_u8, compare_entries, compare_payloads, sa
         payload = compare_payloads[i]
         compare_labels.append(label)
 
-        if payload["kind"] == "image":
-            pts = payload["points"]
-            compare_points.append(pts)
-            ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
-            ax.set_aspect("equal")
-            ax.set_facecolor("white")
-            ax.set_title(f"{label} [image]")
-            ax.axis("off")
-        else:
-            pts = payload["points"]
-            compare_points.append(pts)
-            ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
-            ax.set_aspect("equal")
-            ax.set_facecolor("white")
-            ax.set_title(f"{label} [sample {value}]")
-            ax.axis("off")
-
-    cap_row = 2 if compute_advanced else 1
-    spa_row = 3 if compute_advanced else 2
-
-    axes[cap_row, 0].axis("off")
-    axes[spa_row, 0].axis("off")
-
-    cap_grid_shape = resolve_capacity_grid_size(image_01, capacity_grid_size)
-    pred_caps = [
-        compute_grid_capacity(compare_points[i], image_01, grid_size=cap_grid_shape, ignore_white=CAPACITY_IGNORE_WHITE)
-        for i in range(len(compare_points))
-    ]
-    pred_spa = [compute_spacing_quality(compare_points[i]) for i in range(len(compare_points))]
-
-    for i in range(len(compare_points)):
-        cap = pred_caps[i]
-        ax = axes[cap_row, 1 + i]
-        status = cap["grid_status"]
-        h_grid, w_grid = status.shape
-        rgb = np.zeros((h_grid, w_grid, 3), dtype=np.float32)
-        rgb[status == 0, :] = [0.0, 1.0, 0.0]
-        rgb[status == -1, :] = [1.0, 0.0, 0.0]
-        rgb[status == 1, :] = [0.0, 0.0, 1.0]
-        ax.imshow(rgb, origin="upper", aspect="equal")
-        ok_pct = 100.0 - cap["underfilled_pct"] - cap["overfilled_pct"]
-        ax.set_title(
-            f"{compare_labels[i]} Capacity\n"
-            f"Grid:{cap_grid_shape[0]}x{cap_grid_shape[1]} | "
-            f"OK:{ok_pct:.0f}% Under:{cap['underfilled_pct']:.0f}% Over:{cap['overfilled_pct']:.0f}%\n"
-            f"Score: {cap['score']:.3f}",
-            fontsize=9,
-        )
-        ax.axis("off")
-
-    all_nn = [s["nn_distances"] for s in pred_spa]
-    vmin = min(d.min() for d in all_nn)
-    vmax = max(d.max() for d in all_nn)
-    if not np.isfinite(vmin) or not np.isfinite(vmax) or abs(vmax - vmin) < 1e-12:
-        vmin, vmax = 0.0, 1.0
-
-    for i in range(len(compare_points)):
-        spa = pred_spa[i]
-        pts = compare_points[i]
-        ax = axes[spa_row, 1 + i]
-        sc = ax.scatter(
-            pts[:, 0],
-            1 - pts[:, 1],
-            c=spa["nn_distances"],
-            cmap="RdYlBu",
-            s=point_size * 3,
-            alpha=0.8,
-            vmin=vmin,
-            vmax=vmax,
-        )
+        pts = payload.get("points")
+        compare_points.append(pts)
+        ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.set_aspect("equal")
         ax.set_facecolor("white")
-        ax.set_title(
-            f"{compare_labels[i]} Spacing\n"
-            f"CV:{spa['nn_cv']:.3f}  Clumped:{spa['clumped_pct']:.1f}%\n"
-            f"Score: {spa['spacing_score']:.3f}",
-            fontsize=9,
-        )
+        if payload["kind"] == "image":
+            ax.set_title(f"{label} [image]")
+        else:
+            ax.set_title(f"{label} [sample {value}]")
         ax.axis("off")
-        plt.colorbar(sc, ax=ax, shrink=0.7, label="NN dist")
 
-    if compute_advanced:
-        _render_advanced_metrics_row(axes[1, :], compare_points, compare_labels, image_01)
+    # Draw metric rows (M1, M2, M5) under each column
+    metric_row_start = 1
+
+    # Hide left column for metrics (condition column)
+    for r in range(metric_row_start, metric_row_start + n_metric_rows):
+        axes[r, 0].axis("off")
+
+    for col_i, pts in enumerate(compare_points):
+        for r_idx, fn in enumerate(plot_fns):
+            ax = axes[metric_row_start + r_idx, 1 + col_i]
+            try:
+                if fn is plot_visual_m2_capacity_constraint:
+                    fn(pts, image_01, ax, clip_to_domain=CLIP_TO_DOMAIN, show_colorbar=SHOW_COLORBAR, rng=None, mc_approx=mc_approx)
+                else:
+                    fn(pts, image_01, ax)
+            except Exception:
+                ax.axis("off")
+                ax.set_title("(error)", fontsize=8)
+            if r_idx == 0:
+                current = ax.get_title()
+                ax.set_title(f"[{compare_labels[col_i]}]  {current}", fontsize=9)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -300,7 +266,16 @@ def extract_points_from_target(img_path, n_points):
     return points
 
 
-def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, point_size=0.5, capacity_grid_size=16, compute_advanced=False):
+def visualize_sample_metrics_no_gt(
+    source_img_u8,
+    pred_pointsets,
+    save_path,
+    point_size=0.5,
+    capacity_grid_size=16,
+    compute_advanced=False,
+    advanced_metrics=None,
+    mc_approx=True,
+):
     """Create overfit-style metrics panel without GT column."""
     if not HAS_MPL:
         return None
@@ -311,17 +286,6 @@ def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, poi
 
     n_preds = min(len(pred_pointsets), 4)
     n_cols = 1 + n_preds  # INPUT + predictions
-
-    if compute_advanced:
-        fig, axes = plt.subplots(
-            4, n_cols,
-            figsize=(4.5 * n_cols, 4.5 * 3 + _ADV_ROW_EXTRA_HEIGHT),
-            gridspec_kw={"height_ratios": [3, _ADV_ROW_HEIGHT_RATIO, 3, 3]},
-        )
-    else:
-        fig, axes = plt.subplots(3, n_cols, figsize=(4.5 * n_cols, 4.5 * 3))
-    if n_cols == 1:
-        axes = axes[:, np.newaxis]
 
     image_01 = source_img_u8.astype(np.float64) / 255.0
 
@@ -341,6 +305,233 @@ def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, poi
         ax.set_title(f"Predict {i}")
         ax.axis("off")
 
+    # Metric functions (M1, M2, M5) to show beneath the top points row
+    plot_fns = [plot_visual_m1_cvt_vectors, plot_visual_m2_capacity_constraint, plot_visual_m5_spatial_measure]
+    n_metric_rows = len(plot_fns)
+
+    # Total rows = top points row + metric rows only (no advanced table here)
+    n_rows = 1 + n_metric_rows
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.5 * n_cols, 4.5 * n_rows))
+    if n_cols == 1:
+        axes = axes[:, np.newaxis]
+
+    metric_row_start = 1
+
+    # Hide left column for metric rows
+    for r in range(metric_row_start, metric_row_start + n_metric_rows):
+        axes[r, 0].axis("off")
+
+    # Draw per-column M1/M2/M5 visuals
+    for col_i in range(n_preds):
+        pts = pred_pointsets[col_i]
+        for r_idx, fn in enumerate(plot_fns):
+            ax = axes[metric_row_start + r_idx, 1 + col_i]
+            try:
+                if fn is plot_visual_m2_capacity_constraint:
+                    fn(pts, image_01, ax, clip_to_domain=CLIP_TO_DOMAIN, show_colorbar=SHOW_COLORBAR, rng=None, mc_approx=mc_approx)
+                else:
+                    fn(pts, image_01, ax)
+            except Exception:
+                ax.axis("off")
+                ax.set_title("(error)", fontsize=8)
+            if r_idx == 0:
+                current = ax.get_title()
+                ax.set_title(f"[Predict {col_i}]  {current}", fontsize=9)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    return save_path
+
+
+def visualize_compare_panel_legacy(
+    source_img_u8,
+    compare_entries,
+    compare_payloads,
+    save_path,
+    point_size=0.5,
+    capacity_grid_size=16,
+    compute_advanced=False,
+    advanced_metrics=None,
+    mc_approx=True,
+):
+    """Legacy compare panel: points row, optional advanced table, then capacity and spacing rows."""
+    if not HAS_MPL:
+        return None
+    if len(compare_entries) == 0:
+        return None
+
+    n_cols = 1 + len(compare_entries)
+    n_rows = 3 + (1 if compute_advanced else 0)
+
+    if compute_advanced:
+        fig, axes = plt.subplots(
+            n_rows,
+            n_cols,
+            figsize=(4.5 * n_cols, 4.5 * 3 + _ADV_ROW_EXTRA_HEIGHT),
+            gridspec_kw={"height_ratios": [3, _ADV_ROW_HEIGHT_RATIO, 3, 3]},
+        )
+    else:
+        fig, axes = plt.subplots(3, n_cols, figsize=(4.5 * n_cols, 4.5 * 3))
+
+    if n_cols == 1:
+        axes = axes[:, np.newaxis]
+
+    image_01 = source_img_u8.astype(np.float64) / 255.0
+    ax = axes[0, 0]
+    ax.imshow(source_img_u8, cmap="gray", vmin=0, vmax=255)
+    ax.set_title("Condition (Input)")
+    ax.axis("off")
+
+    compare_points = []
+    compare_labels = []
+    for i, (label, value) in enumerate(compare_entries):
+        ax = axes[0, 1 + i]
+        payload = compare_payloads[i]
+        compare_labels.append(label)
+        pts = payload["points"]
+        compare_points.append(pts)
+        ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_aspect("equal")
+        ax.set_facecolor("white")
+        ax.set_title(f"{label} [image]" if payload["kind"] == "image" else f"{label} [sample {value}]")
+        ax.axis("off")
+
+    if compute_advanced:
+        _render_advanced_metrics_row(
+            axes[1, :],
+            compare_points,
+            compare_labels,
+            image_01,
+            metrics_list=advanced_metrics,
+            mc_approx=mc_approx,
+        )
+
+    cap_row = 2 if compute_advanced else 1
+    spa_row = 3 if compute_advanced else 2
+
+    axes[cap_row, 0].axis("off")
+    axes[spa_row, 0].axis("off")
+
+    cap_grid_shape = resolve_capacity_grid_size(image_01, capacity_grid_size)
+    pred_caps = [
+        compute_grid_capacity(compare_points[i], image_01, grid_size=cap_grid_shape, ignore_white=CAPACITY_IGNORE_WHITE)
+        for i in range(len(compare_points))
+    ]
+    pred_spa = [compute_spacing_quality(compare_points[i]) for i in range(len(compare_points))]
+
+    for i in range(len(compare_points)):
+        cap = pred_caps[i]
+        ax = axes[cap_row, 1 + i]
+        status = cap["grid_status"]
+        h_grid, w_grid = status.shape
+        rgb = np.zeros((h_grid, w_grid, 3), dtype=np.float32)
+        rgb[status == 0, :] = [0.0, 1.0, 0.0]
+        rgb[status == -1, :] = [1.0, 0.0, 0.0]
+        rgb[status == 1, :] = [0.0, 0.0, 1.0]
+        ax.imshow(rgb, origin="upper", aspect="equal")
+        ok_pct = 100.0 - cap["underfilled_pct"] - cap["overfilled_pct"]
+        ax.set_title(
+            f"{compare_labels[i]} Capacity\n"
+            f"Grid:{cap_grid_shape[0]}x{cap_grid_shape[1]} | OK:{ok_pct:.0f}% Under:{cap['underfilled_pct']:.0f}% Over:{cap['overfilled_pct']:.0f}%\n"
+            f"Score: {cap['score']:.3f}",
+            fontsize=9,
+        )
+        ax.axis("off")
+
+    all_nn = [s["nn_distances"] for s in pred_spa]
+    vmin = min(d.min() for d in all_nn)
+    vmax = max(d.max() for d in all_nn)
+    if not np.isfinite(vmin) or not np.isfinite(vmax) or abs(vmax - vmin) < 1e-12:
+        vmin, vmax = 0.0, 1.0
+
+    for i in range(len(compare_points)):
+        spa = pred_spa[i]
+        pts = compare_points[i]
+        ax = axes[spa_row, 1 + i]
+        sc = ax.scatter(pts[:, 0], 1 - pts[:, 1], c=spa["nn_distances"], cmap="RdYlBu", s=point_size * 3, alpha=0.8, vmin=vmin, vmax=vmax)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_aspect("equal")
+        ax.set_facecolor("white")
+        ax.set_title(
+            f"{compare_labels[i]} Spacing\n"
+            f"CV:{spa['nn_cv']:.3f}  Clumped:{spa['clumped_pct']:.1f}%\n"
+            f"Score: {spa['spacing_score']:.3f}",
+            fontsize=9,
+        )
+        ax.axis("off")
+        plt.colorbar(sc, ax=ax, shrink=0.7, label="NN dist")
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    return save_path
+
+
+def visualize_sample_metrics_no_gt_legacy(
+    source_img_u8,
+    pred_pointsets,
+    save_path,
+    point_size=0.5,
+    capacity_grid_size=16,
+    compute_advanced=False,
+    advanced_metrics=None,
+    mc_approx=True,
+):
+    """Legacy no-GT panel: points row, optional advanced table, then capacity and spacing rows."""
+    if not HAS_MPL:
+        return None
+    if len(pred_pointsets) == 0:
+        return None
+
+    n_preds = min(len(pred_pointsets), 4)
+    n_cols = 1 + n_preds
+    n_rows = 3 + (1 if compute_advanced else 0)
+
+    if compute_advanced:
+        fig, axes = plt.subplots(
+            n_rows,
+            n_cols,
+            figsize=(4.5 * n_cols, 4.5 * 3 + _ADV_ROW_EXTRA_HEIGHT),
+            gridspec_kw={"height_ratios": [3, _ADV_ROW_HEIGHT_RATIO, 3, 3]},
+        )
+    else:
+        fig, axes = plt.subplots(3, n_cols, figsize=(4.5 * n_cols, 4.5 * 3))
+
+    if n_cols == 1:
+        axes = axes[:, np.newaxis]
+
+    image_01 = source_img_u8.astype(np.float64) / 255.0
+    ax = axes[0, 0]
+    ax.imshow(source_img_u8, cmap="gray", vmin=0, vmax=255)
+    ax.set_title("Condition (Input)")
+    ax.axis("off")
+
+    for i in range(n_preds):
+        ax = axes[0, 1 + i]
+        pts = pred_pointsets[i]
+        ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_aspect("equal")
+        ax.set_facecolor("white")
+        ax.set_title(f"Predict {i}")
+        ax.axis("off")
+
+    if compute_advanced:
+        pred_labels = [f"Predict {i}" for i in range(n_preds)]
+        _render_advanced_metrics_row(
+            axes[1, :],
+            pred_pointsets[:n_preds],
+            pred_labels,
+            image_01,
+            metrics_list=advanced_metrics,
+            mc_approx=mc_approx,
+        )
+
     cap_row = 2 if compute_advanced else 1
     spa_row = 3 if compute_advanced else 2
 
@@ -357,15 +548,14 @@ def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, poi
         status = cap["grid_status"]
         h_grid, w_grid = status.shape
         rgb = np.zeros((h_grid, w_grid, 3), dtype=np.float32)
-        rgb[status == 0, :] = [0.0, 1.0, 0.0]   # green = ok
-        rgb[status == -1, :] = [1.0, 0.0, 0.0]  # red = underfilled/misplaced
-        rgb[status == 1, :] = [0.0, 0.0, 1.0]   # blue = overfilled
+        rgb[status == 0, :] = [0.0, 1.0, 0.0]
+        rgb[status == -1, :] = [1.0, 0.0, 0.0]
+        rgb[status == 1, :] = [0.0, 0.0, 1.0]
         ax.imshow(rgb, origin="upper", aspect="equal")
         ok_pct = 100.0 - cap["underfilled_pct"] - cap["overfilled_pct"]
         ax.set_title(
             f"Predict {i} Capacity\n"
-            f"Grid:{cap_grid_shape[0]}x{cap_grid_shape[1]} | "
-            f"OK:{ok_pct:.0f}% Under:{cap['underfilled_pct']:.0f}% Over:{cap['overfilled_pct']:.0f}%\n"
+            f"Grid:{cap_grid_shape[0]}x{cap_grid_shape[1]} | OK:{ok_pct:.0f}% Under:{cap['underfilled_pct']:.0f}% Over:{cap['overfilled_pct']:.0f}%\n"
             f"Score: {cap['score']:.3f}",
             fontsize=9,
         )
@@ -381,16 +571,7 @@ def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, poi
         spa = pred_spa[i]
         pts = pred_pointsets[i]
         ax = axes[spa_row, 1 + i]
-        sc = ax.scatter(
-            pts[:, 0],
-            1 - pts[:, 1],
-            c=spa["nn_distances"],
-            cmap="RdYlBu",
-            s=point_size * 3,
-            alpha=0.8,
-            vmin=vmin,
-            vmax=vmax,
-        )
+        sc = ax.scatter(pts[:, 0], 1 - pts[:, 1], c=spa["nn_distances"], cmap="RdYlBu", s=point_size * 3, alpha=0.8, vmin=vmin, vmax=vmax)
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.set_aspect("equal")
@@ -403,11 +584,6 @@ def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, poi
         )
         ax.axis("off")
         plt.colorbar(sc, ax=ax, shrink=0.7, label="NN dist")
-
-    # ── Row 1: advanced M1-M5 numeric text (optional) ────────────────
-    if compute_advanced:
-        pred_labels = [f"Predict {i}" for i in range(n_preds)]
-        _render_advanced_metrics_row(axes[1, :], pred_pointsets[:n_preds], pred_labels, image_01)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -428,12 +604,26 @@ def save_sample_image(image_path, pts, out_png_path):
         return
 
     px = np.rint(pts[:, 0] * (w - 1)).astype(np.int32)
-    py = np.rint((1.0 - pts[:, 1]) * (h - 1)).astype(np.int32)
+    py = np.rint(pts[:, 1] * (h - 1)).astype(np.int32)
     px = np.clip(px, 0, w - 1)
     py = np.clip(py, 0, h - 1)
 
     out_img[py, px] = 0
     cv2.imwrite(out_png_path, out_img)
+
+
+def _serialize_advanced_metrics(metrics_dict):
+    used_keys = {
+        "M1_cvt_energy",
+        "M2_voronoi_mass_cv",
+        "M3_emd_distance",
+        "M4_sinkhorn_ot_cost",
+        "M5_spatial_measure_rho_mean",
+    }
+    return {
+        key if key in used_keys else f"_{key}": value
+        for key, value in metrics_dict.items()
+    }
 
 
 def _save_denoise_step(img_tensor, timestep_i, t_start, out_path):
@@ -632,6 +822,12 @@ def main():
         default=ADAPTIVE_SAMPLING_DENSITY_MAP,
         help="Enable GBN-style AKDE density map visualisation (saved to adaptive_sampling_density_map/)",
     )
+    parser.add_argument(
+        "--mc-approx",
+        action=argparse.BooleanOptionalAction,
+        default=MC_APPROX,
+        help="Use Monte Carlo approximation for advanced metrics; disable for deterministic dense-grid evaluation",
+    )
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
 
@@ -814,6 +1010,7 @@ def main():
         compare_payloads = []
         compare_pointsets = []
         compare_labels = []
+        advanced_metrics_list = []
         gt_points = None
         if input_img_u8 is None:
             print(f"Skipped metrics panel: failed to read input image: {args.input_image}")
@@ -847,21 +1044,32 @@ def main():
                         "points": compare_pts,
                     })
 
-            panel_saved = visualize_compare_panel(
+                if args.metrics_advance:
+                    advanced_metrics_list.append(
+                        compute_all_advanced_metrics(compare_pointsets[-1], image_01, mc_approx=args.mc_approx)
+                    )
+
+            panel_saved = visualize_compare_panel_legacy(
                 input_img_u8,
                 compare_entries,
                 compare_payloads,
                 panel_path,
                 capacity_grid_size=args.capacity_grid_size,
                 compute_advanced=args.metrics_advance,
+                advanced_metrics=advanced_metrics_list if args.metrics_advance else None,
+                mc_approx=args.mc_approx,
             )
         else:
-            panel_saved = visualize_sample_metrics_no_gt(
+            if args.metrics_advance:
+                advanced_metrics_list = [compute_all_advanced_metrics(pts, image_01, mc_approx=args.mc_approx) for pts in pred_pointsets]
+            panel_saved = visualize_sample_metrics_no_gt_legacy(
                 input_img_u8,
                 pred_pointsets,
                 panel_path,
                 capacity_grid_size=args.capacity_grid_size,
                 compute_advanced=args.metrics_advance,
+                advanced_metrics=advanced_metrics_list if args.metrics_advance else None,
+                mc_approx=args.mc_approx,
             )
 
         if panel_saved is not None:
@@ -885,17 +1093,11 @@ def main():
 
                 if compare_entries:
                     for idx, (label, value) in enumerate(compare_entries):
-                        if isinstance(value, int):
-                            pts = pred_pointsets[value]
-                            source_desc = f"pred[{value}]"
-                        else:
-                            pts = extract_points_from_target(value, pred_pointsets[0].shape[0])
-                            source_desc = value
-
-                        metrics_dict = compute_all_advanced_metrics(pts, image_01)
+                        metrics_dict = advanced_metrics_list[idx]
+                        source_desc = f"pred[{value}]" if isinstance(value, int) else value
                         metrics_json_path = os.path.join(metrics_advance_dir, f"metrics_{idx + 1}_{label}.json")
                         with open(metrics_json_path, "w") as f:
-                            json.dump(metrics_dict, f, indent=2)
+                            json.dump(_serialize_advanced_metrics(metrics_dict), f, indent=2)
 
                         print(
                             f"{label} advanced metrics ({source_desc}) | "
@@ -908,11 +1110,11 @@ def main():
                 if not compare_entries:
                     # Compute and save detailed M1-M5 metrics for each prediction
                     for idx, pts in enumerate(pred_pointsets):
-                        metrics_dict = compute_all_advanced_metrics(pts, image_01)
+                        metrics_dict = advanced_metrics_list[idx]
                         metrics_json_path = os.path.join(metrics_advance_dir, f"metrics_pred_{idx + 1}.json")
 
                         with open(metrics_json_path, "w") as f:
-                            json.dump(metrics_dict, f, indent=2)
+                            json.dump(_serialize_advanced_metrics(metrics_dict), f, indent=2)
 
                         print(f"Pred {idx + 1} advanced metrics | "
                               f"M1_CV={metrics_dict.get('M1_voronoi_mass_cv', 0.0):.4f} | "
@@ -941,26 +1143,37 @@ def main():
             except Exception as e:
                 print(f"Warning: AKDE density map visualisation failed: {e}")
 
-        # ── Spatial visual metrics panel (M1/M3/M4/M5) ───────────────────
+        # ── Advanced visual metrics panel (compare-style layout) ──────────
         if args.metrics_advance and input_img_u8 is not None and len(pred_pointsets) > 0:
             try:
-                spatial_dir = os.path.join(sample_base_dir, "spatial_metrics")
-                os.makedirs(spatial_dir, exist_ok=True)
-                spatial_path = os.path.join(spatial_dir, "spatial_metrics_panel.png")
-                image_01 = input_img_u8.astype(np.float64) / 255.0
-                spatial_saved = visualize_spatial_metrics_panel(
-                    image_01,
-                    compare_pointsets if compare_entries else pred_pointsets,
-                    spatial_path,
-                    gt_points=None,
-                    pred_labels=compare_labels if compare_entries else None,
-                    clip_to_domain=CLIP_TO_DOMAIN,
-                    show_colorbar=SHOW_COLORBAR,
-                )
-                if spatial_saved:
-                    print(f"Saved spatial metrics panel: {spatial_saved}")
+                metrics_advance_visual_dir = os.path.join(sample_base_dir, "metrics_advance_visual")
+                os.makedirs(metrics_advance_visual_dir, exist_ok=True)
+                metrics_advance_visual_path = os.path.join(metrics_advance_visual_dir, "results_panel.png")
+                if compare_entries:
+                    metrics_advance_visual_saved = visualize_compare_panel(
+                        input_img_u8,
+                        compare_entries,
+                        compare_payloads,
+                        metrics_advance_visual_path,
+                        capacity_grid_size=args.capacity_grid_size,
+                        compute_advanced=args.metrics_advance,
+                        advanced_metrics=advanced_metrics_list if args.metrics_advance else None,
+                        mc_approx=args.mc_approx,
+                    )
+                else:
+                    metrics_advance_visual_saved = visualize_sample_metrics_no_gt(
+                        input_img_u8,
+                        pred_pointsets,
+                        metrics_advance_visual_path,
+                        capacity_grid_size=args.capacity_grid_size,
+                        compute_advanced=args.metrics_advance,
+                        advanced_metrics=advanced_metrics_list if args.metrics_advance else None,
+                        mc_approx=args.mc_approx,
+                    )
+                if metrics_advance_visual_saved:
+                    print(f"Saved metrics_advance_visual panel: {metrics_advance_visual_saved}")
             except Exception as e:
-                print(f"Warning: spatial metrics panel failed: {e}")
+                print(f"Warning: metrics_advance_visual panel failed: {e}")
 
     print("Done.")
 
