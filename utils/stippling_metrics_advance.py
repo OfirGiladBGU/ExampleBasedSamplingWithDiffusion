@@ -458,92 +458,99 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_appro
 
 # ── GBN Algorithm 2 + density reconstruction ─────────────────────────
 
-@torch.no_grad()
-def gbn_algorithm_2(points, true_sigma, iterations=10):
-    """Algorithm 2 from the Gaussian Blue Noise paper.
+if HAS_TORCH:
+    @torch.no_grad()
+    def gbn_algorithm_2(points, true_sigma, iterations=10):
+        """Algorithm 2 from the Gaussian Blue Noise paper.
 
-    Iteratively optimises per-point shaping factors (a_k) so that the
-    adaptive Gaussian kernels faithfully reproduce the sampled density field.
+        Iteratively optimises per-point shaping factors (a_k) so that the
+        adaptive Gaussian kernels faithfully reproduce the sampled density field.
 
-    Parameters
-    ----------
-    points : torch.Tensor (N, 2) in [0, 1]
-    true_sigma : float – per-point bandwidth (alpha / sqrt(N))
-    iterations : int – refinement iterations (paper uses 10)
+        Parameters
+        ----------
+        points : torch.Tensor (N, 2) in [0, 1]
+        true_sigma : float – per-point bandwidth (alpha / sqrt(N))
+        iterations : int – refinement iterations (paper uses 10)
 
-    Returns
-    -------
-    torch.Tensor (N,) – optimised shaping factors a_k
-    """
-    import torch as _torch
+        Returns
+        -------
+        torch.Tensor (N,) – optimised shaping factors a_k
+        """
+        import torch as _torch
 
-    N = points.shape[0]
-    device = points.device
-    dist_sq = _torch.cdist(points, points) ** 2
-    self_mask = _torch.eye(N, device=device, dtype=_torch.bool)
-    a = _torch.ones(N, device=device, dtype=_torch.float32)
+        N = points.shape[0]
+        device = points.device
+        dist_sq = _torch.cdist(points, points) ** 2
+        self_mask = _torch.eye(N, device=device, dtype=_torch.bool)
+        a = _torch.ones(N, device=device, dtype=_torch.float32)
 
-    for _ in range(iterations):
-        a_l = a.unsqueeze(0)
-        exponent = -a_l * dist_sq / (2 * true_sigma ** 2)
-        exponent = exponent.masked_fill(self_mask, -float("inf"))
-        d_k = (a_l * _torch.exp(exponent)).sum(dim=1)
-        # 50 % damping: prevents oscillation on sparse point sets
-        a = 0.5 * a + 0.5 * d_k
-        mean_sq = (a ** 2).mean()
-        a = a / _torch.sqrt(mean_sq + 1e-8)
+        for _ in range(iterations):
+            a_l = a.unsqueeze(0)
+            exponent = -a_l * dist_sq / (2 * true_sigma ** 2)
+            exponent = exponent.masked_fill(self_mask, -float("inf"))
+            d_k = (a_l * _torch.exp(exponent)).sum(dim=1)
+            # 50 % damping: prevents oscillation on sparse point sets
+            a = 0.5 * a + 0.5 * d_k
+            mean_sq = (a ** 2).mean()
+            a = a / _torch.sqrt(mean_sq + 1e-8)
 
-    return a
+        return a
 
 
-@torch.no_grad()
-def reconstruct_density_map(samples, grid_size=(512, 512), alpha=1.0, iterations=10, batch_size=8192, **kwargs):
-    """Reconstruct a density map via GBN Algorithm 2 + Equation 34.
+    @torch.no_grad()
+    def reconstruct_density_map(samples, grid_size=(512, 512), alpha=1.0, iterations=10, batch_size=8192, **kwargs):
+        """Reconstruct a density map via GBN Algorithm 2 + Equation 34.
 
-    Parameters
-    ----------
-    samples : torch.Tensor (N, 2) in [0, 1]
-    grid_size : (H, W) output resolution
-    alpha : float – bandwidth multiplier (larger = softer/blurrier)
-    iterations : int – Algorithm 2 iterations (paper: 10)
-    batch_size : int – pixels per GPU batch
-    **kwargs : absorbs legacy k / sigma args for call-site compatibility
+        Parameters
+        ----------
+        samples : torch.Tensor (N, 2) in [0, 1]
+        grid_size : (H, W) output resolution
+        alpha : float – bandwidth multiplier (larger = softer/blurrier)
+        iterations : int – Algorithm 2 iterations (paper: 10)
+        batch_size : int – pixels per GPU batch
+        **kwargs : absorbs legacy k / sigma args for call-site compatibility
 
-    Returns
-    -------
-    torch.Tensor (H, W) normalised [0, 1], on same device as `samples`
-    """
-    import torch as _torch
+        Returns
+        -------
+        torch.Tensor (H, W) normalised [0, 1], on same device as `samples`
+        """
+        import torch as _torch
 
-    device = samples.device
-    H, W = grid_size
-    N = samples.shape[0]
+        device = samples.device
+        H, W = grid_size
+        N = samples.shape[0]
 
-    true_sigma = alpha / (N ** 0.5)
-    a_k = gbn_algorithm_2(samples, true_sigma, iterations=iterations)
+        true_sigma = alpha / (N ** 0.5)
+        a_k = gbn_algorithm_2(samples, true_sigma, iterations=iterations)
 
-    y = _torch.linspace(0, 1, H, device=device)
-    x = _torch.linspace(0, 1, W, device=device)
-    grid_y, grid_x = _torch.meshgrid(y, x, indexing="ij")
-    grid_coords = _torch.stack([grid_x.flatten(), grid_y.flatten()], dim=1)
+        y = _torch.linspace(0, 1, H, device=device)
+        x = _torch.linspace(0, 1, W, device=device)
+        grid_y, grid_x = _torch.meshgrid(y, x, indexing="ij")
+        grid_coords = _torch.stack([grid_x.flatten(), grid_y.flatten()], dim=1)
 
-    density_map = _torch.zeros(H * W, device=device)
-    a_k_row = a_k.unsqueeze(0)
+        density_map = _torch.zeros(H * W, device=device)
+        a_k_row = a_k.unsqueeze(0)
 
-    for i in range(0, H * W, batch_size):
-        batch_coords = grid_coords[i : i + batch_size]
-        dist_sq = _torch.cdist(batch_coords, samples) ** 2
-        weights = a_k_row * _torch.exp(-a_k_row * dist_sq / (2 * true_sigma ** 2))
-        density_map[i : i + batch_size] = weights.sum(dim=1)
+        for i in range(0, H * W, batch_size):
+            batch_coords = grid_coords[i : i + batch_size]
+            dist_sq = _torch.cdist(batch_coords, samples) ** 2
+            weights = a_k_row * _torch.exp(-a_k_row * dist_sq / (2 * true_sigma ** 2))
+            density_map[i : i + batch_size] = weights.sum(dim=1)
 
-    density_map = density_map.view(H, W)
-    d_min, d_max = density_map.min(), density_map.max()
-    if d_max - d_min > 1e-4:
-        density_map = (density_map - d_min) / (d_max - d_min)
-    else:
-        density_map = _torch.zeros_like(density_map)
+        density_map = density_map.view(H, W)
+        d_min, d_max = density_map.min(), density_map.max()
+        if d_max - d_min > 1e-4:
+            density_map = (density_map - d_min) / (d_max - d_min)
+        else:
+            density_map = _torch.zeros_like(density_map)
 
-    return density_map
+        return density_map
+else:
+    def gbn_algorithm_2(*args, **kwargs):
+        raise ImportError("gbn_algorithm_2 requires PyTorch; torch not available in this environment")
+
+    def reconstruct_density_map(*args, **kwargs):
+        raise ImportError("reconstruct_density_map requires PyTorch; torch not available in this environment")
 
 
 def process_target_density(source_img_u8, device):

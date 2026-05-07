@@ -63,6 +63,7 @@ MC_APPROX = True
 #     {"ControlNet": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/target_CN_1024/emoji-one_4_monkey.png"},
 # ]
 # CLIP_TO_DOMAIN = True
+# CAPACITY_TEST = False
 
 
 DEFAULT_INPUT_IMAGE = (
@@ -74,6 +75,7 @@ DEFAULT_COMPARE_LIST = [
     {"ControlNet": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_CN_1024/quadratic_density_gradient.png"},
 ]
 CLIP_TO_DOMAIN = False
+CAPACITY_TEST = True
 
 
 def sanitize_name(name: str) -> str:
@@ -118,9 +120,8 @@ def collect_outputs(input_image_path: str, compare_list, src_base: str, out_base
     out_dir = out_base_p / stem
     # create requested output subfolders
     metrics_dir = out_dir / "metrics"
-    metrics_adv_vis_dir = out_dir / "metrics_advance_visual"
-    metrics_adv_json_dir = out_dir / "metrics_advance"
-    for d in (metrics_dir, metrics_adv_vis_dir, metrics_adv_json_dir):
+    scores_dir = out_dir / "scores"
+    for d in (metrics_dir, scores_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     # Compute advanced metrics for each prediction
@@ -133,11 +134,28 @@ def collect_outputs(input_image_path: str, compare_list, src_base: str, out_base
     # Save metrics JSONs
     for label, metrics in zip(labels, advanced_metrics_list):
         j = _serialize_advanced_metrics(metrics)
-        (metrics_adv_json_dir / f"{sanitize_name(label)}.json").write_text(json.dumps(j, indent=2))
+        (scores_dir / f"{sanitize_name(label)}.json").write_text(json.dumps(j, indent=2))
 
     # Render visual panels: legacy and new table-free
-    visualize_compare_panel_legacy(src_img_u8, compare_entries, compare_payloads, str(metrics_dir / "results_panel.png"), compute_advanced=True, advanced_metrics=advanced_metrics_list, mc_approx=mc_approx)
-    visualize_compare_panel(src_img_u8, compare_entries, compare_payloads, str(metrics_adv_vis_dir / "results_panel.png"), compute_advanced=True, advanced_metrics=advanced_metrics_list, mc_approx=mc_approx)
+    visualize_compare_panel_legacy(
+        src_img_u8,
+        compare_entries,
+        compare_payloads,
+        str(metrics_dir / "legacy_metrics.png"),
+        compute_advanced=True,
+        advanced_metrics=advanced_metrics_list,
+        mc_approx=mc_approx,
+    )
+    visualize_compare_panel(
+        src_img_u8,
+        compare_entries,
+        compare_payloads,
+        str(metrics_dir / "advance_metrics.png"),
+        compute_advanced=True,
+        advanced_metrics=advanced_metrics_list,
+        mc_approx=mc_approx,
+        capacity_test=CAPACITY_TEST,
+    )
 
     # AKDE density map is optional and disabled by default for this script.
     if ENABLE_ADAPTIVE_SAMPLING_DENSITY_MAP:
@@ -170,6 +188,31 @@ def _serialize_advanced_metrics(metrics_dict):
         "M5_spatial_measure_rho_mean",
     }
     return {key if key in used_keys else f"_{key}": value for key, value in metrics_dict.items()}
+
+
+def calculate_empirical_capacities(points, quarters=4):
+    x_coords = np.asarray(points, dtype=np.float64)[:, 0]
+    bins = np.linspace(0.0, 1.0, quarters + 1, dtype=np.float64)
+    counts, _ = np.histogram(x_coords, bins=bins)
+    total_points = max(float(len(x_coords)), 1.0)
+    return counts / total_points * 100.0
+
+
+def calculate_target_capacities(reference_image, quarters=4):
+    image = np.asarray(reference_image, dtype=np.float64)
+    if image.ndim != 2:
+        raise ValueError(f"Expected a grayscale image for target capacities, got shape {image.shape}")
+
+    density = 1.0 - np.clip(image, 0.0, 1.0)
+    column_mass = density.mean(axis=0)
+    width = column_mass.shape[0]
+
+    x_coords = np.linspace(0.0, 1.0, width, dtype=np.float64)
+    bins = np.linspace(0.0, 1.0, quarters + 1, dtype=np.float64)
+    counts, _ = np.histogram(x_coords, bins=bins, weights=column_mass)
+
+    total_mass = max(float(column_mass.sum()), 1.0e-12)
+    return counts / total_mass * 100.0
 
 
 def save_sample_image(image_path, pts, out_png_path):
@@ -238,6 +281,7 @@ def visualize_compare_panel(
     compute_advanced=False,
     advanced_metrics=None,
     mc_approx=True,
+    capacity_test=False,
 ):
     """Create a comparison panel where each entry is an image path prediction."""
     if not HAS_MPL:
@@ -265,6 +309,19 @@ def visualize_compare_panel(
     ax.set_title("Condition (Input)")
     ax.axis("off")
 
+    # optionally render capacity split lines and target percentages below the input
+    quarter_positions = [0.125, 0.375, 0.625, 0.875]
+    quarter_lines = [0.25, 0.5, 0.75]
+    if capacity_test:
+        try:
+            target_caps = calculate_target_capacities(image_01)
+            for x in quarter_lines:
+                ax.plot([x, x], [0, 1], transform=ax.transAxes, color="0.5", linestyle="--", linewidth=0.8, zorder=0)
+            for xpos, capacity in zip(quarter_positions, target_caps):
+                ax.text(xpos, -0.06, f"{capacity:.1f}%", va="top", ha="center", fontsize=11, transform=ax.transAxes)
+        except Exception:
+            pass
+
     compare_points = []
     compare_labels = []
 
@@ -285,6 +342,17 @@ def visualize_compare_panel(
         else:
             ax.set_title(f"{label} [sample {value}]")
         ax.axis("off")
+
+        if capacity_test:
+            # split lines in axes fraction coordinates
+            for x in quarter_lines:
+                ax.plot([x, x], [0, 1], transform=ax.transAxes, color="0.75", linestyle="--", linewidth=0.5, zorder=0)
+            try:
+                emp = calculate_empirical_capacities(payload.get("points"))
+                for xpos, capacity in zip(quarter_positions, emp):
+                    ax.text(xpos, -0.06, f"{capacity:.1f}%", va="top", ha="center", fontsize=11, transform=ax.transAxes)
+            except Exception:
+                pass
 
     # Draw metric rows (M1, M2, M5) under each column
     metric_row_start = 1
