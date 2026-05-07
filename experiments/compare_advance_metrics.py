@@ -33,8 +33,6 @@ try:
         compute_all_advanced_metrics,
         visualize_adaptive_sampling_density_map,
         _render_advanced_metrics_row,
-        _ADV_ROW_FONTSIZE,
-        _ADV_ROW_TITLE_FONTSIZE,
         _ADV_ROW_HEIGHT_RATIO,
         _ADV_ROW_EXTRA_HEIGHT,
         plot_visual_m1_cvt_vectors,
@@ -82,6 +80,9 @@ SINGLE_SCALE = True  # TODO: False case is broken - need to repair in the future
 # This prevents rows with colorbars from shrinking smaller than rows without.
 PLOT_AREA_FRACTION = 0.88
 
+# --- GLOBAL TEXT SIZE VARIABLE ---
+TEXT_SIZE = 15
+
 
 DEFAULT_INPUT_IMAGE = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/source/quadratic_density_gradient.png"
 DEFAULT_COMPARE_LIST = [
@@ -91,6 +92,7 @@ DEFAULT_COMPARE_LIST = [
 ]
 CLIP_TO_DOMAIN = False
 CAPACITY_TEST = True
+MARK_BEST = True  # Draws a red box around the capacity percentage closest to ground truth
 
 
 # DEFAULT_INPUT_IMAGE = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/source/emoji-one_4_monkey.png"
@@ -101,6 +103,7 @@ CAPACITY_TEST = True
 # ]
 # CLIP_TO_DOMAIN = True
 # CAPACITY_TEST = False
+# MARK_BEST = False 
 
 
 def sanitize_name(name: str) -> str:
@@ -180,6 +183,7 @@ def collect_outputs(input_image_path: str, compare_list, src_base: str, out_base
         advanced_metrics=advanced_metrics_list,
         mc_approx=mc_approx,
         capacity_test=CAPACITY_TEST,
+        mark_best=MARK_BEST,
     )
 
     # AKDE density map is optional and disabled by default for this script.
@@ -304,11 +308,21 @@ def visualize_compare_panel(
     advanced_metrics=None,
     mc_approx=True,
     capacity_test=False,
+    mark_best=True,
 ):
     if not HAS_MPL:
         return None
     if len(compare_entries) == 0:
         return None
+
+    # Apply global text size parameters
+    plt.rcParams.update({
+        'font.size': TEXT_SIZE,
+        'axes.titlesize': TEXT_SIZE,
+        'axes.labelsize': TEXT_SIZE,
+        'xtick.labelsize': TEXT_SIZE,
+        'ytick.labelsize': TEXT_SIZE
+    })
 
     import matplotlib.gridspec as _gridspec
 
@@ -363,23 +377,47 @@ def visualize_compare_panel(
     # ----- Row 0: condition + per-prediction scatter -----
     ax = axes[0, 0]
     ax.imshow(source_img_u8, cmap="gray", vmin=0, vmax=255)
-    ax.set_title("Condition (Input)")
+    ax.set_title("Condition (Input)", fontsize=TEXT_SIZE)
     ax.axis("off")
 
     quarter_positions = [0.125, 0.375, 0.625, 0.875]
     quarter_lines = [0.25, 0.5, 0.75]
+    
+    target_caps = None
     if capacity_test:
         try:
             target_caps = calculate_target_capacities(image_01)
             for x in quarter_lines:
                 ax.plot([x, x], [0, 1], transform=ax.transAxes, color="0.5", linestyle="--", linewidth=0.8, zorder=0)
             for xpos, capacity in zip(quarter_positions, target_caps):
-                ax.text(xpos, -0.06, f"{capacity:.1f}%", va="top", ha="center", fontsize=11, transform=ax.transAxes)
+                ax.text(xpos, -0.06, f"{capacity:.1f}%", va="top", ha="center", fontsize=TEXT_SIZE, transform=ax.transAxes)
         except Exception:
             pass
 
     compare_points = []
     compare_labels = []
+
+    # Pre-calculate empirical capacities to find the best (closest to target) matches per quarter
+    all_emps = []
+    best_diffs = None
+    if capacity_test:
+        if target_caps is not None and mark_best:
+            best_diffs = [float('inf')] * len(target_caps)
+            
+        for payload in compare_payloads:
+            try:
+                emp = calculate_empirical_capacities(payload.get("points"))
+                all_emps.append(emp)
+                
+                # Check for closest match across all items
+                if target_caps is not None and mark_best and len(emp) == len(target_caps):
+                    for q in range(len(target_caps)):
+                        diff = abs(emp[q] - target_caps[q])
+                        if diff < best_diffs[q]:
+                            best_diffs[q] = diff
+            except Exception:
+                all_emps.append(None)
+
 
     for i, (label, value) in enumerate(compare_entries):
         ax = axes[0, 1 + i]
@@ -393,16 +431,36 @@ def visualize_compare_panel(
         ax.set_ylim(0, 1)
         ax.set_aspect("equal")
         ax.set_facecolor("white")
-        ax.set_title(f"{label}")
+        ax.set_title(f"{label}", fontsize=TEXT_SIZE)
         ax.axis("off")
 
         if capacity_test:
             for x in quarter_lines:
                 ax.plot([x, x], [0, 1], transform=ax.transAxes, color="0.75", linestyle="--", linewidth=0.5, zorder=0)
             try:
-                emp = calculate_empirical_capacities(payload.get("points"))
-                for xpos, capacity in zip(quarter_positions, emp):
-                    ax.text(xpos, -0.06, f"{capacity:.1f}%", va="top", ha="center", fontsize=11, transform=ax.transAxes)
+                emp = all_emps[i]
+                if emp is not None:
+                    for q, (xpos, capacity) in enumerate(zip(quarter_positions, emp)):
+                        is_best = False
+                        
+                        # Determine if this capacity is the closest to the target capacity
+                        if target_caps is not None and mark_best and best_diffs is not None and len(emp) == len(target_caps):
+                            diff = abs(capacity - target_caps[q])
+                            # Adding small epsilon to gracefully handle identical float ties
+                            if diff <= best_diffs[q] + 1e-5:
+                                is_best = True
+                        
+                        # Apply red bounding box if it's the closest prediction
+                        bbox_kwargs = None
+                        if is_best:
+                            bbox_kwargs = dict(boxstyle="square,pad=0.2", edgecolor="red", facecolor="none", linewidth=1.5)
+                            
+                        ax.text(
+                            xpos, -0.06, f"{capacity:.1f}%", 
+                            va="top", ha="center", fontsize=TEXT_SIZE, 
+                            transform=ax.transAxes,
+                            bbox=bbox_kwargs
+                        )
             except Exception:
                 pass
 
@@ -428,8 +486,11 @@ def visualize_compare_panel(
                     fn(pts, image_01, ax)
             except Exception:
                 ax.axis("off")
-                ax.set_title("(error)", fontsize=8)
+                ax.set_title("(error)", fontsize=TEXT_SIZE)
             header_title_axes.append(ax)
+
+            current = ax.get_title()
+            ax.set_title(f"{current}", fontsize=TEXT_SIZE)
 
         after_ids = set(id(a) for a in fig.axes)
         new_axes = [a for a in fig.axes if id(a) in (after_ids - before_ids) and id(a) not in main_axes_set]
@@ -545,6 +606,14 @@ def visualize_compare_panel_legacy(
     if len(compare_entries) == 0:
         return None
 
+    plt.rcParams.update({
+        'font.size': TEXT_SIZE,
+        'axes.titlesize': TEXT_SIZE,
+        'axes.labelsize': TEXT_SIZE,
+        'xtick.labelsize': TEXT_SIZE,
+        'ytick.labelsize': TEXT_SIZE
+    })
+
     n_cols = 1 + len(compare_entries)
     n_rows = 3 + (1 if compute_advanced else 0)
 
@@ -564,7 +633,7 @@ def visualize_compare_panel_legacy(
     image_01 = source_img_u8.astype(np.float64) / 255.0
     ax = axes[0, 0]
     ax.imshow(source_img_u8, cmap="gray", vmin=0, vmax=255)
-    ax.set_title("Condition (Input)")
+    ax.set_title("Condition (Input)", fontsize=TEXT_SIZE)
     ax.axis("off")
 
     compare_points = []
@@ -580,7 +649,7 @@ def visualize_compare_panel_legacy(
         ax.set_ylim(0, 1)
         ax.set_aspect("equal")
         ax.set_facecolor("white")
-        ax.set_title(f"{label} [image]" if payload["kind"] == "image" else f"{label} [sample {value}]")
+        ax.set_title(f"{label}", fontsize=TEXT_SIZE)
         ax.axis("off")
 
     if compute_advanced:
@@ -621,7 +690,7 @@ def visualize_compare_panel_legacy(
             f"{compare_labels[i]} Capacity\n"
             f"Grid:{cap_grid_shape[0]}x{cap_grid_shape[1]} | OK:{ok_pct:.0f}% Under:{cap['underfilled_pct']:.0f}% Over:{cap['overfilled_pct']:.0f}%\n"
             f"Score: {cap['score']:.3f}",
-            fontsize=9,
+            fontsize=TEXT_SIZE,
         )
         ax.axis("off")
 
@@ -644,10 +713,12 @@ def visualize_compare_panel_legacy(
             f"{compare_labels[i]} Spacing\n"
             f"CV:{spa['nn_cv']:.3f}  Clumped:{spa['clumped_pct']:.1f}%\n"
             f"Score: {spa['spacing_score']:.3f}",
-            fontsize=9,
+            fontsize=TEXT_SIZE,
         )
         ax.axis("off")
-        plt.colorbar(sc, ax=ax, shrink=0.7, label="NN dist")
+        cbar = plt.colorbar(sc, ax=ax, shrink=0.7)
+        cbar.set_label("NN dist", fontsize=TEXT_SIZE)
+        cbar.ax.tick_params(labelsize=TEXT_SIZE)
 
     plt.tight_layout()
     os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)

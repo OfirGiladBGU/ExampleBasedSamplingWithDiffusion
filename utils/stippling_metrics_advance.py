@@ -32,6 +32,10 @@ from utils.stippling_metrics import (
     resolve_capacity_grid_size,
 )
 
+# Dynamically fetch the current matplotlib global font size so it 
+# perfectly syncs with compare_advance_metrics.py
+def _fs():
+    return plt.rcParams.get('font.size', 12) if plt else 12
 
 # ── Advanced text formatting ──────────────────────────────────────────
 
@@ -92,8 +96,6 @@ def _polygon_sample_points(vertices_clip, image_shape, mc_approx=True, rng=None)
 
 
 # ── constants for the shared advanced-metrics row ──────────────────
-_ADV_ROW_FONTSIZE       = 14
-_ADV_ROW_TITLE_FONTSIZE = 13
 _ADV_ROW_HEIGHT_RATIO   = 2.0
 _ADV_ROW_EXTRA_HEIGHT   = 3.5  # inches added to base figure height
 
@@ -115,12 +117,12 @@ def _render_advanced_metrics_row(axes_row, points_list, labels, image_01, metric
         ax.text(
             0.5, 0.95, text,
             ha="center", va="top",
-            fontsize=_ADV_ROW_FONTSIZE,
+            fontsize=_fs(),
             fontfamily="monospace",
             transform=ax.transAxes,
             bbox=dict(boxstyle="round,pad=0.8", facecolor="lightyellow", alpha=0.85),
         )
-        ax.set_title(f"{label} Adv. Metrics", fontsize=_ADV_ROW_TITLE_FONTSIZE)
+        ax.set_title(f"{label} Adv. Metrics", fontsize=_fs())
 
 
 # ── Advanced Metrics M1-M5 ──────────────────────────────────────────
@@ -498,10 +500,10 @@ def visualize_adaptive_sampling_density_map(
 
         if title == "Input":
             ax_top.imshow(source_resized, cmap="gray", vmin=0, vmax=1, origin="upper", aspect="equal")
-            ax_top.set_title("Input Image", fontsize=12, fontweight="bold", pad=6)
+            ax_top.set_title("Input Image", fontsize=_fs(), fontweight="bold", pad=6)
             ax_top.axis("off")
             ax_bot.imshow(target_density, cmap="gray_r", vmin=0, vmax=1, origin="upper", aspect="equal")
-            ax_bot.set_title("Target Density Field", fontsize=12, fontweight="bold", pad=6)
+            ax_bot.set_title("Target Density Field", fontsize=_fs(), fontweight="bold", pad=6)
             ax_bot.axis("off")
             continue
 
@@ -510,11 +512,11 @@ def visualize_adaptive_sampling_density_map(
         ax_top.set_ylim(0, 1)
         ax_top.invert_yaxis()
         ax_top.set_aspect("equal")
-        ax_top.set_title(f"{title} Points", fontsize=12, fontweight="bold", pad=6)
+        ax_top.set_title(f"{title} Points", fontsize=_fs(), fontweight="bold", pad=6)
         ax_top.axis("off")
 
         ax_bot.imshow(density, cmap="gray_r", vmin=0, vmax=1, origin="upper", aspect="equal")
-        ax_bot.set_title(f"{title} Density", fontsize=12, fontweight="bold", pad=6)
+        ax_bot.set_title(f"{title} Density", fontsize=_fs(), fontweight="bold", pad=6)
         ax_bot.axis("off")
 
     plt.tight_layout()
@@ -543,6 +545,14 @@ def visualize_overfit_metrics(
     if not HAS_MPL:
         return None
 
+    plt.rcParams.update({
+        'font.size': _fs(),
+        'axes.titlesize': _fs(),
+        'axes.labelsize': _fs(),
+        'xtick.labelsize': _fs(),
+        'ytick.labelsize': _fs()
+    })
+
     n_preds = min(len(pred_pointsets), 4)
     n_cols = 2 + n_preds
 
@@ -562,14 +572,14 @@ def visualize_overfit_metrics(
 
     ax = axes[0, 0]
     ax.imshow(source_img, cmap="gray", vmin=0, vmax=255)
-    ax.set_title("Condition (Source)")
+    ax.set_title("Condition (Source)", fontsize=_fs())
     ax.axis("off")
 
     ax = axes[0, 1]
     ax.scatter(gt_points[:, 0], 1 - gt_points[:, 1], c="black", s=point_size, alpha=0.8)
     ax.set_xlim(0, 1); ax.set_ylim(0, 1)
     ax.set_aspect("equal"); ax.set_facecolor("white")
-    ax.set_title("GT (Target)")
+    ax.set_title("GT (Target)", fontsize=_fs())
     ax.axis("off")
 
     if pred_labels is None:
@@ -585,7 +595,7 @@ def visualize_overfit_metrics(
         ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
         ax.set_aspect("equal"); ax.set_facecolor("white")
-        ax.set_title(pred_labels[i])
+        ax.set_title(pred_labels[i], fontsize=_fs())
         ax.axis("off")
 
     all_points = [gt_points] + [pred_pointsets[i] for i in range(n_preds)]
@@ -609,7 +619,7 @@ def visualize_overfit_metrics(
                 counts[y_idx, x_idx] += 1
             binary_img = (counts > 0).astype(np.uint8) * 255
             axes[cap_row, 0].imshow(binary_img, cmap="gray", vmin=0, vmax=255, origin="upper")
-            axes[cap_row, 0].set_title("GT Binary\n(32×32 OT grid)", fontsize=9)
+            axes[cap_row, 0].set_title("GT Binary\n(32×32 OT grid)", fontsize=_fs())
             axes[cap_row, 0].axis("off")
         except Exception:
             axes[cap_row, 0].axis("off")
@@ -632,7 +642,7 @@ def visualize_overfit_metrics(
             f"Grid:{cap_grid_shape[0]}x{cap_grid_shape[1]} | "
             f"OK:{ok_pct:.0f}% Under:{cap['underfilled_pct']:.0f}% Over:{cap['overfilled_pct']:.0f}%\n"
             f"Score: {cap['score']:.3f}",
-            fontsize=9,
+            fontsize=_fs(),
         )
         ax.axis("off")
 
@@ -647,10 +657,10 @@ def visualize_overfit_metrics(
                           cmap="viridis", width=0.004)
             ax.invert_yaxis()
             ax.set_aspect("equal")
-            ax.set_title("GT Offset Quiver", fontsize=9)
-            ax.set_xlabel("grid x", fontsize=8)
-            ax.set_ylabel("grid y", fontsize=8)
-            ax.tick_params(labelsize=7)
+            ax.set_title("GT Offset Quiver", fontsize=_fs())
+            ax.set_xlabel("grid x", fontsize=_fs())
+            ax.set_ylabel("grid y", fontsize=_fs())
+            ax.tick_params(labelsize=_fs())
             fig.colorbar(q, ax=ax, shrink=0.7, label="|offset|")
         except Exception:
             axes[spa_row, 0].axis("off")
@@ -671,10 +681,12 @@ def visualize_overfit_metrics(
             f"{label} Spacing\n"
             f"CV:{spa['nn_cv']:.3f}  Clumped:{spa['clumped_pct']:.1f}%\n"
             f"Score: {spa['spacing_score']:.3f}",
-            fontsize=9,
+            fontsize=_fs(),
         )
         ax.axis("off")
-        plt.colorbar(sc, ax=ax, shrink=0.7, label="NN dist")
+        cbar = plt.colorbar(sc, ax=ax, shrink=0.7)
+        cbar.set_label("NN dist", fontsize=_fs())
+        cbar.ax.tick_params(labelsize=_fs())
 
     if compute_advanced:
         adv_points = [gt_points] + [pred_pointsets[i] for i in range(n_preds)]
@@ -699,6 +711,14 @@ def visualize_advanced_metrics_panel(
 ):
     if not HAS_MPL:
         return None
+
+    plt.rcParams.update({
+        'font.size': _fs(),
+        'axes.titlesize': _fs(),
+        'axes.labelsize': _fs(),
+        'xtick.labelsize': _fs(),
+        'ytick.labelsize': _fs()
+    })
 
     n_preds = min(len(pred_pointsets), 4)
     all_pointsets = []
@@ -730,11 +750,11 @@ def visualize_advanced_metrics_panel(
         axes = axes[:, np.newaxis]
 
     metrics_names = [
-        ("M1", "Spatial Relaxation", "M1_cvt_energy"),
+        ("M1", "CVT Energy",          "M1_cvt_energy"),
         ("M2", "Capacity Constraint", "M2_voronoi_mass_cv"),
-        ("M3", "EMD",                "M3_emd_distance"),
-        ("M4", "Sinkhorn Distance",  "M4_sinkhorn_ot_cost"),
-        ("M5", "Spatial Measure",    "M5_spatial_measure_rho_mean"),
+        ("M3", "EMD",                 "M3_emd_distance"),
+        ("M4", "Sinkhorn Distance",   "M4_sinkhorn_ot_cost"),
+        ("M5", "Spatial Measure",     "M5_spatial_measure_rho_mean"),
     ]
 
     for m_idx, (m_short, m_long, m_key) in enumerate(metrics_names):
@@ -745,9 +765,9 @@ def visualize_advanced_metrics_panel(
             ax.set_ylim(0, max(1.0, value * 1.2))
             ax.set_xlim(-0.5, 0.5)
             ax.set_xticks([])
-            ax.set_title(f"{all_labels[p_idx]}\n{m_short}: {value:.3f}", fontsize=10, fontweight="bold")
+            ax.set_title(f"{all_labels[p_idx]}\n{m_short}: {value:.3f}", fontsize=_fs(), fontweight="bold")
             if p_idx == 0:
-                ax.set_ylabel(m_long, fontsize=9)
+                ax.set_ylabel(m_long, fontsize=_fs())
             else:
                 ax.set_yticks([])
 
@@ -891,6 +911,8 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
     from matplotlib.colors import BoundaryNorm, ListedColormap
     from scipy.spatial import Voronoi
 
+    plot_title = "[M2] Capacity Constraint (Voronoi Mass)"
+
     density_map = 1.0 - image_01
 
     if rng is None:
@@ -902,7 +924,7 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
     try:
         vor = Voronoi(pts_clip)
     except Exception:
-        ax.set_title("M2: Voronoi Mass Deviation\n(insufficient points)", fontsize=9)
+        ax.set_title(f"{plot_title}\n(insufficient points)", fontsize=_fs())
         return
 
     def _cell_mass(verts):
@@ -933,6 +955,26 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
     bucket_colors = ListedColormap(["#2b6cb0", "#d9d9d9", "#c53030"])
     bucket_norm = BoundaryNorm(bucket_edges, bucket_colors.N)
 
+    # --- FIX: Calculate robust 100%-summing display percentages ---
+    if dev_count > 0:
+        under_raw = float((deviations < under_thr).mean() * 100.0)
+        avg_raw = float(((deviations >= under_thr) & (deviations <= over_thr)).mean() * 100.0)
+        over_raw = float((deviations > over_thr).mean() * 100.0)
+        
+        # Largest Remainder Method (Hare-Niemeyer) to ensure exact 100% sum
+        raw_pcts = [under_raw, avg_raw, over_raw]
+        floors = [int(np.floor(p)) for p in raw_pcts]
+        remainders = [p - f for p, f in zip(raw_pcts, floors)]
+        diff = 100 - sum(floors)
+        
+        for i in np.argsort(remainders)[::-1][:diff]:
+            floors[i] += 1
+            
+        u_disp, a_disp, o_disp = floors
+    else:
+        u_disp = a_disp = o_disp = 0
+    # -------------------------------------------------------------
+
     ax.set_facecolor("white")
 
     if cell_polys:
@@ -962,22 +1004,20 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
         ax.add_collection(col)
 
         if show_colorbar:
-            hist, _ = np.histogram(deviations, bins=bucket_edges)
-            total = max(dev_count, 1)
             tick_positions = [
                 (bucket_edges[0] + bucket_edges[1]) / 2.0,
                 (bucket_edges[1] + bucket_edges[2]) / 2.0,
                 (bucket_edges[2] + bucket_edges[3]) / 2.0,
             ]
             tick_labels = [
-                f"Under\n{bucket_edges[0]:.2f} to {bucket_edges[1]:.2f}\n{(hist[0] / total) * 100:.0f}%",
-                f"Avg\n{bucket_edges[1]:.2f} to {bucket_edges[2]:.2f}\n{(hist[1] / total) * 100:.0f}%",
-                f"Over\n{bucket_edges[2]:.2f} to {bucket_edges[3]:.2f}\n{(hist[2] / total) * 100:.0f}%",
+                f"Under\n{bucket_edges[0]:.2f} to {bucket_edges[1]:.2f}\n{u_disp}%",
+                f"Avg\n{bucket_edges[1]:.2f} to {bucket_edges[2]:.2f}\n{a_disp}%",
+                f"Over\n{bucket_edges[2]:.2f} to {bucket_edges[3]:.2f}\n{o_disp}%",
             ]
             cbar = plt.colorbar(col, ax=ax, fraction=0.046, pad=0.04, ticks=tick_positions)
-            cbar.ax.set_yticklabels(tick_labels, fontsize=7)
-            cbar.set_label("Voronoi mass deviation", fontsize=8)
-            cbar.ax.tick_params(length=0)
+            cbar.ax.set_yticklabels(tick_labels, fontsize=_fs())
+            cbar.set_label("Voronoi mass deviation", fontsize=_fs())
+            cbar.ax.tick_params(length=0, labelsize=_fs())
             
             # Key fix #2: Detach the colorbar layout constraint so it doesn't permanently shrink the axes
             ax.set_axes_locator(None)
@@ -990,30 +1030,28 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
     ax.axis("off")
     
     if dev_count > 0:
-        under_pct = float((deviations < under_thr).mean() * 100.0)
-        avg_pct = float(((deviations >= under_thr) & (deviations <= over_thr)).mean() * 100.0)
-        over_pct = float((deviations > over_thr).mean() * 100.0)
-        
-        ax.set_title("[M2] Capacity Constraint (Voronoi Mass Deviation)", fontsize=9)
+        ax.set_title(f"{plot_title}", fontsize=_fs())
         
         # Key Fix #1: Draw dashed third lines mimicking the capacity grid style
         for x in [0.333, 0.666]:
             ax.plot([x, x], [0, 1], transform=ax.transAxes, color="0.75", linestyle="--", linewidth=0.5, zorder=0)
 
         # Key Fix #1: Render the texts fully separated at uniform horizontal spacing
-        ax.text(0.166, -0.06, f"Under: {under_pct:.0f}%", va="top", ha="center", fontsize=11, color="#2b6cb0", transform=ax.transAxes)
-        ax.text(0.500, -0.06, f"Avg: {avg_pct:.0f}%", va="top", ha="center", fontsize=11, color="#555555", transform=ax.transAxes)
-        ax.text(0.833, -0.06, f"Over: {over_pct:.0f}%", va="top", ha="center", fontsize=11, color="#c53030", transform=ax.transAxes)
+        ax.text(0.166, -0.06, f"Under: {u_disp}%", va="top", ha="center", fontsize=_fs(), color="#2b6cb0", transform=ax.transAxes)
+        ax.text(0.500, -0.06, f"Avg: {a_disp}%", va="top", ha="center", fontsize=_fs(), color="#555555", transform=ax.transAxes)
+        ax.text(0.833, -0.06, f"Over: {o_disp}%", va="top", ha="center", fontsize=_fs(), color="#c53030", transform=ax.transAxes)
     else:
-        ax.set_title("[M2] Capacity Constraint (Voronoi Mass Deviation)", fontsize=9)
+        ax.set_title(f"{plot_title}\n(insufficient points)", fontsize=_fs())
 
 
 def plot_visual_m5_spatial_measure(points, image_01, ax, show_colorbar=True):
     from scipy.spatial import cKDTree
 
+    plot_title = "[M5] Spatial Measure ρ (Hotspots)"
+
     N = len(points)
     if N < 2:
-        ax.set_title("[M5] Spatial Measure (ρ) Hotspots\n(insufficient points)", fontsize=9)
+        ax.set_title(f"{plot_title}\n(insufficient points)", fontsize=_fs())
         return
 
     tree = cKDTree(points)
@@ -1039,7 +1077,9 @@ def plot_visual_m5_spatial_measure(points, image_01, ax, show_colorbar=True):
                     cmap="RdYlBu", s=2.0, vmin=0.4, vmax=1.1)
                     
     if show_colorbar:
-        plt.colorbar(sc, ax=ax, shrink=0.7, label="ρ (uniformity)")
+        cbar = plt.colorbar(sc, ax=ax, shrink=0.7)
+        cbar.set_label("ρ (uniformity)", fontsize=_fs())
+        cbar.ax.tick_params(labelsize=_fs())
         
         # Key fix #2: Detach the colorbar layout constraint so it doesn't permanently shrink the axes
         ax.set_axes_locator(None)
@@ -1049,18 +1089,20 @@ def plot_visual_m5_spatial_measure(points, image_01, ax, show_colorbar=True):
     ax.invert_yaxis()
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title("[M5] Spatial Measure (ρ) Hotspots", fontsize=9)
+    ax.set_title(f"{plot_title}", fontsize=_fs())
 
 
 def plot_visual_m1_cvt_vectors(points, image_01, ax):
     from scipy.spatial import Voronoi, voronoi_plot_2d
+
+    plot_title = "[M1] CVT Energy (Offsets Error)"
 
     pts_clip = np.clip(points, 1e-5, 1 - 1e-5)
 
     try:
         vor = Voronoi(pts_clip)
     except Exception:
-        ax.set_title("[M1] Spatial Relaxation (CVT Vectors)\n(insufficient points)", fontsize=9)
+        ax.set_title(f"{plot_title}\n(insufficient points)", fontsize=_fs())
         return
 
     voronoi_plot_2d(
@@ -1085,10 +1127,12 @@ def plot_visual_m1_cvt_vectors(points, image_01, ax):
     ax.invert_yaxis()
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title("[M1] Spatial Relaxation (CVT Vectors)", fontsize=9)
+    ax.set_title(f"{plot_title}", fontsize=_fs())
 
 
 def plot_visual_m5_spectrum(points, image_01, ax):
+    plot_title = "[M5] Power Spectrum"
+
     H, W = image_01.shape
     grid_size = max(H, W)
 
@@ -1121,17 +1165,17 @@ def plot_visual_m5_spectrum(points, image_01, ax):
             np.exp(intercept) * (radial_bins[valid] ** slope),
             color="red", linestyle="--", linewidth=1.2, label=f"Fit (slope {slope:.2f})",
         )
-        ax.legend(fontsize=7)
-        ax.set_title(f"M5: Power Spectrum\nSlope: {slope:.3f}", fontsize=9)
+        ax.legend(fontsize=_fs())
+        ax.set_title(f"{plot_title}\nSlope: {slope:.3f}", fontsize=_fs())
     else:
-        ax.set_title("M5: Power Spectrum\n(insufficient data)", fontsize=9)
+        ax.set_title(f"{plot_title}\n(insufficient data)", fontsize=_fs())
 
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.grid(True, which="both", ls="-", alpha=0.2)
-    ax.tick_params(axis="both", labelsize=6)
-    ax.set_xlabel("Radial frequency", fontsize=7)
-    ax.set_ylabel("Power", fontsize=7)
+    ax.tick_params(axis="both", labelsize=_fs())
+    ax.set_xlabel("Radial frequency", fontsize=_fs())
+    ax.set_ylabel("Power", fontsize=_fs())
 
 
 # ── Spatial visual metrics panel ─────────────────────────────────────
@@ -1148,6 +1192,14 @@ def visualize_spatial_metrics_panel(
 ):
     if not HAS_MPL:
         return None
+
+    plt.rcParams.update({
+        'font.size': _fs(),
+        'axes.titlesize': _fs(),
+        'axes.labelsize': _fs(),
+        'xtick.labelsize': _fs(),
+        'ytick.labelsize': _fs()
+    })
 
     all_pointsets = []
     all_labels = []
@@ -1172,9 +1224,9 @@ def visualize_spatial_metrics_panel(
         return None
 
     row_titles = [
-        "[M1] Spatial Relaxation (CVT Vectors)",
-        "[M2] Capacity Constraint (Voronoi Mass Deviation)",
-        "[M5] Spatial Measure (ρ) Hotspots",
+        "[M1] CVT Energy (Offsets Error)",
+        "[M2] Capacity Constraint (Voronoi Mass)",
+        "[M5] Spatial Measure ρ (Hotspots)",
     ]
     plot_fns = [
         plot_visual_m1_cvt_vectors,
@@ -1199,13 +1251,13 @@ def visualize_spatial_metrics_panel(
                     fn(pts, image_01, ax)
             except Exception as exc:
                 ax.axis("off")
-                ax.set_title(f"{row_titles[row_idx]}\n(error)", fontsize=8)
+                ax.set_title(f"{row_titles[row_idx]}\n(error)", fontsize=_fs())
             if row_idx == 0:
                 current = ax.get_title()
-                ax.set_title(f"[{label}]  {current}", fontsize=9)
+                ax.set_title(f"[{label}]  {current}", fontsize=_fs())
 
     for row_idx, rt in enumerate(row_titles):
-        axes[row_idx, 0].set_ylabel(rt, fontsize=10, fontweight="bold", labelpad=8)
+        axes[row_idx, 0].set_ylabel(rt, fontsize=_fs(), fontweight="bold", labelpad=8)
 
     plt.tight_layout()
     os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
