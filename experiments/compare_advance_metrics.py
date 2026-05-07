@@ -55,6 +55,43 @@ HAS_MPL = True
 ENABLE_ADAPTIVE_SAMPLING_DENSITY_MAP = False
 MC_APPROX = True
 
+# ---------------------------------------------------------------------------
+# Layout flags for visualize_compare_panel
+# ---------------------------------------------------------------------------
+# Per-gap spacing between consecutive content rows, expressed as fractions of
+# a content-row height. Index 0 controls the gap between the points row and
+# the M1 row, index 1 between M1 and M2, and index 2 between M2 and M5. Tweak
+# any individual entry to give a row more or less breathing room (e.g. raise
+# ROW_SPACINGS[0] to leave space below the percentages text under the inputs).
+ROW_SPACINGS = [0.2, 0.12, 0.2]
+
+# When False, hide the per-axes plot titles in the comparison panel. This
+# only affects the row/column header titles drawn on the metric axes; it does
+# NOT remove the percentage text rendered below the images, nor any colorbar
+# labels or tick labels.
+SHOW_LABELS = True
+
+# When True, every metric row that has colorbars displays only ONE colorbar
+# placed to the LEFT of column 1 (the first data column), reusing the empty
+# column 0 area below the input image. The remaining per-column colorbars in
+# that row are hidden.
+SINGLE_SCALE = True  # TODO: False case is broken - need to repair in the future
+
+# Fraction of the grid cell width to use for the main plot area in metric rows.
+# The remainder (1 - fraction) is reserved as a right-side gutter for colorbars.
+# This prevents rows with colorbars from shrinking smaller than rows without.
+PLOT_AREA_FRACTION = 0.88
+
+
+DEFAULT_INPUT_IMAGE = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/source/quadratic_density_gradient.png"
+DEFAULT_COMPARE_LIST = [
+    {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_WVS_1024/quadratic_density_gradient.png"},
+    {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_GBN_1024/quadratic_density_gradient.png"},
+    {"Ours": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_CN_1024/quadratic_density_gradient.png"},
+]
+CLIP_TO_DOMAIN = False
+CAPACITY_TEST = True
+
 
 # DEFAULT_INPUT_IMAGE = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/source/emoji-one_4_monkey.png"
 # DEFAULT_COMPARE_LIST = [
@@ -64,18 +101,6 @@ MC_APPROX = True
 # ]
 # CLIP_TO_DOMAIN = True
 # CAPACITY_TEST = False
-
-
-DEFAULT_INPUT_IMAGE = (
-    "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/source/quadratic_density_gradient.png"
-)
-DEFAULT_COMPARE_LIST = [
-    {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_WVS_1024/quadratic_density_gradient.png"},
-    {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_GBN_1024/quadratic_density_gradient.png"},
-    {"ControlNet": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_CN_1024/quadratic_density_gradient.png"},
-]
-CLIP_TO_DOMAIN = False
-CAPACITY_TEST = True
 
 
 def sanitize_name(name: str) -> str:
@@ -218,8 +243,6 @@ def calculate_target_capacities(reference_image, quarters=4):
 def save_sample_image(image_path, pts, out_png_path):
     cond_img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if cond_img is None:
-        # If original image not found, create an empty canvas from points extents
-        # default to 512x512
         h, w = 512, 512
     else:
         h, w = cond_img.shape
@@ -251,7 +274,6 @@ def extract_points_from_target(img_path, n_points):
 
     labelled, n_labels = ndimage.label(binary)
     if n_labels == 0:
-        # fallback: treat non-white pixels as points
         ys, xs = np.nonzero(binary)
         centroids = [(x, y) for x, y in zip(xs, ys)]
         centroids = [(c[0], c[1]) for c in centroids]
@@ -283,33 +305,67 @@ def visualize_compare_panel(
     mc_approx=True,
     capacity_test=False,
 ):
-    """Create a comparison panel where each entry is an image path prediction."""
     if not HAS_MPL:
         return None
     if len(compare_entries) == 0:
         return None
 
+    import matplotlib.gridspec as _gridspec
+
     n_cols = 1 + len(compare_entries)
 
-    # Metric functions and titles (we want M1, M2, M5 rows beneath the top points row)
     plot_fns = [plot_visual_m1_cvt_vectors, plot_visual_m2_capacity_constraint, plot_visual_m5_spatial_measure]
     n_metric_rows = len(plot_fns)
 
-    # Total rows = top points row + metric rows only (no advanced table here)
-    n_rows = 1 + n_metric_rows
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.5 * n_cols, 4.5 * n_rows))
+    n_content_rows = 1 + n_metric_rows
+    n_gaps = n_content_rows - 1
 
-    if n_cols == 1:
-        axes = axes[:, np.newaxis]
+    spacings = list(ROW_SPACINGS) if isinstance(ROW_SPACINGS, (list, tuple)) else [ROW_SPACINGS] * n_gaps
+    if len(spacings) < n_gaps:
+        fill = spacings[-1] if spacings else 0.30
+        spacings = spacings + [fill] * (n_gaps - len(spacings))
+    spacings = spacings[:n_gaps]
+    spacings = [max(0.0, float(s)) for s in spacings]
+
+    height_ratios = []
+    for r in range(n_content_rows):
+        height_ratios.append(1.0)
+        if r < n_gaps:
+            height_ratios.append(spacings[r])
+    total_height_units = sum(height_ratios)
+
+    fig_w = 4.5 * n_cols
+    fig_h = 4.5 * total_height_units
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    gs = _gridspec.GridSpec(
+        nrows=len(height_ratios),
+        ncols=n_cols,
+        figure=fig,
+        height_ratios=height_ratios,
+        wspace=0.05,
+        hspace=0.0,
+        left=0.02,
+        right=0.98,
+        top=0.98,
+        bottom=0.02,
+    )
+
+    def _gs_row(content_row_idx):
+        return content_row_idx * 2
+
+    axes = np.empty((n_content_rows, n_cols), dtype=object)
+    for r in range(n_content_rows):
+        for c in range(n_cols):
+            axes[r, c] = fig.add_subplot(gs[_gs_row(r), c])
 
     image_01 = source_img_u8.astype(np.float64) / 255.0
 
+    # ----- Row 0: condition + per-prediction scatter -----
     ax = axes[0, 0]
     ax.imshow(source_img_u8, cmap="gray", vmin=0, vmax=255)
     ax.set_title("Condition (Input)")
     ax.axis("off")
 
-    # optionally render capacity split lines and target percentages below the input
     quarter_positions = [0.125, 0.375, 0.625, 0.875]
     quarter_lines = [0.25, 0.5, 0.75]
     if capacity_test:
@@ -337,14 +393,10 @@ def visualize_compare_panel(
         ax.set_ylim(0, 1)
         ax.set_aspect("equal")
         ax.set_facecolor("white")
-        if payload["kind"] == "image":
-            ax.set_title(f"{label} [image]")
-        else:
-            ax.set_title(f"{label} [sample {value}]")
+        ax.set_title(f"{label}")
         ax.axis("off")
 
         if capacity_test:
-            # split lines in axes fraction coordinates
             for x in quarter_lines:
                 ax.plot([x, x], [0, 1], transform=ax.transAxes, color="0.75", linestyle="--", linewidth=0.5, zorder=0)
             try:
@@ -354,15 +406,20 @@ def visualize_compare_panel(
             except Exception:
                 pass
 
-    # Draw metric rows (M1, M2, M5) under each column
+    # ----- Metric rows (M1, M2, M5) -----
     metric_row_start = 1
 
-    # Hide left column for metrics (condition column)
     for r in range(metric_row_start, metric_row_start + n_metric_rows):
         axes[r, 0].axis("off")
 
-    for col_i, pts in enumerate(compare_points):
-        for r_idx, fn in enumerate(plot_fns):
+    header_title_axes = [axes[0, c] for c in range(n_cols)]
+
+    cbars_per_metric_row = [[] for _ in range(n_metric_rows)]
+    main_axes_set = set(id(a) for row in axes for a in row)
+
+    for r_idx, fn in enumerate(plot_fns):
+        before_ids = set(id(a) for a in fig.axes)
+        for col_i, pts in enumerate(compare_points):
             ax = axes[metric_row_start + r_idx, 1 + col_i]
             try:
                 if fn is plot_visual_m2_capacity_constraint:
@@ -372,11 +429,100 @@ def visualize_compare_panel(
             except Exception:
                 ax.axis("off")
                 ax.set_title("(error)", fontsize=8)
-            if r_idx == 0:
-                current = ax.get_title()
-                ax.set_title(f"[{compare_labels[col_i]}]  {current}", fontsize=9)
+            header_title_axes.append(ax)
 
-    plt.tight_layout()
+        after_ids = set(id(a) for a in fig.axes)
+        new_axes = [a for a in fig.axes if id(a) in (after_ids - before_ids) and id(a) not in main_axes_set]
+        cbars_per_metric_row[r_idx] = new_axes
+
+    # ----- Post-Processing: Uniform Plot Widths & Single Scale -----
+    for r_idx, cbar_axes in enumerate(cbars_per_metric_row):
+        
+        # FIX 1: Grab the perfect reference size from the M1 row (which didn't shrink)
+        ref_ax = axes[metric_row_start, 1]
+        ref_bbox = ref_ax.get_position()
+        
+        # Standardize plot widths for ALL metric rows (M1, M2, M5)
+        for col_i in range(1, n_cols):
+            main_ax = axes[metric_row_start + r_idx, col_i]
+            
+            # Completely sever any invisible colorbar constraints
+            main_ax.set_axes_locator(None)
+            
+            try:
+                cell_bbox = main_ax.get_subplotspec().get_position(fig)
+                width_frac = 1.0 if SINGLE_SCALE else PLOT_AREA_FRACTION
+                
+                # FIX 2: Force every plot to exactly match M1's width and height!
+                # We keep cell_bbox.y0 so it stays in its correct row.
+                main_ax.set_position([
+                    cell_bbox.x0, 
+                    cell_bbox.y0, 
+                    ref_bbox.width * width_frac, 
+                    ref_bbox.height
+                ])
+            except Exception:
+                pass
+
+        if SINGLE_SCALE:
+            if len(cbar_axes) > 0:
+                keep = cbar_axes[0]
+                
+                # FIX 3: Physically remove the extra colorbars instead of just hiding them,
+                # ensuring they don't take up "ghost" space in the layout.
+                for extra in cbar_axes[1:]:
+                    extra.remove()
+                
+                # Move ticks and labels to the left side
+                keep.yaxis.set_ticks_position('left')
+                keep.yaxis.set_label_position('left')
+                
+                # Reposition the kept colorbar into column-0 area
+                try:
+                    target_main = axes[metric_row_start + r_idx, 1]
+                    col0_main = axes[metric_row_start + r_idx, 0]
+                    tgt_pos = target_main.get_position()
+                    col0_pos = col0_main.get_subplotspec().get_position(fig)
+                    
+                    cbar_width = min(0.025, col0_pos.width * 0.10)
+                    cbar_height = tgt_pos.height * 0.70
+                    cbar_y = tgt_pos.y0 + (tgt_pos.height - cbar_height) / 2.0
+                    cbar_x = col0_pos.x1 - cbar_width - 0.012
+                    
+                    keep.set_position([cbar_x, cbar_y, cbar_width, cbar_height])
+                except Exception:
+                    pass
+        else:
+            # Not SINGLE_SCALE: tuck each colorbar into its respective right-side gutter
+            for i, cb_ax in enumerate(cbar_axes):
+                try:
+                    col_i = i + 1
+                    main_ax = axes[metric_row_start + r_idx, col_i]
+                    cell_bbox = main_ax.get_subplotspec().get_position(fig)
+                    
+                    gutter_x = cell_bbox.x0 + cell_bbox.width * PLOT_AREA_FRACTION + 0.005
+                    gutter_w = cell_bbox.width * (1.0 - PLOT_AREA_FRACTION)
+                    
+                    cb_width = min(0.025, gutter_w * 0.5)
+                    cb_height = cell_bbox.height * 0.75
+                    cb_y = cell_bbox.y0 + (cell_bbox.height - cb_height) / 2.0
+                    
+                    cb_ax.set_position([gutter_x, cb_y, cb_width, cb_height])
+                except Exception:
+                    pass
+
+    # ----- SHOW_LABELS: hide axis titles only -----
+    if not SHOW_LABELS:
+        seen = set()
+        for ax in header_title_axes:
+            if id(ax) in seen:
+                continue
+            seen.add(id(ax))
+            try:
+                ax.set_title("")
+            except Exception:
+                pass
+
     os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()
@@ -394,7 +540,6 @@ def visualize_compare_panel_legacy(
     advanced_metrics=None,
     mc_approx=True,
 ):
-    """Legacy compare panel: points row, optional advanced table, then capacity and spacing rows."""
     if not HAS_MPL:
         return None
     if len(compare_entries) == 0:

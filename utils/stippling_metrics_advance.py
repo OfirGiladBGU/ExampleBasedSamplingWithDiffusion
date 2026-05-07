@@ -99,23 +99,7 @@ _ADV_ROW_EXTRA_HEIGHT   = 3.5  # inches added to base figure height
 
 
 def _render_advanced_metrics_row(axes_row, points_list, labels, image_01, metrics_list=None, mc_approx=True):
-    """Fill one matplotlib axes row with M1-M5 metric text boxes.
-
-    Parameters
-    ----------
-    axes_row : sequence of Axes
-        ``axes_row[0]`` is left blank (INPUT/spacer column);
-        ``axes_row[1+j]`` receives metrics for ``points_list[j]``.
-    points_list : list of ndarray (N, 2)
-        One array per column that should show metrics (GT + preds, or just preds).
-    labels : list of str
-        Column label for each entry in *points_list*.
-    image_01 : ndarray (H, W) float32
-        Reference density image used by the metric functions.
-    metrics_list : list of dict or None
-        Optional precomputed M1-M5 dicts. When provided, these are used instead
-        of recomputing the metrics inside the renderer.
-    """
+    """Fill one matplotlib axes row with M1-M5 metric text boxes."""
     axes_row[0].axis("off")
     for j, (pts, label) in enumerate(zip(points_list, labels)):
         ax = axes_row[1 + j]
@@ -142,17 +126,6 @@ def _render_advanced_metrics_row(axes_row, points_list, labels, image_01, metric
 # ── Advanced Metrics M1-M5 ──────────────────────────────────────────
 
 def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
-    """M2: Capacity Constraint (Voronoi-based density mass variance).
-
-    Parameters
-    ----------
-    points : ndarray (N, 2) in [0, 1]
-    image_01 : ndarray (H, W) float in [0, 1]
-
-    Returns
-    -------
-    dict with voronoi_mass_cv, voronoi_mass_std, voronoi_mass_mean
-    """
     try:
         from scipy.spatial import Voronoi
         import warnings
@@ -208,18 +181,6 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
 
 
 def compute_m4_sinkhorn(points, image_01, target_density=None):
-    """M4: Sinkhorn-Wasserstein distance to target density.
-
-    Parameters
-    ----------
-    points : ndarray (N, 2) in [0, 1]
-    image_01 : ndarray (H, W) float in [0, 1]
-    target_density : ndarray (H, W) or None
-
-    Returns
-    -------
-    dict with sinkhorn_ot_cost
-    """
     try:
         import ot
         if target_density is None:
@@ -253,22 +214,6 @@ def compute_m4_sinkhorn(points, image_01, target_density=None):
 
 
 def compute_m5_spatial_measure(points, image_01):
-    """M5: Spatial Measure (rho = r_min / r_max, density-weighted).
-
-    Calculates local spatial uniformity based on actual point density.
-    - r_min: nearest-neighbor distance
-    - r_max: maximal packing distance for local density D(x_i)
-    - rho = r_min / r_max (ideal ~0.75 for blue noise)
-
-    Parameters
-    ----------
-    points : ndarray (N, 2) in [0, 1]
-    image_01 : ndarray (H, W) float in [0, 1]
-
-    Returns
-    -------
-    dict with spatial_measure_rho_mean, spatial_measure_rho_cv
-    """
     try:
         from scipy.spatial import cKDTree
         N = len(points)
@@ -281,7 +226,7 @@ def compute_m5_spatial_measure(points, image_01):
         # Compute nearest-neighbor distances (r_min)
         tree = cKDTree(points)
         nn_dists, _ = tree.query(points, k=2)
-        r_min = nn_dists[:, 1]  # Distance to nearest neighbor
+        r_min = nn_dists[:, 1]
         
         # Get local image density at each point
         H, W = image_01.shape
@@ -297,15 +242,10 @@ def compute_m5_spatial_measure(points, image_01):
             mean_density = 1.0
         D_x = N * (local_img_density / (mean_density + 1e-10))
         
-        # Compute maximal spacing: r_max = sqrt(2.0 / (sqrt(3.0) * D_x))
-        # Handle zeros safely: clamp D_x to minimum value
         D_x_safe = np.maximum(D_x, 1e-8)
         r_max = np.sqrt(2.0 / (np.sqrt(3.0) * D_x_safe))
         
-        # Compute point-wise uniformity: rho = r_min / r_max
         rho_values = np.clip(r_min / (r_max + 1e-10), 0.0, 2.0)
-        
-        # Return mean and CV of rho values
         rho_mean = float(rho_values.mean())
         rho_std = float(rho_values.std())
         rho_cv = rho_std / (rho_mean + 1e-8)
@@ -322,17 +262,6 @@ def compute_m5_spatial_measure(points, image_01):
 
 
 def compute_m1_cvt_energy(points, image_01, rng=None, mc_approx=True):
-    """M1: Spatial Relaxation (CVT-like energy, mass-weighted second moment in Voronoi cells).
-
-    Parameters
-    ----------
-    points : ndarray (N, 2) in [0, 1]
-    image_01 : ndarray (H, W) float in [0, 1]
-
-    Returns
-    -------
-    dict with cvt_energy
-    """
     try:
         from scipy.spatial import Voronoi
         if rng is None:
@@ -375,18 +304,6 @@ def compute_m1_cvt_energy(points, image_01, rng=None, mc_approx=True):
 
 
 def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_approx=True):
-    """M3: Earth Mover's Distance (EMD) statistics.
-
-    Parameters
-    ----------
-    points : ndarray (N, 2) in [0, 1]
-    target_points : ndarray (N, 2) or None
-    image_01 : ndarray (H, W) or None
-
-    Returns
-    -------
-    dict with emd_distance
-    """
     try:
         import ot
         N = len(points)
@@ -429,18 +346,6 @@ def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_appro
 
 
 def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_approx=True):
-    """Compute all M1-M5 metrics and return merged dict.
-
-    Parameters
-    ----------
-    points : ndarray (N, 2) in [0, 1]
-    image_01 : ndarray (H, W) float in [0, 1]
-    image_input_u8 : ndarray (H, W) uint8 or None
-
-    Returns
-    -------
-    dict with all M1-M5 keys prefixed accordingly
-    """
     result = {}
     rng = np.random.default_rng(42)
     m1 = compute_m1_cvt_energy(points, image_01, rng=rng, mc_approx=mc_approx)
@@ -461,89 +366,47 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_appro
 if HAS_TORCH:
     @torch.no_grad()
     def gbn_algorithm_2(points, true_sigma, iterations=10):
-        """Algorithm 2 from the Gaussian Blue Noise paper.
-
-        Iteratively optimises per-point shaping factors (a_k) so that the
-        adaptive Gaussian kernels faithfully reproduce the sampled density field.
-
-        Parameters
-        ----------
-        points : torch.Tensor (N, 2) in [0, 1]
-        true_sigma : float – per-point bandwidth (alpha / sqrt(N))
-        iterations : int – refinement iterations (paper uses 10)
-
-        Returns
-        -------
-        torch.Tensor (N,) – optimised shaping factors a_k
-        """
         import torch as _torch
-
         N = points.shape[0]
         device = points.device
         dist_sq = _torch.cdist(points, points) ** 2
         self_mask = _torch.eye(N, device=device, dtype=_torch.bool)
         a = _torch.ones(N, device=device, dtype=_torch.float32)
-
         for _ in range(iterations):
             a_l = a.unsqueeze(0)
             exponent = -a_l * dist_sq / (2 * true_sigma ** 2)
             exponent = exponent.masked_fill(self_mask, -float("inf"))
             d_k = (a_l * _torch.exp(exponent)).sum(dim=1)
-            # 50 % damping: prevents oscillation on sparse point sets
             a = 0.5 * a + 0.5 * d_k
             mean_sq = (a ** 2).mean()
             a = a / _torch.sqrt(mean_sq + 1e-8)
-
         return a
-
 
     @torch.no_grad()
     def reconstruct_density_map(samples, grid_size=(512, 512), alpha=1.0, iterations=10, batch_size=8192, **kwargs):
-        """Reconstruct a density map via GBN Algorithm 2 + Equation 34.
-
-        Parameters
-        ----------
-        samples : torch.Tensor (N, 2) in [0, 1]
-        grid_size : (H, W) output resolution
-        alpha : float – bandwidth multiplier (larger = softer/blurrier)
-        iterations : int – Algorithm 2 iterations (paper: 10)
-        batch_size : int – pixels per GPU batch
-        **kwargs : absorbs legacy k / sigma args for call-site compatibility
-
-        Returns
-        -------
-        torch.Tensor (H, W) normalised [0, 1], on same device as `samples`
-        """
         import torch as _torch
-
         device = samples.device
         H, W = grid_size
         N = samples.shape[0]
-
         true_sigma = alpha / (N ** 0.5)
         a_k = gbn_algorithm_2(samples, true_sigma, iterations=iterations)
-
         y = _torch.linspace(0, 1, H, device=device)
         x = _torch.linspace(0, 1, W, device=device)
         grid_y, grid_x = _torch.meshgrid(y, x, indexing="ij")
         grid_coords = _torch.stack([grid_x.flatten(), grid_y.flatten()], dim=1)
-
         density_map = _torch.zeros(H * W, device=device)
         a_k_row = a_k.unsqueeze(0)
-
         for i in range(0, H * W, batch_size):
             batch_coords = grid_coords[i : i + batch_size]
             dist_sq = _torch.cdist(batch_coords, samples) ** 2
             weights = a_k_row * _torch.exp(-a_k_row * dist_sq / (2 * true_sigma ** 2))
             density_map[i : i + batch_size] = weights.sum(dim=1)
-
         density_map = density_map.view(H, W)
         d_min, d_max = density_map.min(), density_map.max()
         if d_max - d_min > 1e-4:
             density_map = (density_map - d_min) / (d_max - d_min)
         else:
             density_map = _torch.zeros_like(density_map)
-
         return density_map
 else:
     def gbn_algorithm_2(*args, **kwargs):
@@ -554,18 +417,12 @@ else:
 
 
 def process_target_density(source_img_u8, device):
-    """Convert an input image into a continuous target density field.
-
-    Inverts so dark = high density, then applies a slight Gaussian blur.
-    """
     import torch as _torch
     import torchvision.transforms.functional as TF
-
     if source_img_u8.ndim == 3:
         img_float = _torch.tensor(source_img_u8, dtype=_torch.float32).mean(dim=-1) / 255.0
     else:
         img_float = _torch.tensor(source_img_u8, dtype=_torch.float32) / 255.0
-
     img_float = img_float.to(device)
     density_map = 1.0 - img_float
     density_map = density_map.unsqueeze(0).unsqueeze(0)
@@ -588,24 +445,6 @@ def visualize_adaptive_sampling_density_map(
     device=None,
     pred_labels=None,
 ):
-    """GBN-style panel: row 0 = point clouds, row 1 = AKDE density maps.
-
-    Columns: Input | GT (if provided) | Pred 1 | Pred 2 …
-
-    Parameters
-    ----------
-    source_img_u8 : ndarray (H, W) uint8
-    pred_pointsets : list of ndarray (N, 2) in [0, 1]
-    save_path : str
-    gt_points : ndarray (N, 2) or None
-    grid_size : (H, W) AKDE output resolution
-    alpha : float – GBN bandwidth multiplier
-    device : str or None
-
-    Returns
-    -------
-    save_path or None
-    """
     if not HAS_MPL:
         return None
 
@@ -616,7 +455,6 @@ def visualize_adaptive_sampling_density_map(
         return None
 
     _device = _torch.device(device) if device else _torch.device("cuda" if _torch.cuda.is_available() else "cpu")
-
     target_density = process_target_density(source_img_u8, _device).cpu().numpy()
 
     try:
@@ -631,11 +469,9 @@ def visualize_adaptive_sampling_density_map(
         source_resized = _zoom(source_img_u8.astype(np.float32) / 255.0,
                                (grid_size[0] / h, grid_size[1] / w), order=1)
 
-    # columns: (title, points_np_or_None, density_np)
     columns = [("Input", None, source_resized)]
 
     if gt_points is not None:
-        print(f"  AKDE: reconstructing GT map from {len(gt_points)} points …")
         gt_np = np.asarray(gt_points, dtype=np.float32)
         gt_map = reconstruct_density_map(_torch.from_numpy(gt_np).to(_device),
                                          grid_size=grid_size, alpha=alpha)
@@ -643,7 +479,6 @@ def visualize_adaptive_sampling_density_map(
 
     for i, pts in enumerate(pred_pointsets):
         label = pred_labels[i] if (pred_labels and i < len(pred_labels)) else f"Pred {i + 1}"
-        print(f"  AKDE: reconstructing {label} map from {len(pts)} points …")
         pts_np = np.asarray(pts, dtype=np.float32)
         pred_map = reconstruct_density_map(_torch.from_numpy(pts_np).to(_device),
                                            grid_size=grid_size, alpha=alpha)
@@ -705,14 +540,6 @@ def visualize_overfit_metrics(
     compute_advanced=False,
     mc_approx=True,
 ):
-    """4-row comparison panel (adds M1-M5 text row when compute_advanced=True).
-
-    Columns: INPUT | GT | Pred0 | Pred1 | …
-      Row 0  Point clouds
-      Row 1  (optional) M1-M5 numeric metrics text
-      Row 2  Grid Capacity heatmaps
-      Row 3  Spacing Quality scatter
-    """
     if not HAS_MPL:
         return None
 
@@ -733,7 +560,6 @@ def visualize_overfit_metrics(
     step_label = f" (step {step})" if step is not None else ""
     image_01 = source_img.astype(np.float64) / 255.0
 
-    # Row 0: point clouds
     ax = axes[0, 0]
     ax.imshow(source_img, cmap="gray", vmin=0, vmax=255)
     ax.set_title("Condition (Source)")
@@ -770,7 +596,6 @@ def visualize_overfit_metrics(
     cap_row = 2 if compute_advanced else 1
     spa_row = 3 if compute_advanced else 2
 
-    # Row 1: grid capacity
     if gt_offsets is not None:
         try:
             from data.Transforms import to_pointset_optimal_transport
@@ -811,7 +636,6 @@ def visualize_overfit_metrics(
         )
         ax.axis("off")
 
-    # Row 2: spacing quality
     if gt_offsets is not None:
         try:
             n = gt_offsets.shape[-1]
@@ -852,7 +676,6 @@ def visualize_overfit_metrics(
         ax.axis("off")
         plt.colorbar(sc, ax=ax, shrink=0.7, label="NN dist")
 
-    # Row 1: M1-M5 text (optional)
     if compute_advanced:
         adv_points = [gt_points] + [pred_pointsets[i] for i in range(n_preds)]
         _render_advanced_metrics_row(axes[1, :], adv_points, col_labels, image_01, mc_approx=mc_approx)
@@ -874,7 +697,6 @@ def visualize_advanced_metrics_panel(
     gt_label="GT",
     mc_approx=True,
 ):
-    """Bar-chart panel of M1-M5 for predictions and optional GT."""
     if not HAS_MPL:
         return None
 
@@ -937,24 +759,10 @@ def visualize_advanced_metrics_panel(
 
 # ── Per-axis spatial visual functions ────────────────────────────────
 
-# -- Voronoi clipping helpers -------------------------------------------------
-
 def _clip_polygon_to_bbox(vertices, bbox=(0.0, 1.0, 0.0, 1.0)):
-    """Sutherland-Hodgman polygon clipping to axis-aligned bounding box.
-
-    Parameters
-    ----------
-    vertices : ndarray (N, 2)
-    bbox : (xmin, xmax, ymin, ymax)
-
-    Returns
-    -------
-    ndarray (M, 2) – clipped polygon vertices (may be empty)
-    """
     xmin, xmax, ymin, ymax = bbox
 
     def _clip_edge(poly, ax0, ay0, ax1, ay1):
-        """Clip *poly* against the half-plane to the left of (a0→a1)."""
         if not poly:
             return []
 
@@ -964,7 +772,6 @@ def _clip_polygon_to_bbox(vertices, bbox=(0.0, 1.0, 0.0, 1.0)):
         def _intersect(p1, p2):
             dx, dy = ax1 - ax0, ay1 - ay0
             dpx, dpy = p2[0] - p1[0], p2[1] - p1[1]
-            # denom = dx*dpy - dy*dpx  (correct Sutherland-Hodgman sign)
             denom = dx * dpy - dy * dpx
             if abs(denom) < 1e-12:
                 return p1
@@ -983,41 +790,23 @@ def _clip_polygon_to_bbox(vertices, bbox=(0.0, 1.0, 0.0, 1.0)):
         return out
 
     poly = [(v[0], v[1]) for v in vertices]
-    # CCW winding of [xmin,xmax]×[ymin,ymax]; "inside" = left of each directed edge
-    poly = _clip_edge(poly, xmin, ymin, xmax, ymin)   # bottom: y >= ymin
-    poly = _clip_edge(poly, xmax, ymin, xmax, ymax)   # right:  x <= xmax
-    poly = _clip_edge(poly, xmax, ymax, xmin, ymax)   # top:    y <= ymax
-    poly = _clip_edge(poly, xmin, ymax, xmin, ymin)   # left:   x >= xmin
+    poly = _clip_edge(poly, xmin, ymin, xmax, ymin)   
+    poly = _clip_edge(poly, xmax, ymin, xmax, ymax)   
+    poly = _clip_edge(poly, xmax, ymax, xmin, ymax)   
+    poly = _clip_edge(poly, xmin, ymax, xmin, ymin)   
     return np.array(poly) if poly else np.zeros((0, 2))
 
 
 def _voronoi_regions_clipped(vor, bbox=(0.0, 1.0, 0.0, 1.0)):
-    """Return a list of (clipped_vertices, is_originally_finite) per input point.
-
-    Infinite ridges are extended far enough to be clipped cleanly to *bbox*.
-    The returned order matches ``vor.points`` (one entry per point).
-
-    Parameters
-    ----------
-    vor : scipy.spatial.Voronoi
-    bbox : (xmin, xmax, ymin, ymax)
-
-    Returns
-    -------
-    list of (ndarray (M,2), bool)
-    """
     xmin, xmax, ymin, ymax = bbox
     center = vor.points.mean(axis=0)
-    # Extend far enough that any infinite ridge will be cut by the bbox
     radius = max(xmax - xmin, ymax - ymin) * 4.0
 
-    # Build ridge lookup: point_index → [(other_point, v1, v2), ...]
     ridge_map = {}
     for (p1, p2), (v1, v2) in zip(vor.ridge_points, vor.ridge_vertices):
         ridge_map.setdefault(p1, []).append((p2, v1, v2))
         ridge_map.setdefault(p2, []).append((p1, v1, v2))
 
-    # Extended vertex list (we may append far-points)
     ext_verts = vor.vertices.tolist()
 
     result = []
@@ -1028,17 +817,14 @@ def _voronoi_regions_clipped(vor, bbox=(0.0, 1.0, 0.0, 1.0)):
         if is_finite:
             raw = vor.vertices[region]
         else:
-            # Start from finite vertices in the region
             new_region = [v for v in region if v >= 0]
 
             for p2, v1, v2 in ridge_map.get(pt_idx, []):
-                # Swap so that v2 is the finite endpoint
                 if v2 < 0:
                     v1, v2 = v2, v1
                 if v1 >= 0:
-                    continue  # both endpoints finite – already in new_region
+                    continue  
 
-                # Build a "far point" for the infinite end
                 tangent = vor.points[p2] - vor.points[pt_idx]
                 norm = np.linalg.norm(tangent)
                 if norm < 1e-12:
@@ -1068,38 +854,20 @@ def _voronoi_regions_clipped(vor, bbox=(0.0, 1.0, 0.0, 1.0)):
 
 
 def _extract_subject_contour(density_map, bg_threshold=0.05):
-    """Extract the dominant subject-area contour as (N, 2) float in [0, 1].
-
-    Uses ``matplotlib.contour`` on a thresholded + hole-filled mask so no
-    extra dependencies (skimage, shapely) are required.
-
-    Parameters
-    ----------
-    density_map : ndarray (H, W), values in [0, 1]; 1 = subject, 0 = bg
-    bg_threshold : float
-
-    Returns
-    -------
-    ndarray (N, 2) in [0, 1] or None
-    """
     from scipy.ndimage import binary_fill_holes, gaussian_filter
 
     H, W = density_map.shape
 
-    # Binary mask: subject pixels
     mask = density_map > bg_threshold
-    # Fill interior holes (e.g. white eyes inside the monkey)
     mask = binary_fill_holes(mask)
-    # Very slight smoothing just to avoid 1-pixel jags in the contour path
     sigma = max(0.5, min(H, W) / 512.0)
     smooth = gaussian_filter(mask.astype(np.float32), sigma=sigma)
 
     try:
         fig_tmp, ax_tmp = plt.subplots(1, 1)
-        cs = ax_tmp.contour(smooth, levels=[0.5])   # threshold on the smooth mask
+        cs = ax_tmp.contour(smooth, levels=[0.5])   
         plt.close(fig_tmp)
 
-        # matplotlib >= 3.8 removed cs.collections; use cs.get_paths() instead
         try:
             all_paths = list(cs.get_paths())
         except AttributeError:
@@ -1108,39 +876,14 @@ def _extract_subject_contour(density_map, bg_threshold=0.05):
         if not all_paths:
             return None
 
-        # Pick the path enclosing the largest area (proxy: most vertices)
         largest = max(all_paths, key=lambda p: len(p.vertices))
-        verts = largest.vertices   # (col, row) in pixel indices
-        # Scale to [0, 1]
+        verts = largest.vertices   
         return np.column_stack([verts[:, 0] / W, verts[:, 1] / H])
     except Exception:
         return None
 
 
 def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True, show_colorbar=True, rng=None, mc_approx=True):
-    """Visual M2: Voronoi cells colored by mass deviation from the mean.
-
-    Red = over-filled (too much density mass), Blue = under-filled.
-
-    Parameters
-    ----------
-    points : ndarray (N, 2) in [0, 1]
-    image_01 : ndarray (H, W) float in [0, 1]  (0=dark/dense, 1=white/bg)
-    ax : matplotlib Axes
-    clip_to_domain : bool, default True
-        When True, the subject shape is extracted from the image and used as
-        a clip path — only the Voronoi mosaic inside the subject silhouette
-        is rendered; the white background is fully masked.
-        When False, all finite Voronoi cells are colored by deviation without
-        any contour clipping or background classification.
-    show_colorbar : bool, default True
-        When True, displays colorbar legend with Under/Avg/Over buckets and percentages.
-        When False, hides the colorbar (useful for paper figures).
-    rng : numpy.random.Generator or None
-        Optional seeded RNG for the Monte-Carlo cell-mass estimate.
-    mc_approx : bool, default True
-        When False, evaluates cell mass from all pixel centers inside each cell.
-    """
     from matplotlib.patches import Polygon as MplPolygon, PathPatch
     from matplotlib.collections import PatchCollection
     from matplotlib.path import Path, Path as MplPath
@@ -1148,7 +891,6 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
     from matplotlib.colors import BoundaryNorm, ListedColormap
     from scipy.spatial import Voronoi
 
-    # Stippling density: dark = subject (high), white bg = 0
     density_map = 1.0 - image_01
 
     if rng is None:
@@ -1170,7 +912,6 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
         _, px, py = sample
         return float(density_map[py, px].mean())
 
-    # ── Build Voronoi cell polygons (finite cells only in both modes) ─────
     cell_polys, cell_masses = [], []
     for pt_idx in vor.point_region:
         region = vor.regions[pt_idx]
@@ -1182,12 +923,10 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
 
     cell_masses = np.array(cell_masses)
 
-    # Deviation relative to the mean of all cells
     mean_mass = cell_masses.mean() if len(cell_masses) > 0 else 1.0
     deviations = np.clip((cell_masses - mean_mass) / (mean_mass + 1e-8), -1.0, 1.0)
     dev_count = int(len(deviations))
 
-    # Three readable buckets: under / avg / over.
     under_thr = -0.15
     over_thr = 0.15
     bucket_edges = np.array([-1.0, under_thr, over_thr, 1.0], dtype=np.float32)
@@ -1203,8 +942,6 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
         col.set_array(deviations)
 
         if clip_to_domain:
-            # ── clip_to_domain=True: extract subject contour and clip the
-            #    collection so only the inside of the shape is rendered. ──────
             contour_pts = _extract_subject_contour(density_map, bg_threshold=0.05)
             if contour_pts is not None and len(contour_pts) >= 3:
                 cp = np.vstack([contour_pts, contour_pts[0]])
@@ -1218,16 +955,12 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
                 )
                 ax.add_patch(clip_patch)
                 col.set_clip_path(clip_patch)
-                # Draw the contour outline on top for reference
                 closed = np.vstack([contour_pts, contour_pts[0]])
                 ax.plot(closed[:, 0], closed[:, 1],
                         color="black", linewidth=0.8, zorder=10, alpha=0.5)
 
-        # clip_to_domain=False: draw all finite cells as-is, no contour
         ax.add_collection(col)
 
-        # Legend: range + percentage for each signed deviation bucket.
-        # This makes the M2 color distribution easier to read at a glance.
         if show_colorbar:
             hist, _ = np.histogram(deviations, bins=bucket_edges)
             total = max(dev_count, 1)
@@ -1245,6 +978,9 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
             cbar.ax.set_yticklabels(tick_labels, fontsize=7)
             cbar.set_label("Voronoi mass deviation", fontsize=8)
             cbar.ax.tick_params(length=0)
+            
+            # Key fix #2: Detach the colorbar layout constraint so it doesn't permanently shrink the axes
+            ax.set_axes_locator(None)
 
     ax.scatter(pts_clip[:, 0], pts_clip[:, 1], c="black", s=0.5, zorder=5)
     ax.set_xlim(0, 1)
@@ -1252,25 +988,27 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
     ax.invert_yaxis()
     ax.set_aspect("equal")
     ax.axis("off")
+    
     if dev_count > 0:
         under_pct = float((deviations < under_thr).mean() * 100.0)
         avg_pct = float(((deviations >= under_thr) & (deviations <= over_thr)).mean() * 100.0)
         over_pct = float((deviations > over_thr).mean() * 100.0)
-        ax.set_title(
-            "[M2] Capacity Constraint (Voronoi Mass Deviation)\n"
-            f"(Under:{under_pct:.0f}% Avg:{avg_pct:.0f}% Over:{over_pct:.0f}%)",
-            fontsize=9,
-        )
+        
+        ax.set_title("[M2] Capacity Constraint (Voronoi Mass Deviation)", fontsize=9)
+        
+        # Key Fix #1: Draw dashed third lines mimicking the capacity grid style
+        for x in [0.333, 0.666]:
+            ax.plot([x, x], [0, 1], transform=ax.transAxes, color="0.75", linestyle="--", linewidth=0.5, zorder=0)
+
+        # Key Fix #1: Render the texts fully separated at uniform horizontal spacing
+        ax.text(0.166, -0.06, f"Under: {under_pct:.0f}%", va="top", ha="center", fontsize=11, color="#2b6cb0", transform=ax.transAxes)
+        ax.text(0.500, -0.06, f"Avg: {avg_pct:.0f}%", va="top", ha="center", fontsize=11, color="#555555", transform=ax.transAxes)
+        ax.text(0.833, -0.06, f"Over: {over_pct:.0f}%", va="top", ha="center", fontsize=11, color="#c53030", transform=ax.transAxes)
     else:
-        ax.set_title("[M2] Capacity Constraint (Voronoi Mass Deviation)\n(Under / Avg / Over)", fontsize=9)
+        ax.set_title("[M2] Capacity Constraint (Voronoi Mass Deviation)", fontsize=9)
 
 
-def plot_visual_m5_spatial_measure(points, image_01, ax):
-    """Visual M5: Points colored by spatial measure rho = r_min / r_max.
-
-    Uniformity hotspots: red = clumped (low rho), blue = uniform (high rho).
-    Ideal rho ≈ 0.75 for blue-noise distributions.
-    """
+def plot_visual_m5_spatial_measure(points, image_01, ax, show_colorbar=True):
     from scipy.spatial import cKDTree
 
     N = len(points)
@@ -1278,34 +1016,34 @@ def plot_visual_m5_spatial_measure(points, image_01, ax):
         ax.set_title("[M5] Spatial Measure (ρ) Hotspots\n(insufficient points)", fontsize=9)
         return
 
-    # Compute nearest-neighbor distances (r_min)
     tree = cKDTree(points)
     nn_dists, _ = tree.query(points, k=2)
     r_min = nn_dists[:, 1]
 
-    # Get local image density at each point (stippling density: dark = 1, white = 0)
     H, W = image_01.shape
     gx = np.clip((points[:, 0] * (W - 1)).astype(int), 0, W - 1)
     gy = np.clip((points[:, 1] * (H - 1)).astype(int), 0, H - 1)
     local_img_density = 1.0 - image_01[gy, gx]
     
-    # Compute local point density: D_x = N * (local_density / mean(local_density))
     mean_density = local_img_density.mean()
     if mean_density < 1e-10:
         mean_density = 1.0
     D_x = N * (local_img_density / (mean_density + 1e-10))
     
-    # Compute maximal spacing: r_max = sqrt(2.0 / (sqrt(3.0) * D_x))
     D_x_safe = np.maximum(D_x, 1e-8)
     r_max = np.sqrt(2.0 / (np.sqrt(3.0) * D_x_safe))
     
-    # Compute spatial uniformity: rho = r_min / r_max
     rho_values = np.clip(r_min / (r_max + 1e-10), 0.0, 2.0)
 
-    # Use diverging colormap centered at rho=0.75 (ideal blue-noise value)
     sc = ax.scatter(points[:, 0], points[:, 1], c=rho_values,
                     cmap="RdYlBu", s=2.0, vmin=0.4, vmax=1.1)
-    plt.colorbar(sc, ax=ax, shrink=0.7, label="ρ (uniformity)")
+                    
+    if show_colorbar:
+        plt.colorbar(sc, ax=ax, shrink=0.7, label="ρ (uniformity)")
+        
+        # Key fix #2: Detach the colorbar layout constraint so it doesn't permanently shrink the axes
+        ax.set_axes_locator(None)
+        
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.invert_yaxis()
@@ -1315,11 +1053,6 @@ def plot_visual_m5_spatial_measure(points, image_01, ax):
 
 
 def plot_visual_m1_cvt_vectors(points, image_01, ax):
-    """Visual M1: Voronoi boundaries + red lines to each cell's geometric centroid.
-
-    Arrow length/direction show how far and which way each point should move
-    to reach the density-weighted CVT optimum.
-    """
     from scipy.spatial import Voronoi, voronoi_plot_2d
 
     pts_clip = np.clip(points, 1e-5, 1 - 1e-5)
@@ -1356,11 +1089,6 @@ def plot_visual_m1_cvt_vectors(points, image_01, ax):
 
 
 def plot_visual_m5_spectrum(points, image_01, ax):
-    """Visual M5: Log-log radial power spectrum with regression line overlay.
-
-    Shows whether the spectrum follows a blue-noise power law (straight line)
-    and reveals any frequency spikes causing spatial artifacts.
-    """
     H, W = image_01.shape
     grid_size = max(H, W)
 
@@ -1418,30 +1146,6 @@ def visualize_spatial_metrics_panel(
     clip_to_domain=True,
     show_colorbar=True,
 ):
-    """3-row spatial-visual panel: M1 Voronoi / M4 NND / M5 CVT.
-
-    Each column is one point set (an arbitrary number of methods can be shown).
-    Each row is one spatial metric visualisation.
-
-    Parameters
-    ----------
-    image_01 : ndarray (H, W) float in [0, 1]
-    pred_pointsets : list of ndarray (N, 2) in [0, 1]
-    save_path : str
-    pred_labels : list of str or None
-    gt_points : ndarray (N, 2) or None
-    gt_label : str
-    clip_to_domain : bool, default True
-        Passed to plot_visual_m2_capacity_constraint.  When True, boundary Voronoi
-        cells are clipped to [0,1] and drawn white instead of being omitted.
-    show_colorbar : bool, default True
-        When True, displays colorbar legend on M2 visualization.
-        When False, hides the colorbar (useful for paper figures).
-
-    Returns
-    -------
-    save_path or None
-    """
     if not HAS_MPL:
         return None
 
@@ -1489,17 +1193,17 @@ def visualize_spatial_metrics_panel(
             try:
                 if fn is plot_visual_m2_capacity_constraint:
                     fn(pts, image_01, ax, clip_to_domain=clip_to_domain, show_colorbar=show_colorbar)
+                elif fn is plot_visual_m5_spatial_measure:
+                    fn(pts, image_01, ax, show_colorbar=show_colorbar)
                 else:
                     fn(pts, image_01, ax)
             except Exception as exc:
                 ax.axis("off")
                 ax.set_title(f"{row_titles[row_idx]}\n(error)", fontsize=8)
-            # Prepend column label on top row
             if row_idx == 0:
                 current = ax.get_title()
                 ax.set_title(f"[{label}]  {current}", fontsize=9)
 
-    # Row labels on left spine
     for row_idx, rt in enumerate(row_titles):
         axes[row_idx, 0].set_ylabel(rt, fontsize=10, fontweight="bold", labelpad=8)
 

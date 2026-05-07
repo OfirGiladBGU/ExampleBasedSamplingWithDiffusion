@@ -321,9 +321,9 @@ def save_panel(save_path, condition_image_01, gt_points_batch, baseline_points_b
     axes[0, 0].axis("off")
 
     axes[1, 0].axis("off")
-    axes[1, 0].text(0.5, 0.5, "Baseline", ha="center", va="center", fontsize=11)
+    axes[1, 0].text(0.5, 0.5, "Baseline", ha="center", va="center", fontsize=20)
     axes[2, 0].axis("off")
-    axes[2, 0].text(0.5, 0.5, "Control V4", ha="center", va="center", fontsize=11)
+    axes[2, 0].text(0.5, 0.5, "Ours", ha="center", va="center", fontsize=20)
 
     for i, gt_points in enumerate(gt_points_batch):
         col = i + 1
@@ -331,7 +331,7 @@ def save_panel(save_path, condition_image_01, gt_points_batch, baseline_points_b
         axes[0, col].set_xlim(0, 1)
         axes[0, col].set_ylim(0, 1)
         axes[0, col].set_aspect("equal")
-        axes[0, col].set_title(f"GT{i+1}")
+        axes[0, col].set_title(f"Sample {i+1}")
         axes[0, col].axis("off")
 
         baseline_points = baseline_points_batch[i]
