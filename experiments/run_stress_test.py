@@ -40,10 +40,10 @@ BASELINE_CKPT_PATH = "config_trained/GBN_stress1/model.ckpt"
 # Control V4 configuration
 CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data_stress1_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
 
-# Stress 2:
+# Stress 2 - SKIP:
 # DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2"
 # OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs_stress2")
 # # Baseline configuration
@@ -52,7 +52,7 @@ CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1_no_random/checkpoi
 # # Control V4 configuration
 # CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2/checkpoints/dynamic_controlnet_v4_ep1500.pt"
+# CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data_stress2/checkpoints/dynamic_controlnet_v4_ep1500.pt"
 
 
 # Stress V2:
@@ -64,7 +64,7 @@ CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1_no_random/checkpoi
 # # Control V4 configuration
 # CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2_V2_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data_stress2_V2_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
 
 # Common settings
@@ -317,7 +317,7 @@ def save_panel(save_path, condition_image_01, gt_points_batch, baseline_points_b
     fig, axes = plt.subplots(3, n_cols, figsize=(3.2 * n_cols, 8.6), dpi=180)
 
     axes[0, 0].imshow(condition_image_01, cmap="gray", vmin=0.0, vmax=1.0)
-    axes[0, 0].set_title("Condition")
+    axes[0, 0].set_title("Condition", fontsize=15)
     axes[0, 0].axis("off")
 
     axes[1, 0].axis("off")
@@ -331,7 +331,7 @@ def save_panel(save_path, condition_image_01, gt_points_batch, baseline_points_b
         axes[0, col].set_xlim(0, 1)
         axes[0, col].set_ylim(0, 1)
         axes[0, col].set_aspect("equal")
-        axes[0, col].set_title(f"Sample {i+1}")
+        axes[0, col].set_title(f"Sample {i+1}", fontsize=15)
         axes[0, col].axis("off")
 
         baseline_points = baseline_points_batch[i]
@@ -463,7 +463,7 @@ def main():
         batch_coords_features=args.batch_coords_features,
     ).to(device)
     ctrl_state = torch.load(args.control_ckpt, map_location="cpu")
-    control_net.load_state_dict(_extract_control_state_dict(ctrl_state), strict=True)
+    control_net.load_state_dict(_extract_control_state_dict(ctrl_state), strict=False)
     control_net.eval()
 
     condition_images_01 = []
