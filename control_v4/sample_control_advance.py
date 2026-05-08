@@ -105,6 +105,7 @@ SDF_TRUNCATE_PX = 8.0
 SDF_FEATURES = False
 SMART_INIT_FEATURES = False
 BATCH_COORDS_FEATURES = False
+ENABLE_SMART_INIT_SPLAT_SIGMA = False
 SHOW_DENOISING = False
 SHOW_DENOISING_INTERVAL = 50
 TRUNCATION_RATIO = 0.30
@@ -786,6 +787,12 @@ def main():
     parser.add_argument("--smart-init-splat-sigma-px", type=float, default=SMART_INIT_SPLAT_SIGMA_PX,
                         help="Gaussian sigma in grid-pixel units for Smart Init soft splatting (match training default)")
     parser.add_argument(
+        "--enable-smart-init-splat-sigma",
+        action=argparse.BooleanOptionalAction,
+        default=ENABLE_SMART_INIT_SPLAT_SIGMA,
+        help="Enable Gaussian soft-splat rendering for Smart Init model input grid.",
+    )
+    parser.add_argument(
         "--capacity-grid-size",
         type=int,
         default=CAPACITY_GRID_SIZE,
@@ -862,14 +869,17 @@ def main():
     if args.smart_init_features:
         smart_grid_np = render_smart_init_grid(smart_points, grid_size=args.grid_size)
         smart_init_grid_raw = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
-        grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets.dtype)
-        smart_coords = _offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
-        smart_init_grid = _render_smart_init_gpu(
-            smart_coords,
-            args.grid_size,
-            args.smart_init_splat_sigma_px,
-            device,
-        )
+        if args.enable_smart_init_splat_sigma:
+            grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets.dtype)
+            smart_coords = _offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
+            smart_init_grid = _render_smart_init_gpu(
+                smart_coords,
+                args.grid_size,
+                args.smart_init_splat_sigma_px,
+                device,
+            )
+        else:
+            smart_init_grid = smart_init_grid_raw
     else:
         smart_grid_np = None
         smart_init_grid_raw = None
@@ -916,6 +926,9 @@ def main():
     print(f"Loaded checkpoint : {args.control_ckpt}")
     print(f"GECCO enabled     : {args.enable_gecco}")
     print(f"Smart Init enabled: {args.smart_init_features}")
+    print(f"Smart Init splat-sigma enabled: {args.enable_smart_init_splat_sigma}")
+    if args.enable_smart_init_splat_sigma:
+        print(f"Smart Init splat sigma (px): {args.smart_init_splat_sigma_px}")
     print(f"Batch coords      : {args.batch_coords_features}")
     print(f"SDF enabled       : {args.sdf_features}")
     print(f"Timesteps         : {args.timesteps}")

@@ -66,24 +66,25 @@ OUTPUT_DIR = "control_v4/overfit_outputs"
 WANDB_ENV = ".env"
 EXPORT_GT_OFFSET = True
 
-# Model parameters
-FREEZE_DENOISER = True
-GRID_SIZE = 32
-N_POINTS = GRID_SIZE ** 2
+ENABLE_GECCO = True
+ENABLE_ADAPTIVE_GATE_INJECTION = True
 SAMPLE_TIMESTEPS = 1000
 TRUNCATION_RATIO = 0.30
-
-ENABLE_GECCO = True
 RESAMPLE_JUMPS = 2
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
 BATCH_COORDS_FEATURES = False
-SDF_TRUNCATE_PX = 8.0
+ENABLE_SMART_INIT_JITTER = False
+ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+# Model parameters
+FREEZE_DENOISER = True
+GRID_SIZE = 32
+N_POINTS = GRID_SIZE ** 2
 
 SMART_INIT_SEED = 42
-ENABLE_SMART_INIT_JITTER = False
+SDF_TRUNCATE_PX = 8.0
 SMART_INIT_JITTER_PX = 0.5
-ENABLE_SMART_INIT_SPLAT = False
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 # Loss parameters
@@ -469,9 +470,11 @@ def main():
         help="Enable Gaussian micro-jitter on Smart Init points (requires --smart-init-jitter-px > 0)",
     )
     parser.add_argument(
+        "--enable-smart-init-splat-sigma",
         "--enable-smart-init-splat",
+        dest="enable_smart_init_splat_sigma",
         action=argparse.BooleanOptionalAction,
-        default=ENABLE_SMART_INIT_SPLAT,
+        default=ENABLE_SMART_INIT_SPLAT_SIGMA,
         help="Enable Gaussian soft splatting for Smart Init grid; when disabled uses occupancy grid",
     )
 
@@ -652,7 +655,7 @@ def main():
     print(f"  Smart Init micro-jitter (px): {args.smart_init_jitter_px}")
     print(f"  Smart Init soft-splat sigma (px): {args.smart_init_splat_sigma_px}")
     print(f"  Smart Init jitter enabled: {args.enable_smart_init_jitter}")
-    print(f"  Smart Init splat enabled: {args.enable_smart_init_splat}")
+    print(f"  Smart Init splat-sigma enabled: {args.enable_smart_init_splat_sigma}")
     if args.capacity_grid_size == -1:
         print("  Capacity grid size: full source resolution")
     else:
@@ -680,7 +683,7 @@ def main():
             smart_init_offsets = smart_init_offsets_base
 
             smart_coords = None
-            if args.enable_smart_init_jitter or args.enable_smart_init_splat:
+            if args.enable_smart_init_jitter or args.enable_smart_init_splat_sigma:
                 smart_coords = smart_points_base.clone()
 
             if args.enable_smart_init_jitter:
@@ -691,7 +694,7 @@ def main():
                 )
                 smart_init_offsets = coords_to_offsets_gpu(smart_coords, GRID_SIZE, smart_grid_centers_flat)
 
-            if args.enable_smart_init_splat:
+            if args.enable_smart_init_splat_sigma:
                 smart_init_grid = render_smart_init_gpu(
                     smart_coords,
                     grid_size=GRID_SIZE,

@@ -63,59 +63,80 @@ CKPT_PATH = "config/GBN/model.ckpt"
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
 OUTPUT_DIR = "control_v4/train_outputs_icons50_512_no_random"
-ENABLE_SMART_INIT_JITTER = False
-ENABLE_SMART_INIT_SPLAT_SIGMA = False
 GRID_SIZE = 32
 VAL_SPLIT = 0.1
 EPOCHS = 10000
 SAVE_EVERY = 10
+ENABLE_GECCO = True
+ENABLE_ADAPTIVE_GATE_INJECTION = True
+EVAL_TIMESTEPS = 1000
+TRUNCATION_RATIO = 0.30
+RESAMPLE_JUMPS = 2
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
 BATCH_COORDS_FEATURES = False
+ENABLE_SMART_INIT_JITTER = False
+ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
 # FACES 1024
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
 # TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
 # OUTPUT_DIR = "control_v4/train_outputs_data_celeba_5K_1024_no_random"
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # GRID_SIZE = 32
 # VAL_SPLIT = 0.1
 # EPOCHS = 10000
 # SAVE_EVERY = 10
+# ENABLE_GECCO = True
+# ENABLE_ADAPTIVE_GATE_INJECTION = True
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
 # BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
 # ANIMALS 1024
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/source"
 # TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/target"
 # OUTPUT_DIR = "control_v4/train_outputs_data_AM-2K_1024_no_random"
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # GRID_SIZE = 32
 # VAL_SPLIT = 0.1
 # EPOCHS = 20000
 # SAVE_EVERY = 10
+# ENABLE_GECCO = True
+# ENABLE_ADAPTIVE_GATE_INJECTION = True
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
 # BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
 
 # Stress 1 1024
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/source"
 # TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/target"
 # OUTPUT_DIR = "control_v4/train_outputs_data_stress1_no_random"
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # GRID_SIZE = 32
 # VAL_SPLIT = 0.0
 # EPOCHS = 10000
 # SAVE_EVERY = 10
-# SMART_INIT_FEATURES = True
-# SDF_FEATURES = True
-# BATCH_COORDS_FEATURES = True
+# ENABLE_GECCO = True
+# ENABLE_ADAPTIVE_GATE_INJECTION = True
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+# SMART_INIT_FEATURES = True    # NOTE
+# SDF_FEATURES = True           # NOTE
+# BATCH_COORDS_FEATURES = True  # NOTE
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
 # Stress 2 1024 V2
@@ -128,24 +149,36 @@ BATCH_COORDS_FEATURES = False
 # VAL_SPLIT = 0.0
 # EPOCHS = 10000
 # SAVE_EVERY = 10
-# SMART_INIT_FEATURES = True
-# SDF_FEATURES = True
-# BATCH_COORDS_FEATURES = True
+# ENABLE_GECCO = True
+# ENABLE_ADAPTIVE_GATE_INJECTION = True
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+# SMART_INIT_FEATURES = True    # NOTE
+# SDF_FEATURES = True           # NOTE
+# BATCH_COORDS_FEATURES = True  # NOTE
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
 # # Stress 2 1024 V1 - IGNORE
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/source"
 # TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/target"
 # OUTPUT_DIR = "control_v4/train_outputs_data_stress2_no_random"
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # GRID_SIZE = 32
 # VAL_SPLIT = 0.0
 # EPOCHS = 10000
 # SAVE_EVERY = 10
-# SMART_INIT_FEATURES = True
-# SDF_FEATURES = True
-# BATCH_COORDS_FEATURES = True
+# ENABLE_GECCO = True
+# ENABLE_ADAPTIVE_GATE_INJECTION = True
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+# SMART_INIT_FEATURES = True    # NOTE
+# SDF_FEATURES = True           # NOTE
+# BATCH_COORDS_FEATURES = True  # NOTE
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
@@ -155,16 +188,10 @@ PRELOAD_RAM = False  # Preload all cached data to RAM (eliminates disk I/O per b
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
 # Model parameters
-FREEZE_DENOISER = True
-GRID_SIZE = 32
-ENABLE_GECCO = True
-RESAMPLE_JUMPS = 2
-SDF_TRUNCATE_PX = 8.0
-
-EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.30
-
+FREEZE_DENOISER = True  # TODO: Add in the other scripts
+# GRID_SIZE = 32
 SMART_INIT_SEED = 42
+SDF_TRUNCATE_PX = 8.0
 SMART_INIT_JITTER_PX = 0.5
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
@@ -188,7 +215,6 @@ PIN_MEMORY = True
 WANDB_VALID_IMAGES = 8
 WANDB_TRAIN_IMAGES = 8
 SHOW_LABELS = True
-ENABLE_ADAPTIVE_GATE_INJECTION = True
 
 
 def load_wandb_key():
@@ -700,7 +726,7 @@ def main():
         "--enable-smart-init-splat-sigma",
         action=argparse.BooleanOptionalAction,
         default=ENABLE_SMART_INIT_SPLAT_SIGMA,
-        help="Enable Gaussian soft splatting for Smart Init grid; zeros the channel when disabled",
+        help="Enable Gaussian soft splatting for Smart Init grid; when disabled, uses occupancy rendering",
     )
     parser.add_argument(
         "--enable-adaptive-gate-injection",

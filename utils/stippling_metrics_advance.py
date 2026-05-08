@@ -1038,10 +1038,6 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
     
     if dev_count > 0:
         ax.set_title(f"{plot_title}", fontsize=_fs())
-        
-        # Key Fix #1: Draw dashed third lines mimicking the capacity grid style
-        for x in [0.333, 0.666]:
-            ax.plot([x, x], [0, 1], transform=ax.transAxes, color="0.75", linestyle="--", linewidth=0.5, zorder=0)
 
         # Key Fix #1: Render the texts fully separated at uniform horizontal spacing
         ax.text(0.166, -0.06, f"Under: {u_disp}%", va="top", ha="center", fontsize=_fs(), color="#2b6cb0", transform=ax.transAxes)

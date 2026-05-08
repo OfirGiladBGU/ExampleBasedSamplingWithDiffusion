@@ -77,17 +77,23 @@ TIMESTEPS = 1000
 BASELINE_TRUNCATION_RATIO = 1.0
 
 # Control V4
-TRUNCATION_RATIO = 0.30
-RESAMPLE_JUMPS = 0
 ENABLE_GECCO = True
-SDF_FEATURES = True
-SDF_TRUNCATE_PX = 8.0
-SMART_INIT_SEED = 42
-SMART_INIT_FEATURES = True
-BATCH_COORDS_FEATURES = True
+ENABLE_ADAPTIVE_GATE_INJECTION = True
+EVAL_TIMESTEPS = 1000
+TRUNCATION_RATIO = 0.30
+RESAMPLE_JUMPS = 2
+SMART_INIT_FEATURES = False
+SDF_FEATURES = False
+BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
-VALID_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
+SMART_INIT_SEED = 42
+SDF_TRUNCATE_PX = 8.0
+# SMART_INIT_JITTER_PX = 0.5
+SMART_INIT_SPLAT_SIGMA_PX = 0.5
+
+VALID_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 CALCULATE_METRICS = True
 CAPACITY_GRID_SIZE = 32
 
@@ -365,7 +371,7 @@ def main():
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
     parser.add_argument("--smart-init-features", action=argparse.BooleanOptionalAction, default=SMART_INIT_FEATURES)
     parser.add_argument("--batch-coords-features", action=argparse.BooleanOptionalAction, default=BATCH_COORDS_FEATURES)
-    parser.add_argument("--smart-init-splat-sigma-px", type=float, default=0.5)
+    parser.add_argument("--smart-init-splat-sigma-px", type=float, default=SMART_INIT_SPLAT_SIGMA_PX)
     parser.add_argument(
         "--enable-smart-init-splat-sigma",
         action=argparse.BooleanOptionalAction,
