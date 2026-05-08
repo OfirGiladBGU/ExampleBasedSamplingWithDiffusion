@@ -412,7 +412,8 @@ def visualize_compare_panel(
                 # Check for closest match across all items
                 if target_caps is not None and mark_best and len(emp) == len(target_caps):
                     for q in range(len(target_caps)):
-                        diff = abs(emp[q] - target_caps[q])
+                        # FIX: Round to 1 decimal place to fix floating-point tie-breaker bugs
+                        diff = round(abs(round(emp[q], 1) - round(target_caps[q], 1)), 1)
                         if diff < best_diffs[q]:
                             best_diffs[q] = diff
             except Exception:
@@ -445,8 +446,8 @@ def visualize_compare_panel(
                         
                         # Determine if this capacity is the closest to the target capacity
                         if target_caps is not None and mark_best and best_diffs is not None and len(emp) == len(target_caps):
-                            diff = abs(capacity - target_caps[q])
-                            # Adding small epsilon to gracefully handle identical float ties
+                            # FIX: Evaluate the tie exactly as it will be displayed on screen
+                            diff = round(abs(round(capacity, 1) - round(target_caps[q], 1)), 1)
                             if diff <= best_diffs[q] + 1e-5:
                                 is_best = True
                         

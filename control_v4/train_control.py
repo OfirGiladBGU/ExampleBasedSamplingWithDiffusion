@@ -793,6 +793,10 @@ def main():
     )
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
+    run(args=args)
+
+
+def run(args):
     if args.wandb_valid_images < 0:
         raise ValueError("--wandb-valid-images must be >= 0")
     if args.wandb_train_images < 0:
