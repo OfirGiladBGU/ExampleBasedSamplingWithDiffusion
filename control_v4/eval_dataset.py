@@ -82,6 +82,7 @@ SMART_INIT_SPLAT_SIGMA_PX = 0.5
 PANEL_NAME = "eval_panel.png"
 META_NAME = "eval_selection.json"
 SHOW_LABELS = False
+ENABLE_ADAPTIVE_GATE_INJECTION = True
 
 
 def _parse_index_list(raw_text, arg_name):
@@ -133,10 +134,10 @@ def _load_models(args, device):
         smart_init_features=args.smart_init_features,
         sdf_features=args.sdf_features,
         batch_coords_features=args.batch_coords_features,
+        enable_adaptive_gate_injection=args.enable_adaptive_gate_injection,
     ).to(device)
-
     state = torch.load(args.control_ckpt, map_location="cpu")
-    control_net.load_state_dict(state["control_net"], strict=False)
+    control_net.safe_load_state_dict(state, strict=False)
     control_net.eval()
     return diffusion, denoiser, control_net
 
@@ -203,6 +204,12 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=SHOW_LABELS,
         help="Show column headers (Condition, GT, Predict, GT Offset Quiver) on top row of panel",
+    )
+    parser.add_argument(
+        "--enable-adaptive-gate-injection",
+        action=argparse.BooleanOptionalAction,
+        default=ENABLE_ADAPTIVE_GATE_INJECTION,
+        help="Use sigmoid-gated adaptive injection (default); use --no-enable-adaptive-gate-injection for simple zero convolutions",
     )
     args = parser.parse_args()
 

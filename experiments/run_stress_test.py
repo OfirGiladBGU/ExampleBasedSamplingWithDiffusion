@@ -139,26 +139,6 @@ def _pick_target_images(target_dir, n_examples):
     return [os.path.join(target_dir, f) for f in candidates[:n_examples]]
 
 
-
-def _extract_control_state_dict(ctrl_state):
-    if not isinstance(ctrl_state, dict):
-        raise TypeError(f"Control checkpoint must be a dict, got {type(ctrl_state)}")
-
-    for key in ("control_net", "model_state_dict", "state_dict"):
-        maybe = ctrl_state.get(key)
-        if isinstance(maybe, dict) and maybe and all(hasattr(v, "shape") for v in maybe.values()):
-            return maybe
-
-    if ctrl_state and all(hasattr(v, "shape") for v in ctrl_state.values()):
-        return ctrl_state
-
-    keys_preview = ", ".join(list(ctrl_state.keys())[:8])
-    raise KeyError(
-        "Could not find control weights in checkpoint. "
-        f"Expected one of ['control_net', 'model_state_dict', 'state_dict']; found keys: [{keys_preview}]"
-    )
-
-
 def _resolve_ckpt_path(path):
     if os.path.exists(path):
         return path
@@ -462,8 +442,8 @@ def main():
         sdf_features=args.sdf_features,
         batch_coords_features=args.batch_coords_features,
     ).to(device)
-    ctrl_state = torch.load(args.control_ckpt, map_location="cpu")
-    control_net.load_state_dict(_extract_control_state_dict(ctrl_state), strict=False)
+    state = torch.load(args.control_ckpt, map_location="cpu")
+    control_net.safe_load_state_dict(state, strict=False)
     control_net.eval()
 
     condition_images_01 = []

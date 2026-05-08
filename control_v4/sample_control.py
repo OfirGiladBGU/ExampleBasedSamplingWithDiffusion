@@ -433,8 +433,8 @@ def main():
         sdf_features=args.sdf_features,
         batch_coords_features=args.batch_coords_features,
     ).to(device)
-    ctrl_state = torch.load(args.control_ckpt, map_location="cpu")
-    control_net.load_state_dict(_extract_control_state_dict(ctrl_state), strict=False)
+    state = torch.load(args.control_ckpt, map_location="cpu")
+    control_net.safe_load_state_dict(state, strict=False)
     control_net.eval()
 
     img_stem = os.path.splitext(os.path.basename(args.input_image))[0]

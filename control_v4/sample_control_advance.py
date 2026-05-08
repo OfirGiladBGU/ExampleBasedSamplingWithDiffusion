@@ -749,25 +749,6 @@ def load_condition(image_path, grid_size, device, sdf_features=True, sdf_truncat
     return image_01, high_res, target_density, high_res_sdf, target_sdf
 
 
-def _extract_control_state_dict(ctrl_state):
-    if not isinstance(ctrl_state, dict):
-        raise TypeError(f"Control checkpoint must be a dict, got {type(ctrl_state)}")
-
-    for key in ("control_net", "model_state_dict", "state_dict"):
-        value = ctrl_state.get(key)
-        if isinstance(value, dict):
-            return value
-
-    if ctrl_state and all(hasattr(v, "shape") for v in ctrl_state.values()):
-        return ctrl_state
-
-    keys_preview = ", ".join(list(ctrl_state.keys())[:8])
-    raise KeyError(
-        "Could not find control weights in checkpoint. "
-        f"Expected one of ['control_net', 'model_state_dict', 'state_dict']; found keys: [{keys_preview}]"
-    )
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=CONFIG_PATH)
@@ -854,8 +835,8 @@ def main():
         sdf_features=args.sdf_features,
         batch_coords_features=args.batch_coords_features,
     ).to(device)
-    ctrl_state = torch.load(args.control_ckpt, map_location="cpu")
-    control_net.load_state_dict(_extract_control_state_dict(ctrl_state), strict=False)
+    state = torch.load(args.control_ckpt, map_location="cpu")
+    control_net.safe_load_state_dict(state, strict=False)
     control_net.eval()
 
     img_stem = os.path.splitext(os.path.basename(args.input_image))[0]

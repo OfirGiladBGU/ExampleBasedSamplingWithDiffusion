@@ -15,6 +15,24 @@ import torch.nn.functional as F
 
 from models.Layers import get_timestep_embedding
 
+### INJECTION MODULES ###
+
+
+class ZeroConvInjection(nn.Module):
+    """Simple zero-initialized 1x1 convolution injection (standard ControlNet behavior).
+    
+    Directly adds the control signal without gating: ``transform(ctrl)``.
+    """
+
+    def __init__(self, channels):
+        super().__init__()
+        self.transform = nn.Conv2d(channels, channels, 1)
+        nn.init.zeros_(self.transform.weight)
+        nn.init.zeros_(self.transform.bias)
+
+    def forward(self, ctrl_feature):
+        return self.transform(ctrl_feature)
+
 
 class AdaptiveGateInjection(nn.Module):
     """Sigmoid-gated 1x1 control injection (pre-V3.2 behavior).
@@ -38,6 +56,10 @@ class AdaptiveGateInjection(nn.Module):
         return g * self.transform(ctrl_feature)
 
 
+
+### DYNAMIC CONTROL NET ###
+
+
 class DynamicControlNet(nn.Module):
     """Trainable control branch with SDF-aware static and dynamic conditioning.
 
@@ -49,8 +71,8 @@ class DynamicControlNet(nn.Module):
       2. Passes offsets_t through the copied conv1, adds the 128ch hint,
          then runs through the control encoder + middle blocks.
         3. Returns (encoder_controls, middle_control) tensors transformed by
-            AdaptiveGateInjection, ready for
-         additive injection into the frozen U-Net.
+            either AdaptiveGateInjection (sigmoid-gated) or ZeroConvInjection (simple zero conv),
+         ready for additive injection into the frozen U-Net.
 
     Parameters
     ----------
@@ -64,6 +86,9 @@ class DynamicControlNet(nn.Module):
         using GECCO-style ``grid_sample`` at current offset positions.
     gecco_channels : int
         Number of dynamic channels produced by the GECCO feature extractor.
+    enable_adaptive_gate_injection : bool
+        If True, use AdaptiveGateInjection (sigmoid-gated 1x1 convolutions).
+        If False, use simple ZeroConvInjection (standard ControlNet zero convolutions).
     """
 
     def __init__(
@@ -75,6 +100,7 @@ class DynamicControlNet(nn.Module):
         smart_init_features=True,
         sdf_features=True,
         batch_coords_features=True,
+        enable_adaptive_gate_injection=True,
     ):
         super().__init__()
         self.ch = denoiser.ch
@@ -84,6 +110,7 @@ class DynamicControlNet(nn.Module):
         self.smart_init_features = bool(smart_init_features)
         self.sdf_features = bool(sdf_features)
         self.batch_coords_features = bool(batch_coords_features)
+        self.enable_adaptive_gate_injection = bool(enable_adaptive_gate_injection)
 
         # grid_centers and coord_grid are computed dynamically in forward() so that
         # the model can run inference on any grid size (e.g. train on 32x32, infer on
@@ -128,19 +155,20 @@ class DynamicControlNet(nn.Module):
             nn.Conv2d(64, first_hidden, 3, padding=4, dilation=4),  # ~29px
         )
 
-        # ── injection layers (adaptive gated projection) ──────────────
+        # ── injection layers (adaptive gated projection or simple zero conv) ──────────────
+        InjectionClass = AdaptiveGateInjection if self.enable_adaptive_gate_injection else ZeroConvInjection
         self.injections = nn.ModuleList()
         for level_layers in self.ctrl_encoder_layers:
             level_inj = nn.ModuleList()
             for block in level_layers:
                 resblock = list(block.children())[0]
                 out_ch = resblock.conv2.net[1].weight.shape[0]
-                level_inj.append(AdaptiveGateInjection(out_ch))
+                level_inj.append(InjectionClass(out_ch))
             self.injections.append(level_inj)
 
         middle_first_resblock = list(self.ctrl_middle.children())[0]
         middle_ch = middle_first_resblock.conv2.net[1].weight.shape[0]
-        self.inject_middle = AdaptiveGateInjection(middle_ch)
+        self.inject_middle = InjectionClass(middle_ch)
 
     def forward(
         self,
@@ -250,6 +278,67 @@ class DynamicControlNet(nn.Module):
             padding_mode="border",
             align_corners=False,
         )
+
+    ### MODEL LOADING ###
+
+    @staticmethod
+    def _extract_control_state_dict(ctrl_state):
+        """Extract the underlying control state-dict from a checkpoint-like object.
+
+        Accepts either a dict with one of the keys ('control_net','model_state_dict','state_dict')
+        or a raw state-dict mapping parameter names to tensors.
+        Raises informative errors on mismatch.
+        """
+        if not isinstance(ctrl_state, dict):
+            raise TypeError(f"Control checkpoint must be a dict, got {type(ctrl_state)}")
+
+        for key in ("control_net", "model_state_dict", "state_dict"):
+            value = ctrl_state.get(key)
+            if isinstance(value, dict):
+                return value
+
+        if ctrl_state and all(hasattr(v, "shape") for v in ctrl_state.values()):
+            return ctrl_state
+
+        keys_preview = ", ".join(list(ctrl_state.keys())[:8])
+        raise KeyError(
+            "Could not find control weights in checkpoint. "
+            f"Expected one of ['control_net', 'model_state_dict', 'state_dict']; found keys: [{keys_preview}]"
+        )
+
+    def safe_load_state_dict(self, state, strict=False):
+        """Load weights into *this* model safely and run validation.
+
+        Parameters
+        - state: a loaded checkpoint dict or a raw state-dict mapping parameter names to tensors.
+        - strict: passed to :meth:`load_state_dict`
+        - raise_on_missing: if True, raise when missing keys are present
+        - verbose: if True, print missing/unexpected key summaries
+
+        This method does not return a value; it raises on fatal problems.
+        """
+        if isinstance(state, dict):
+            ckpt = self._extract_control_state_dict(state)
+        else:
+            ckpt = state
+
+        # --- MINIMAL FIX: Prevent ZeroConv <-> AdaptiveGate mismatch ---
+        # Check if the checkpoint contains any 'gate' weights in the injection layers
+        ckpt_has_gates = any(".gate." in k for k in ckpt.keys() if "inject" in k)
+        
+        if self.enable_adaptive_gate_injection and not ckpt_has_gates:
+            raise RuntimeError(
+                "CRITICAL MISMATCH: Model is initialized with AdaptiveGateInjection, "
+                "but the loaded checkpoint was trained using ZeroConvInjection (no gate weights)."
+            )
+        elif not self.enable_adaptive_gate_injection and ckpt_has_gates:
+            raise RuntimeError(
+                "CRITICAL MISMATCH: Model is initialized with ZeroConvInjection, "
+                "but the loaded checkpoint was trained using AdaptiveGateInjection (contains gate weights)."
+            )
+        # ---------------------------------------------------------------
+
+        self.load_state_dict(ckpt, strict=strict)
 
 
 class DynamicControlledDenoiser(nn.Module):

@@ -188,6 +188,7 @@ PIN_MEMORY = True
 WANDB_VALID_IMAGES = 8
 WANDB_TRAIN_IMAGES = 8
 SHOW_LABELS = True
+ENABLE_ADAPTIVE_GATE_INJECTION = True
 
 
 def load_wandb_key():
@@ -701,6 +702,12 @@ def main():
         default=ENABLE_SMART_INIT_SPLAT_SIGMA,
         help="Enable Gaussian soft splatting for Smart Init grid; zeros the channel when disabled",
     )
+    parser.add_argument(
+        "--enable-adaptive-gate-injection",
+        action=argparse.BooleanOptionalAction,
+        default=ENABLE_ADAPTIVE_GATE_INJECTION,
+        help="Use sigmoid-gated adaptive injection (default); use --no-enable-adaptive-gate-injection for simple zero convolutions",
+    )
 
     # Loss parameters
     parser.add_argument(
@@ -817,6 +824,7 @@ def main():
         smart_init_features=args.smart_init_features,
         sdf_features=args.sdf_features,
         batch_coords_features=args.batch_coords_features,
+        enable_adaptive_gate_injection=args.enable_adaptive_gate_injection,
     ).to(device)
     control_net.train()
 
@@ -966,8 +974,8 @@ def main():
         if latest_path is None:
             print("Resume requested but no checkpoint found. Starting from scratch.")
         else:
-            state = torch.load(latest_path, map_location=device)
-            control_net.load_state_dict(state["control_net"], strict=False)
+            state = torch.load(latest_path, map_location="cpu")
+            control_net.safe_load_state_dict(state, strict=False)
             if "optimizer" in state and state["optimizer"] is not None:
                 optimizer.load_state_dict(state["optimizer"])
             global_step = int(state.get("global_step", 0))
