@@ -99,7 +99,7 @@ MARK_BEST = True  # Draws a red box around the capacity percentage closest to gr
 # DEFAULT_COMPARE_LIST = [
 #     {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/target_WVS_1024/emoji-one_4_monkey.png"},
 #     {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/target_GBN_1024/emoji-one_4_monkey.png"},
-#     {"ControlNet": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/target_CN_1024/emoji-one_4_monkey.png"},
+#     {"Ours": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/target_CN_1024/emoji-one_4_monkey.png"},
 # ]
 # CLIP_TO_DOMAIN = True
 # CAPACITY_TEST = False

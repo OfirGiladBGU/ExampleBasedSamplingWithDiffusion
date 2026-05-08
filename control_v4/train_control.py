@@ -58,13 +58,95 @@ WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-di
 CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH = "config/GBN/model.ckpt"
 
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_grads_v3_wave_1024/target"
-# OUTPUT_DIR = "control_v4/train_outputs"
 
-SOURCE_DIR = "C:\\Users\\User\\PycharmProjects\\Rougier-2017\\archive\\data_grads_v3_test_batch\\source"
-TARGET_DIR = "C:\\Users\\User\\PycharmProjects\\Rougier-2017\\archive\\data_grads_v3_test_batch\\target"
-OUTPUT_DIR = "control_v4/train_outputs"
+# ICONS 1024
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+OUTPUT_DIR = "control_v4/train_outputs_icons50_512_no_random"
+ENABLE_SMART_INIT_JITTER = False
+ENABLE_SMART_INIT_SPLAT_SIGMA = False
+GRID_SIZE = 32
+VAL_SPLIT = 0.1
+EPOCHS = 10000
+SAVE_EVERY = 10
+SMART_INIT_FEATURES = False
+SDF_FEATURES = False
+BATCH_COORDS_FEATURES = False
+
+
+# FACES 1024
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
+# OUTPUT_DIR = "control_v4/train_outputs_data_celeba_5K_1024_no_random"
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+# GRID_SIZE = 32
+# VAL_SPLIT = 0.1
+# EPOCHS = 10000
+# SAVE_EVERY = 10
+# SMART_INIT_FEATURES = False
+# SDF_FEATURES = False
+# BATCH_COORDS_FEATURES = False
+
+
+# ANIMALS 1024
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/target"
+# OUTPUT_DIR = "control_v4/train_outputs_data_AM-2K_1024_no_random"
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+# GRID_SIZE = 32
+# VAL_SPLIT = 0.1
+# EPOCHS = 20000
+# SAVE_EVERY = 10
+# SMART_INIT_FEATURES = False
+# SDF_FEATURES = False
+# BATCH_COORDS_FEATURES = False
+
+# Stress 1 1024
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/target"
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress1_no_random"
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+# GRID_SIZE = 32
+# VAL_SPLIT = 0.0
+# EPOCHS = 10000
+# SAVE_EVERY = 10
+# SMART_INIT_FEATURES = True
+# SDF_FEATURES = True
+# BATCH_COORDS_FEATURES = True
+
+
+# Stress 2 1024 V2
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/target"
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_V2_no_random"
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+# GRID_SIZE = 32
+# VAL_SPLIT = 0.0
+# EPOCHS = 10000
+# SAVE_EVERY = 10
+# SMART_INIT_FEATURES = True
+# SDF_FEATURES = True
+# BATCH_COORDS_FEATURES = True
+
+
+# # Stress 2 1024 V1 - IGNORE
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/target"
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_no_random"
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+# GRID_SIZE = 32
+# VAL_SPLIT = 0.0
+# EPOCHS = 10000
+# SAVE_EVERY = 10
+# SMART_INIT_FEATURES = True
+# SDF_FEATURES = True
+# BATCH_COORDS_FEATURES = True
+
 
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
 OFFSETS_DIR = ""
@@ -77,18 +159,13 @@ FREEZE_DENOISER = True
 GRID_SIZE = 32
 ENABLE_GECCO = True
 RESAMPLE_JUMPS = 2
-SMART_INIT_FEATURES = True
-SDF_FEATURES = True
-BATCH_COORDS_FEATURES = True
 SDF_TRUNCATE_PX = 8.0
 
 EVAL_TIMESTEPS = 1000
 TRUNCATION_RATIO = 0.30
 
 SMART_INIT_SEED = 42
-ENABLE_SMART_INIT_JITTER = False
 SMART_INIT_JITTER_PX = 0.5
-ENABLE_SMART_INIT_SPLAT_SIGMA = False
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 # Loss component weights
@@ -100,20 +177,17 @@ BEST_MAX_CLUMPED_PCT = 100.0
 # Training configuration
 WANDB_ACTIVE = True
 
-# EPOCHS = 100
-EPOCHS = 1
 BATCH_SIZE = 16
 LR = 1e-4
-SAVE_EVERY = 1
 DEVICE = "cuda"
 RESUME_LATEST = True
 
 NUM_WORKERS = 4
 PIN_MEMORY = True
-VAL_SPLIT = 0.1
 
 WANDB_VALID_IMAGES = 8
 WANDB_TRAIN_IMAGES = 8
+SHOW_LABELS = True
 
 
 def load_wandb_key():
@@ -420,10 +494,13 @@ def sdf_to_display(sdf_2d):
     return np.clip((sdf_2d + 1.0) * 0.5, 0.0, 1.0)
 
 
-def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, max_samples=4):
+def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, max_samples=4, show_labels=True):
     """Save a 4-column panel per validation sample.
 
     Columns: Condition | GT | Predict | GT Offset Quiver
+    
+    Args:
+        show_labels: If False, column headers will not be displayed on the top row.
     """
     if not HAS_MPL:
         print("matplotlib unavailable; skipping validation panel export")
@@ -450,7 +527,7 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, 
 
         ax = axes[i, 0]
         ax.imshow(cond, cmap="gray", vmin=0.0, vmax=1.0)
-        if i == 0:
+        if i == 0 and show_labels:
             ax.set_title("Condition")
         ax.axis("off")
 
@@ -459,7 +536,7 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, 
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.set_aspect("equal")
-        if i == 0:
+        if i == 0 and show_labels:
             ax.set_title("GT")
         ax.axis("off")
 
@@ -468,7 +545,7 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, 
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.set_aspect("equal")
-        if i == 0:
+        if i == 0 and show_labels:
             ax.set_title("Predict")
         ax.axis("off")
 
@@ -491,7 +568,7 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, 
         )
         ax.invert_yaxis()
         ax.set_aspect("equal")
-        if i == 0:
+        if i == 0 and show_labels:
             ax.set_title("GT Offset Quiver")
         ax.tick_params(labelsize=6)
         fig.colorbar(q, ax=ax, shrink=0.8)
@@ -674,6 +751,12 @@ def main():
         type=int,
         default=WANDB_TRAIN_IMAGES,
         help="Number of training predictions to include in the wandb visual panel each epoch (0 disables train panel upload)",
+    )
+    parser.add_argument(
+        "--show-labels",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_LABELS,
+        help="Show column headers (Condition, GT, Predict, GT Offset Quiver) on top row of panels",
     )
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
@@ -1034,6 +1117,7 @@ def main():
                 preview_batch["offsets"].cpu().numpy(),
                 train_pred_raw.cpu().numpy(),
                 max_samples=args.wandb_train_images,
+                show_labels=args.show_labels,
             )
             if train_saved:
                 print(f"  -> saved train panel: {train_panel_path}")
@@ -1148,6 +1232,7 @@ def main():
                     val_preview_batch["offsets"].cpu().numpy(),
                     pred_raw.cpu().numpy(),
                     max_samples=args.wandb_valid_images,
+                    show_labels=args.show_labels,
                 )
                 if saved:
                     print(f"  -> saved validation panel: {panel_path}")

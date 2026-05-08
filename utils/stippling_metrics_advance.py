@@ -8,7 +8,12 @@ Extends stippling_metrics.py with:
 """
 
 import os
+import random
 import numpy as np
+
+# Blanket global seeds to ensure 100% determinism for 3rd party libraries
+np.random.seed(42)
+random.seed(42)
 
 try:
     import torch
@@ -182,9 +187,11 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
         return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
 
 
-def compute_m4_sinkhorn(points, image_01, target_density=None):
+def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None):
     try:
         import ot
+        if rng is None:
+            rng = np.random.default_rng(42)
         if target_density is None:
             target_density = image_01
         N = len(points)
@@ -197,7 +204,7 @@ def compute_m4_sinkhorn(points, image_01, target_density=None):
         density_weights = np.maximum(density_weights, 1e-10)
         density_weights /= density_weights.sum()
         if len(grid_points) > 10000:
-            idx = np.random.choice(len(grid_points), 10000, p=density_weights)
+            idx = rng.choice(len(grid_points), 10000, p=density_weights)
             target_pts = grid_points[idx]
             target_w = np.ones(len(target_pts)) / len(target_pts)
         else:
@@ -349,14 +356,14 @@ def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_appro
 
 def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_approx=True):
     result = {}
-    rng = np.random.default_rng(42)
-    m1 = compute_m1_cvt_energy(points, image_01, rng=rng, mc_approx=mc_approx)
+
+    m1 = compute_m1_cvt_energy(points, image_01, rng=np.random.default_rng(41), mc_approx=mc_approx)
     result.update({f"M1_{k}": v for k, v in m1.items()})
-    m2 = compute_m2_capacity_constraint(points, image_01, rng=rng, mc_approx=mc_approx)
+    m2 = compute_m2_capacity_constraint(points, image_01, rng=np.random.default_rng(42), mc_approx=mc_approx)
     result.update({f"M2_{k}": v for k, v in m2.items()})
-    m3 = compute_m3_emd(points, None, image_01, rng=rng, mc_approx=mc_approx)
+    m3 = compute_m3_emd(points, None, image_01, rng=np.random.default_rng(43), mc_approx=mc_approx)
     result.update({f"M3_{k}": v for k, v in m3.items()})
-    m4 = compute_m4_sinkhorn(points, image_01)
+    m4 = compute_m4_sinkhorn(points, image_01, rng=np.random.default_rng(44))
     result.update({f"M4_{k}": v for k, v in m4.items()})
     m5 = compute_m5_spatial_measure(points, image_01)
     result.update({f"M5_{k}": v for k, v in m5.items()})

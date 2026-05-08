@@ -41,10 +41,21 @@ from control_v4.train_control import (
 # Editable defaults (copied locally so this script is self-contained)
 CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH = "config/GBN/model.ckpt"
-CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_data_celeba_5K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep2670.pt"
 
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
+CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/train_outputs_icons50_512/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/train_outputs_icons50_512/target"
+TRAIN_SAMPLES = []
+VALID_SAMPLES = [0, 1, 2, 3]
+
+
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_data_celeba_5K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep2780.pt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
+# TRAIN_SAMPLES = []
+# VALID_SAMPLES = [0, 1, 2, 3, 4, 6, 8, 10]
+
+
 OFFSETS_DIR = ""
 
 CACHE_DATA_DIR = ""
@@ -68,12 +79,9 @@ BATCH_COORDS_FEATURES = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
-# Split-local indices to visualize (your requested debug controls)
-TRAIN_SAMPLES = []
-VALID_SAMPLES = [0, 1, 2, 3, 4, 5, 6, 7]
-
 PANEL_NAME = "eval_panel.png"
 META_NAME = "eval_selection.json"
+SHOW_LABELS = False
 
 
 def _parse_index_list(raw_text, arg_name):
@@ -190,6 +198,12 @@ def main():
     parser.add_argument("--valid-samples", default=str(VALID_SAMPLES), help="Python list literal")
     parser.add_argument("--panel-name", default=PANEL_NAME)
     parser.add_argument("--meta-name", default=META_NAME)
+    parser.add_argument(
+        "--show-labels",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_LABELS,
+        help="Show column headers (Condition, GT, Predict, GT Offset Quiver) on top row of panel",
+    )
     args = parser.parse_args()
 
     if not (0.0 <= args.val_split < 1.0):
@@ -329,6 +343,7 @@ def main():
         batch["offsets"].detach().cpu().numpy(),
         pred_raw.detach().cpu().numpy(),
         max_samples=len(selected),
+        show_labels=args.show_labels,
     )
     if not saved:
         raise RuntimeError("Panel export failed (matplotlib unavailable or no samples)")
