@@ -21,6 +21,7 @@ import cv2
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 # Try to import plotting/metric helpers from utils
 try:
@@ -106,6 +107,17 @@ MARK_BEST = True  # Draws a red box around the capacity percentage closest to gr
 # MARK_BEST = False 
 
 
+# DEFAULT_INPUT_IMAGE = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/plant2/source/plant2_400x400.png"
+# DEFAULT_COMPARE_LIST = [
+#     {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/plant2/target_WVS_1024/plant2_400x400.png"},
+#     {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/plant2/target_GBN_1024/plant2_400x400.png"},
+#     {"Ours": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/plant2/target_CN_1024/plant2_400x400.png"},
+# ]
+# CLIP_TO_DOMAIN = True
+# CAPACITY_TEST = False
+# MARK_BEST = False 
+
+
 def sanitize_name(name: str) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
 
@@ -154,7 +166,8 @@ def collect_outputs(input_image_path: str, compare_list, src_base: str, out_base
 
     # Compute advanced metrics for each prediction
     advanced_metrics_list = []
-    for payload in compare_payloads:
+    print(f"Computing advanced metrics for {len(compare_payloads)} images (this may take a moment)...")
+    for payload in tqdm(compare_payloads, desc="Metrics Progress"):
         pts = payload["points"]
         metrics = compute_all_advanced_metrics(pts, src_img_u8.astype(np.float64) / 255.0, mc_approx=mc_approx)
         advanced_metrics_list.append(metrics)
