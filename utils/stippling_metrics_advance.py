@@ -167,7 +167,7 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
                     masses[region_idx] = 0.0
                     continue
                 _, px, py = sample
-                masses[region_idx] = float(image_01[py, px].mean())
+                masses[region_idx] = float(image_01[py, px].sum())
             except Exception:
                 masses[region_idx] = 0.0
 
@@ -910,6 +910,58 @@ def _extract_subject_contour(density_map, bg_threshold=0.05):
         return None
 
 
+def _extract_subject_path(density_map, bg_threshold=0.05):
+    from scipy.ndimage import binary_fill_holes, gaussian_filter
+    from matplotlib.path import Path as MplPath
+    import matplotlib.pyplot as plt
+
+    H, W = density_map.shape
+
+    mask = density_map > bg_threshold
+    mask = binary_fill_holes(mask)
+    sigma = max(0.5, min(H, W) / 512.0)
+    smooth = gaussian_filter(mask.astype(np.float32), sigma=sigma)
+
+    try:
+        fig_tmp, ax_tmp = plt.subplots(1, 1)
+        cs = ax_tmp.contour(smooth, levels=[0.5])   
+        plt.close(fig_tmp)
+
+        try:
+            all_paths = list(cs.get_paths())
+        except AttributeError:
+            all_paths = [p for coll in cs.collections for p in coll.get_paths()]
+
+        if not all_paths:
+            return None
+
+        vertices = []
+        codes = []
+        
+        # Combine all disjoint leaves/regions into a single master Path
+        for p in all_paths:
+            v = p.vertices.copy()
+            v[:, 0] /= W
+            v[:, 1] /= H
+            
+            c = p.codes
+            if c is None:
+                c = np.full(len(v), MplPath.LINETO)
+                c[0] = MplPath.MOVETO
+                c[-1] = MplPath.CLOSEPOLY
+                
+            vertices.append(v)
+            codes.append(c)
+
+        if not vertices:
+            return None
+            
+        master_path = MplPath(np.vstack(vertices), np.concatenate(codes))
+        return master_path
+    except Exception:
+        return None
+
+
 def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True, show_colorbar=True, rng=None, mc_approx=True):
     from matplotlib.patches import Polygon as MplPolygon, PathPatch
     from matplotlib.collections import PatchCollection
@@ -939,7 +991,7 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
         if sample is None:
             return 0.0
         _, px, py = sample
-        return float(density_map[py, px].mean())
+        return float(density_map[py, px].sum())
 
     cell_polys, cell_masses = [], []
     for pt_idx in vor.point_region:
@@ -991,22 +1043,39 @@ def plot_visual_m2_capacity_constraint(points, image_01, ax, clip_to_domain=True
         col.set_array(deviations)
 
         if clip_to_domain:
-            contour_pts = _extract_subject_contour(density_map, bg_threshold=0.05)
-            if contour_pts is not None and len(contour_pts) >= 3:
-                cp = np.vstack([contour_pts, contour_pts[0]])
-                codes = (
-                    [MplPath.MOVETO]
-                    + [MplPath.LINETO] * (len(cp) - 2)
-                    + [MplPath.CLOSEPOLY]
-                )
+            # V1 - NOT ALWAYS RELIABLE
+            # contour_pts = _extract_subject_contour(density_map, bg_threshold=0.05)
+            # if contour_pts is not None and len(contour_pts) >= 3:
+            #     cp = np.vstack([contour_pts, contour_pts[0]])
+            #     codes = (
+            #         [MplPath.MOVETO]
+            #         + [MplPath.LINETO] * (len(cp) - 2)
+            #         + [MplPath.CLOSEPOLY]
+            #     )
+            #     clip_patch = PathPatch(
+            #         MplPath(cp, codes), transform=ax.transData, visible=False
+            #     )
+            #     ax.add_patch(clip_patch)
+            #     col.set_clip_path(clip_patch)
+            #     closed = np.vstack([contour_pts, contour_pts[0]])
+            #     ax.plot(closed[:, 0], closed[:, 1],
+            #             color="black", linewidth=0.8, zorder=10, alpha=0.5)
+
+            # V2 - MUCH MORE RELIABLE
+            subject_path = _extract_subject_path(density_map, bg_threshold=0.05)
+            if subject_path is not None:
                 clip_patch = PathPatch(
-                    MplPath(cp, codes), transform=ax.transData, visible=False
+                    subject_path, transform=ax.transData, visible=False
                 )
                 ax.add_patch(clip_patch)
                 col.set_clip_path(clip_patch)
-                closed = np.vstack([contour_pts, contour_pts[0]])
-                ax.plot(closed[:, 0], closed[:, 1],
-                        color="black", linewidth=0.8, zorder=10, alpha=0.5)
+                
+                boundary_patch = PathPatch(
+                    subject_path, transform=ax.transData, 
+                    facecolor="none", edgecolor="black", 
+                    linewidth=0.8, alpha=0.5, zorder=10
+                )
+                ax.add_patch(boundary_patch)
 
         ax.add_collection(col)
 
