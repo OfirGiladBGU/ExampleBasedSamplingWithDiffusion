@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-DEFAULT_REFERENCE_IMAGE = Path("experiments") / "quadratic" / "source" / "quadratic_density_gradient.png"
+DEFAULT_REFERENCE_IMAGE = Path("experiments") / "results" / "quadratic" / "source" / "quadratic_density_gradient.png"
 DEFAULT_OUTPUT = Path("experiments") / "outputs" / "quadratic_comparison" / "comparison_panel.png"
 
 # Edit this list to control the order and contents of the comparison.

@@ -9,3 +9,4 @@ config_trained/
 wandb/
 logs*/
 .env
+results*/

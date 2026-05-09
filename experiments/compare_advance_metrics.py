@@ -85,33 +85,33 @@ PLOT_AREA_FRACTION = 0.88
 TEXT_SIZE = 15
 
 
-DEFAULT_INPUT_IMAGE = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/source/quadratic_density_gradient.png"
+DEFAULT_INPUT_IMAGE = "experiments/results/quadratic_V2/source/quadratic_density_gradient.png"
 DEFAULT_COMPARE_LIST = [
-    {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_WVS_1024/quadratic_density_gradient.png"},
-    {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_GBN_1024/quadratic_density_gradient.png"},
-    {"Ours": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_CN_1024/quadratic_density_gradient.png"},
+    {"WVS": "experiments/results/quadratic_V2/target_WVS_1024/quadratic_density_gradient.png"},
+    {"GBN": "experiments/results/quadratic_V2/target_GBN_1024/quadratic_density_gradient.png"},
+    {"Ours": "experiments/results/quadratic_V2/target_CN_1024/quadratic_density_gradient.png"},
 ]
 CLIP_TO_DOMAIN = False
 CAPACITY_TEST = True
 MARK_BEST = True  # Draws a red box around the capacity percentage closest to ground truth
 
 
-# DEFAULT_INPUT_IMAGE = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/source/emoji-one_4_monkey.png"
+# DEFAULT_INPUT_IMAGE = "experiments/results/monkey/source/emoji-one_4_monkey.png"
 # DEFAULT_COMPARE_LIST = [
-#     {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/target_WVS_1024/emoji-one_4_monkey.png"},
-#     {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/target_GBN_1024/emoji-one_4_monkey.png"},
-#     {"Ours": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/monkey/target_CN_1024/emoji-one_4_monkey.png"},
+#     {"WVS": "experiments/results/monkey/target_WVS_1024/emoji-one_4_monkey.png"},
+#     {"GBN": "experiments/results/monkey/target_GBN_1024/emoji-one_4_monkey.png"},
+#     {"Ours": "experiments/results/monkey/target_CN_1024/emoji-one_4_monkey.png"},
 # ]
 # CLIP_TO_DOMAIN = True
 # CAPACITY_TEST = False
 # MARK_BEST = False 
 
 
-# DEFAULT_INPUT_IMAGE = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/plant2/source/plant2_400x400.png"
+# DEFAULT_INPUT_IMAGE = "experiments/results/plant2/source/plant2_400x400.png"
 # DEFAULT_COMPARE_LIST = [
-#     {"WVS": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/plant2/target_WVS_1024/plant2_400x400.png"},
-#     {"GBN": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/plant2/target_GBN_1024/plant2_400x400.png"},
-#     {"Ours": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/plant2/target_CN_1024/plant2_400x400.png"},
+#     {"WVS": "experiments/results/plant2/target_WVS_1024/plant2_400x400.png"},
+#     {"GBN": "experiments/results/plant2/target_GBN_1024/plant2_400x400.png"},
+#     {"Ours": "experiments/results/plant2/target_CN_1024/plant2_400x400.png"},
 # ]
 # CLIP_TO_DOMAIN = True
 # CAPACITY_TEST = False
