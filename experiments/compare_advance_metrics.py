@@ -89,11 +89,12 @@ DEFAULT_INPUT_IMAGE = "experiments/results/quadratic_V2/source/quadratic_density
 DEFAULT_COMPARE_LIST = [
     {"WVS": "experiments/results/quadratic_V2/target_WVS_1024/quadratic_density_gradient.png"},
     {"GBN": "experiments/results/quadratic_V2/target_GBN_1024/quadratic_density_gradient.png"},
+    {"BNOT": "experiments/results/quadratic_V2/target_BNOT_1024/quadratic_density_gradient.png"},
     {"Ours": "experiments/results/quadratic_V2/target_CN_1024/quadratic_density_gradient.png"},
 ]
 CLIP_TO_DOMAIN = False
 CAPACITY_TEST = True
-MARK_BEST = True  # Draws a red box around the capacity percentage closest to ground truth
+MARK_BEST = False  # Draws a red box around the capacity percentage closest to ground truth
 
 
 # DEFAULT_INPUT_IMAGE = "experiments/results/monkey/source/emoji-one_4_monkey.png"
@@ -116,6 +117,12 @@ MARK_BEST = True  # Draws a red box around the capacity percentage closest to gr
 # CLIP_TO_DOMAIN = True
 # CAPACITY_TEST = False
 # MARK_BEST = False 
+
+
+# Styling for CAPACITY_TEST vertical quarter guides in the points row.
+CAPACITY_GUIDE_COLOR = "deepskyblue"  # A bright, static light blue
+CAPACITY_GUIDE_LINESTYLE = (0, (6, 4)) # Keeps the dashed pattern
+CAPACITY_GUIDE_LINEWIDTH = 1.5
 
 
 def sanitize_name(name: str) -> str:
@@ -401,7 +408,15 @@ def visualize_compare_panel(
         try:
             target_caps = calculate_target_capacities(image_01)
             for x in quarter_lines:
-                ax.plot([x, x], [0, 1], transform=ax.transAxes, color="0.5", linestyle="--", linewidth=0.8, zorder=0)
+                ax.plot(
+                    [x, x],
+                    [0, 1],
+                    transform=ax.transAxes,
+                    color=CAPACITY_GUIDE_COLOR,
+                    linestyle=CAPACITY_GUIDE_LINESTYLE,
+                    linewidth=CAPACITY_GUIDE_LINEWIDTH,
+                    zorder=0,
+                )
             for xpos, capacity in zip(quarter_positions, target_caps):
                 ax.text(xpos, -0.06, f"{capacity:.1f}%", va="top", ha="center", fontsize=TEXT_SIZE, transform=ax.transAxes)
         except Exception:
@@ -450,7 +465,15 @@ def visualize_compare_panel(
 
         if capacity_test:
             for x in quarter_lines:
-                ax.plot([x, x], [0, 1], transform=ax.transAxes, color="0.75", linestyle="--", linewidth=0.5, zorder=0)
+                ax.plot(
+                    [x, x],
+                    [0, 1],
+                    transform=ax.transAxes,
+                    color=CAPACITY_GUIDE_COLOR,
+                    linestyle=CAPACITY_GUIDE_LINESTYLE,
+                    linewidth=CAPACITY_GUIDE_LINEWIDTH,
+                    zorder=0,
+                )
             try:
                 emp = all_emps[i]
                 if emp is not None:
@@ -480,6 +503,49 @@ def visualize_compare_panel(
 
     # ----- Metric rows (M1, M2, M5) -----
     metric_row_start = 1
+
+    # Export first-row (condition + per-prediction) images individually when
+    # capacity_test is enabled. Files are written to a subfolder named "png"
+    # next to the main save_path so they include the dashed guide lines and
+    # the percentage text beneath the images for external inspection/diffing.
+    # If SHOW_LABELS is False, titles are hidden in the exported PNGs as well.
+    if capacity_test:
+        try:
+            png_dir = Path(save_path).resolve().parent.parent / "png"
+            png_dir.mkdir(parents=True, exist_ok=True)
+            # Ensure renderer has drawn text so get_tightbbox works
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+
+            # Save original title visibility state if SHOW_LABELS is False
+            saved_titles = {}
+            if not SHOW_LABELS:
+                for col_idx in range(n_cols):
+                    ax = axes[0, col_idx]
+                    saved_titles[col_idx] = ax.get_title()
+                    ax.set_title("")
+
+            # Condition image (column 0)
+            ax0 = axes[0, 0]
+            bbox = ax0.get_tightbbox(renderer)
+            bbox_inches = bbox.transformed(fig.dpi_scale_trans.inverted())
+            outp = png_dir / "condition.png"
+            fig.savefig(outp, bbox_inches=bbox_inches, pad_inches=0.02)
+
+            # Per-comparison columns
+            for i, (label, _) in enumerate(compare_entries):
+                axc = axes[0, 1 + i]
+                bbox = axc.get_tightbbox(renderer)
+                bbox_inches = bbox.transformed(fig.dpi_scale_trans.inverted())
+                outp = png_dir / f"{sanitize_name(label)}.png"
+                fig.savefig(outp, bbox_inches=bbox_inches, pad_inches=0.02)
+
+            # Restore titles if they were hidden
+            if not SHOW_LABELS:
+                for col_idx, title_text in saved_titles.items():
+                    axes[0, col_idx].set_title(title_text)
+        except Exception as exc:
+            print(f"Warning: failed exporting first-row PNGs: {exc}")
 
     for r in range(metric_row_start, metric_row_start + n_metric_rows):
         axes[r, 0].axis("off")

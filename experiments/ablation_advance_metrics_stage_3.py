@@ -32,10 +32,13 @@ RESULTS_DIR = "vanilla"
 
 
 # Default folders
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
+# OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e20_b100"
 
-NUM_SAMPLES = -1
-NUM_EPOCHS = -1
+# NUM_SAMPLES = -1
+NUM_SAMPLES = 100
+# NUM_EPOCHS = -1
+NUM_EPOCHS = 20
 
 METRIC_ORDER = [
     "M1_cvt_energy",

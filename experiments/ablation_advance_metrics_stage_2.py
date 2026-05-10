@@ -129,14 +129,17 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # Default folders
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
+# OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e20_b100"
 
 MIN_SNR_GAMMA = 5.0
 MIN_SNR_TIMESTEP = 500
 SPLIT_SEED = 42
 VAL_SPLIT = 0.1
-NUM_SAMPLES = -1
-NUM_EPOCHS = -1
+# NUM_SAMPLES = -1
+NUM_SAMPLES = 100
+# NUM_EPOCHS = -1
+NUM_EPOCHS = 20
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
