@@ -10,7 +10,7 @@ it expects `metrics_avg.json` under the model folder with the structure:
 
 The script builds a 2x3 subplot (one subplot per metric in METRIC_ORDER)
 containing a curve per model (epoch -> mean metric). Output is saved to
-`<out_base>/plots/metrics_compare.png` and `<out_base>/plots/metrics_compare.pdf`.
+`<out_base>/metrics_compare.png` and `<out_base>/metrics_compare.pdf`.
 """
 
 import argparse
@@ -42,13 +42,22 @@ RESULT_DIR_LIST = [
     "sdedit_resample",
 ]
 
+# Default folders
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
+
+# Default metrics file name
+METRICS_FILE = "metrics_avg.json"
+
+# Default plot output file (at OUTPUT_DIR root)
+PLOT_FILE = "metrics_compare.png"
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="Plot aggregated metrics across model variants")
-    p.add_argument("--output", default="/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/ablation_advance_metrics", help="Base output folder containing model result subfolders")
+    p.add_argument("--output", default=OUTPUT_DIR, help="Base output folder containing model result subfolders")
     p.add_argument("--result-dirs", default=",".join(RESULT_DIR_LIST), help="Comma-separated list of model subfolders to include (default: RESULT_DIR_LIST in script)")
-    p.add_argument("--metrics-file", default="metrics_avg.json", help="Name of aggregated metrics file in each model folder")
-    p.add_argument("--out-plot", default="plots/metrics_compare.png", help="Relative path (from output) to write the combined plot")
+    p.add_argument("--metrics-file", default=METRICS_FILE, help="Name of aggregated metrics file in each model folder")
+    p.add_argument("--out-plot", default=PLOT_FILE, help="Relative path (from output) to write the combined plot")
     return p.parse_args()
 
 

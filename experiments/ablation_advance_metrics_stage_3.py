@@ -31,8 +31,8 @@ RESULTS_DIR = "vanilla"
 # RESULTS_DIR = "sdedit_resample"
 
 
-# Default output base (same as other stages)
-OUTPUT_DIR = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/ablation_advance_metrics"
+# Default folders
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
 
 METRIC_ORDER = [
     "M1_cvt_energy",

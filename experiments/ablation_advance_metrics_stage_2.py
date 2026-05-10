@@ -126,15 +126,16 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
+# Default folders
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-OUTPUT_DIR = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/ablation_advance_metrics"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
 
 MIN_SNR_GAMMA = 5.0
 MIN_SNR_TIMESTEP = 500
-DEVICE = "cpu"
 SPLIT_SEED = 42
 VAL_SPLIT = 0.1
+NUM_SAMPLES = -1
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
@@ -154,6 +155,8 @@ def parse_args():
     parser.add_argument("--source", default=SOURCE_DIR, help="Original source images folder")
     parser.add_argument("--target", default=TARGET_DIR, help="Original target images folder")
     parser.add_argument("--val-split", type=float, default=VAL_SPLIT, help="Fraction for validation split")
+    parser.add_argument("--num-samples", type=int, default=NUM_SAMPLES,
+                        help="Number of validation samples to score in order; -1 means use all")
     parser.add_argument("--seed", type=int, default=SPLIT_SEED, help="Deterministic seed for split")
     parser.add_argument("--epochs", default="all", help="'all' or comma-separated substrings matching epoch dir names")
     parser.add_argument("--dry-run", action="store_true", help="Only show what would be processed")
@@ -190,6 +193,12 @@ def select_validation_images(all_images, val_frac, seed):
     indices = torch.randperm(n_total, generator=torch.Generator().manual_seed(int(seed))).tolist()
     val_indices = indices[train_len:]
     return [imgs[i] for i in val_indices]
+
+
+def limit_validation_images(val_names, num_samples):
+    if int(num_samples) < 0:
+        return val_names
+    return val_names[: int(num_samples)]
 
 
 def _build_name_map(root_dir):
@@ -402,7 +411,7 @@ def serialize_metrics(metrics):
     return ordered
 
 
-def score_epoch_dir(epoch_dir, output_epoch_dir, val_names, source_backup_dir, target_backup_dir, diffusion, args, timesteps_map):
+def score_epoch_dir(epoch_dir, output_epoch_dir, val_names, source_backup_dir, target_backup_dir, diffusion, args, timesteps_map, epoch_id):
     output_epoch_dir.mkdir(parents=True, exist_ok=True)
     epoch_dir = Path(epoch_dir)
     total = len(val_names)
@@ -411,28 +420,28 @@ def score_epoch_dir(epoch_dir, output_epoch_dir, val_names, source_backup_dir, t
         stem = Path(name).stem
         pred_path = epoch_dir / f"{stem}.npy"
         if not pred_path.exists():
-            print(f"[{idx}/{total}] Missing prediction file: {pred_path}")
+            print(f"epoch {epoch_id} image {idx}: Missing prediction file: {pred_path}")
             continue
 
         source_path = source_backup_dir / name
         target_path = target_backup_dir / name
         if not source_path.exists():
-            print(f"[{idx}/{total}] Missing source backup image: {source_path}")
+            print(f"epoch {epoch_id} image {idx}: Missing source backup image: {source_path}")
             continue
         if not target_path.exists():
-            print(f"[{idx}/{total}] Missing target backup image: {target_path}")
+            print(f"epoch {epoch_id} image {idx}: Missing target backup image: {target_path}")
             continue
 
         source_img = cv2.imread(str(source_path), cv2.IMREAD_GRAYSCALE)
         target_img = cv2.imread(str(target_path), cv2.IMREAD_GRAYSCALE)
         if source_img is None:
-            print(f"[{idx}/{total}] Could not read source image: {source_path}")
+            print(f"epoch {epoch_id} image {idx}: Could not read source image: {source_path}")
             continue
         if target_img is None:
-            print(f"[{idx}/{total}] Could not read target image: {target_path}")
+            print(f"epoch {epoch_id} image {idx}: Could not read target image: {target_path}")
             continue
 
-        print(f"[{idx}/{total}] scoring {name}", flush=True)
+        print(f"epoch {epoch_id} image {idx}: {name}", flush=True)
         pred_points = load_pointset(pred_path)
         advanced_metrics = compute_all_advanced_metrics(
             pred_points,
@@ -461,6 +470,8 @@ def main():
         args.val_split,
         args.seed,
     )
+    val_names = limit_validation_images(val_names, args.num_samples)
+    print(f"Using {len(val_names)} validation images for scoring")
 
     model_root = out_base / RESULTS_DIR
     if not model_root.exists():
@@ -497,6 +508,7 @@ def main():
             diffusion,
             args,
             timesteps_map,
+            eid,
         )
 
     print("All done.")

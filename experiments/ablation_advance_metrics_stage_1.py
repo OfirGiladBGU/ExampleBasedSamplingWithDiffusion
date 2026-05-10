@@ -129,9 +129,10 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
+# Default folders
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-OUTPUT_DIR = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/ablation_advance_metrics"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
 
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
@@ -140,6 +141,8 @@ SMART_INIT_SPLAT_SIGMA_PX = 0.5
 DEVICE = "cuda"
 SPLIT_SEED = 42
 VAL_SPLIT = 0.1
+NUM_SAMPLES = -1  # Use all validation samples by default
+NUM_EPOCHS = -1  # Use all checkpoints by default
 
 
 def parse_args():
@@ -148,6 +151,10 @@ def parse_args():
     p.add_argument("--source", default=SOURCE_DIR, help="Source images folder (validation pool)")
     p.add_argument("--target", default=TARGET_DIR, help="Target images folder (ground truth)")
     p.add_argument("--val-split", type=float, default=VAL_SPLIT, help="Fraction for validation split")
+    p.add_argument("--num-samples", type=int, default=NUM_SAMPLES,
+                   help="Number of validation samples to use in order after selection; -1 means use all")
+    p.add_argument("--num-epochs", type=int, default=NUM_EPOCHS,
+                   help="Number of sorted checkpoints/epochs to export; -1 means use all")
     p.add_argument("--seed", type=int, default=SPLIT_SEED, help="Deterministic seed for split")
     p.add_argument("--checkpoints", default="all", help="'all' or comma-separated filename substrings")
     p.add_argument("--dry-run", action="store_true", help="Only show what would be done")
@@ -184,15 +191,24 @@ def select_validation_images(all_images, val_frac, seed):
     return [imgs[i] for i in val_indices]
 
 
+def limit_validation_images(val_images, num_samples):
+    if int(num_samples) < 0:
+        return val_images
+    return val_images[: int(num_samples)]
+
+
+def limit_checkpoints(ckpts, num_epochs):
+    if int(num_epochs) < 0:
+        return ckpts
+    return ckpts[: int(num_epochs)]
+
+
 def backup_validation_images(val_images, out_base, target_dir):
     out_base_p = Path(out_base)
     val_data_dir = out_base_p / "validation_data"
     source_backup_dir = val_data_dir / "source"
     target_backup_dir = val_data_dir / "target"
     manifest_path = out_base_p / "validation_manifest.json"
-
-    if manifest_path.exists():
-        return source_backup_dir, target_backup_dir
 
     source_backup_dir.mkdir(parents=True, exist_ok=True)
     target_backup_dir.mkdir(parents=True, exist_ok=True)
@@ -442,6 +458,7 @@ def main():
             print("Validation manifest exists but some backed-up images are missing.")
             print(f"Missing count: {len(missing)}")
             return 2
+        val_images = limit_validation_images(val_images, args.num_samples)
         print(f"Loaded {len(val_images)} validation images from existing manifest")
     else:
         all_images = list_images(args.source)
@@ -449,13 +466,15 @@ def main():
             print(f"No source images found in {args.source}")
             return 2
 
-        val_images = select_validation_images(all_images, args.val_split, args.seed)
-        print(f"Selected {len(val_images)} validation images")
-        source_backup_dir, target_backup_dir = backup_validation_images(val_images, out_base, args.target)
+        manifest_images = select_validation_images(all_images, args.val_split, args.seed)
+        source_backup_dir, target_backup_dir = backup_validation_images(manifest_images, out_base, args.target)
         print(f"Backed up validation data to {val_data_dir}")
+        val_images = limit_validation_images(manifest_images, args.num_samples)
+        print(f"Selected {len(val_images)} validation images")
         val_images = [str(source_backup_dir / Path(img).name) for img in val_images]
 
     ckpts = find_checkpoints(WEIGHTS_DIR, pattern_filter=args.checkpoints)
+    ckpts = limit_checkpoints(ckpts, args.num_epochs)
     if len(ckpts) == 0:
         print(f"No checkpoints found in {WEIGHTS_DIR}")
         return 2
