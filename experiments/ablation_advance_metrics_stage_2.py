@@ -136,6 +136,7 @@ MIN_SNR_TIMESTEP = 500
 SPLIT_SEED = 42
 VAL_SPLIT = 0.1
 NUM_SAMPLES = -1
+NUM_EPOCHS = -1
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
@@ -159,6 +160,8 @@ def parse_args():
                         help="Number of validation samples to score in order; -1 means use all")
     parser.add_argument("--seed", type=int, default=SPLIT_SEED, help="Deterministic seed for split")
     parser.add_argument("--epochs", default="all", help="'all' or comma-separated substrings matching epoch dir names")
+    parser.add_argument("--num-epochs", type=int, default=NUM_EPOCHS,
+                        help="Number of epoch directories to process in sorted order; -1 means use all")
     parser.add_argument("--dry-run", action="store_true", help="Only show what would be processed")
     parser.add_argument("--config", default=CONFIG_PATH)
     parser.add_argument("--base-ckpt", default=CKPT_PATH)
@@ -199,6 +202,12 @@ def limit_validation_images(val_names, num_samples):
     if int(num_samples) < 0:
         return val_names
     return val_names[: int(num_samples)]
+
+
+def limit_checkpoints(ckpts, num_epochs):
+    if int(num_epochs) < 0:
+        return ckpts
+    return ckpts[: int(num_epochs)]
 
 
 def _build_name_map(root_dir):
@@ -482,6 +491,9 @@ def main():
     if len(epoch_dirs) == 0:
         print(f"No epoch_*_npy directories found in {model_root}")
         return 2
+
+    # Apply numeric epoch limiting if requested (NUM_EPOCHS < 0 => use all)
+    epoch_dirs = limit_checkpoints(epoch_dirs, args.num_epochs)
 
     print(f"Model {RESULTS_DIR}: found {len(epoch_dirs)} epoch directories")
     if args.dry_run:

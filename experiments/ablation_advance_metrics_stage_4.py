@@ -13,6 +13,14 @@ containing a curve per model (epoch -> mean metric). Output is saved to
 `<out_base>/metrics_compare.png` and `<out_base>/metrics_compare.pdf`.
 """
 
+# TODO:
+# - make plots wider 4:3 ratio (keep them inside a "plots" subfolder and with nameing "m1.png", "m2.png", etc.)
+# - rename to header to not be with underscore (e.g. "M1: CVT Energy") for better plot titles
+# - put legends on the y axis
+# - split to 6 seperate plots instead of 2x3 grid (easier to read)
+# - keep color consistency across all plots (e.g. vanilla always blue, gecco always orange, etc.)
+# 
+
 import argparse
 import json
 import os
@@ -24,15 +32,6 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-METRIC_ORDER = [
-    "M1_cvt_energy",
-    "M2_voronoi_mass_cv",
-    "M3_emd_distance",
-    "M4_sinkhorn_ot_cost",
-    "M5_spatial_measure_rho_mean",
-    "M6_minsnr_loss",
-]
-
 RESULT_DIR_LIST = [
     "vanilla",
     "gecco",
@@ -42,14 +41,39 @@ RESULT_DIR_LIST = [
     "sdedit_resample",
 ]
 
+
 # Default folders
 OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
 
 # Default metrics file name
 METRICS_FILE = "metrics_avg.json"
 
-# Default plot output file (at OUTPUT_DIR root)
-PLOT_FILE = "metrics_compare.png"
+# Default figure settings (pixels and DPI) — change these at top of script
+FIG_WIDTH = 1000
+FIG_HEIGHT = 600
+FIG_DPI = 100
+
+
+METRIC_ORDER = [
+    "M1_cvt_energy",
+    "M2_voronoi_mass_cv",
+    "M3_emd_distance",
+    "M4_sinkhorn_ot_cost",
+    "M5_spatial_measure_rho_mean",
+    "M6_minsnr_loss",
+]
+
+# Human-friendly metric titles for plot headers
+METRIC_LABELS = {
+    # Each metric can map to either a string (used for both title and ylabel)
+    # or a dict with explicit `title` and `ylabel` fields.
+    "M1_cvt_energy": {"title": "M1: CVT Energy", "ylabel": "Energy"},
+    "M2_voronoi_mass_cv": {"title": "M2: Capacity Constraint Fulfillment", "ylabel": "Voronoi Mass"},
+    "M3_emd_distance": {"title": "M3: EMD Distance", "ylabel": "Distance"},
+    "M4_sinkhorn_ot_cost": {"title": "M4: Sinkhorn OT Cost", "ylabel": "Cost"},
+    "M5_spatial_measure_rho_mean": {"title": "M5: Spatial Measure ρ Mean", "ylabel": "ρ Mean"},
+    "M6_minsnr_loss": {"title": "M6: MinSNR Loss", "ylabel": "Loss"},
+}
 
 
 def parse_args():
@@ -57,7 +81,10 @@ def parse_args():
     p.add_argument("--output", default=OUTPUT_DIR, help="Base output folder containing model result subfolders")
     p.add_argument("--result-dirs", default=",".join(RESULT_DIR_LIST), help="Comma-separated list of model subfolders to include (default: RESULT_DIR_LIST in script)")
     p.add_argument("--metrics-file", default=METRICS_FILE, help="Name of aggregated metrics file in each model folder")
-    p.add_argument("--out-plot", default=PLOT_FILE, help="Relative path (from output) to write the combined plot")
+    # The script writes six separate plots into the `plots/` subfolder under the output directory.
+    p.add_argument("--fig-width", type=int, default=FIG_WIDTH, help=f"Figure width in pixels (default: {FIG_WIDTH})")
+    p.add_argument("--fig-height", type=int, default=FIG_HEIGHT, help=f"Figure height in pixels (default: {FIG_HEIGHT})")
+    p.add_argument("--dpi", type=int, default=FIG_DPI, help=f"DPI to use when saving figures (default: {FIG_DPI})")
     return p.parse_args()
 
 
@@ -74,7 +101,7 @@ def load_metrics_for_model(model_dir: Path, metrics_file: str):
     return converted
 
 
-def make_plots(out_base: Path, model_names, metrics_file, out_plot_rel):
+def make_plots(out_base: Path, model_names, metrics_file, fig_width_px: int, fig_height_px: int, dpi: int):
     model_metrics = {}
     for m in model_names:
         md = out_base / m
@@ -86,39 +113,69 @@ def make_plots(out_base: Path, model_names, metrics_file, out_plot_rel):
 
     if len(model_metrics) == 0:
         raise RuntimeError("No model metrics found to plot")
-
-    # Create figure 2x3
-    fig, axs = plt.subplots(2, 3, figsize=(15, 8))
-    axs = axs.reshape(-1)
+    # Create consistent color mapping across runs (keep mapping stable)
     colors = plt.cm.tab10.colors
+    color_map = {}
+    for idx, name in enumerate(RESULT_DIR_LIST):
+        color_map[name] = colors[idx % len(colors)]
+    # assign colors for any additional models not in RESULT_DIR_LIST
+    next_idx = len(RESULT_DIR_LIST)
+    for m in model_metrics.keys():
+        if m not in color_map:
+            color_map[m] = colors[next_idx % len(colors)]
+            next_idx += 1
 
+    plots_dir = out_base / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create one separate plot per metric and save as m1.png, m2.png, ...
+    fig_size_inches = (fig_width_px / float(dpi), fig_height_px / float(dpi))
     for i, metric in enumerate(METRIC_ORDER):
-        ax = axs[i]
-        for j, (mname, metrics) in enumerate(model_metrics.items()):
+        fig, ax = plt.subplots(figsize=fig_size_inches)
+
+        for mname in model_names:
+            if mname not in model_metrics:
+                continue
+            metrics = model_metrics[mname]
             series = metrics.get(metric, {})
             if not series:
                 continue
             epochs = np.array(sorted(series.keys()), dtype=int)
             values = np.array([series[e] for e in epochs], dtype=float)
-            ax.plot(epochs, values, label=mname, color=colors[j % len(colors)])
+            ax.plot(epochs, values, label=mname, color=color_map.get(mname))
 
-        ax.set_title(metric)
+        lab = METRIC_LABELS.get(metric, None)
+        if isinstance(lab, dict):
+            title_text = lab.get('title', metric.replace('_', ' '))
+            ylabel_text = lab.get('ylabel', title_text)
+        elif isinstance(lab, str):
+            title_text = lab
+            ylabel_text = lab
+        else:
+            title_text = metric.replace('_', ' ')
+            ylabel_text = title_text
+
+        ax.set_title(title_text)
         ax.set_xlabel("epoch")
+        ax.set_ylabel(ylabel_text)
         ax.grid(True, alpha=0.2)
-        if i == 0:
-            ax.legend(fontsize="small")
 
-    fig.tight_layout()
-    outp = out_base / out_plot_rel
-    outp.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(outp, dpi=200)
-    # also save PDF
-    try:
-        fig.savefig(str(outp.with_suffix('.pdf')))
-    except Exception:
-        pass
-    plt.close(fig)
-    print(f"Wrote plots to {outp}")
+        # Place legend inside the plot (top-right) with slight transparency
+        ax.legend(fontsize="small", loc='upper right', bbox_to_anchor=(0.98, 0.98),
+              bbox_transform=ax.transAxes, framealpha=0.85)
+
+        # Tighten layout and save with bbox_inches to ensure the entire plot (including legend)
+        fig.tight_layout()
+
+        outp = plots_dir / f"m{i+1}.png"
+        fig.savefig(outp, dpi=dpi, bbox_inches='tight', pad_inches=0.05)
+        try:
+            fig.savefig(str(outp.with_suffix('.pdf')), dpi=dpi, bbox_inches='tight', pad_inches=0.05)
+        except Exception:
+            pass
+        plt.close(fig)
+
+    print(f"Wrote individual metric plots to {plots_dir}")
 
 
 def main():
@@ -126,7 +183,7 @@ def main():
     out_base = Path(args.output)
     model_names = [s.strip() for s in args.result_dirs.split(",") if s.strip()]
 
-    make_plots(out_base, model_names, args.metrics_file, args.out_plot)
+    make_plots(out_base, model_names, args.metrics_file, args.fig_width, args.fig_height, args.dpi)
 
 
 if __name__ == '__main__':

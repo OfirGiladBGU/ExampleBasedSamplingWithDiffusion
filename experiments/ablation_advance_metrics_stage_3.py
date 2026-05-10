@@ -34,6 +34,9 @@ RESULTS_DIR = "vanilla"
 # Default folders
 OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
 
+NUM_SAMPLES = -1
+NUM_EPOCHS = -1
+
 METRIC_ORDER = [
     "M1_cvt_energy",
     "M2_voronoi_mass_cv",
@@ -49,10 +52,26 @@ def parse_args():
     p.add_argument("--output", default=OUTPUT_DIR, help="Base output folder used by stages 1/2")
     p.add_argument("--results-dir", default=RESULTS_DIR, help="Subfolder for model results (RESULTS_DIR)")
     p.add_argument("--epochs", default="all", help="'all' or comma-separated substrings to match epoch dirs")
+    p.add_argument("--num-epochs", type=int, default=-1,
+                   help="Number of epoch directories to process in sorted order; -1 means use all")
+    p.add_argument("--num-samples", type=int, default=-1,
+                   help="Limit number of per-epoch samples to aggregate; -1 means use all")
     p.add_argument("--write-per-epoch", action="store_true", help="Also write per-epoch epoch_{id}_metrics.json files")
     p.add_argument("--metrics-file", default="metrics_avg.json", help="Name of the aggregated metrics file to write in model root")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
+
+
+def limit_validation_images(val_images, num_samples):
+    if int(num_samples) < 0:
+        return val_images
+    return val_images[: int(num_samples)]
+
+
+def limit_checkpoints(ckpts, num_epochs):
+    if int(num_epochs) < 0:
+        return ckpts
+    return ckpts[: int(num_epochs)]
 
 
 def find_epoch_json_dirs(model_root, pattern_filter=None):
@@ -133,13 +152,37 @@ def main():
             print(p)
         return 0
 
+    # Apply numeric epoch limiting if requested
+    epoch_dirs = limit_checkpoints(epoch_dirs, getattr(args, "num_epochs", -1))
+
     # Build metric -> { epoch: avg }
     metric_time_series = {m: {} for m in METRIC_ORDER}
 
     for idx, ed in enumerate(epoch_dirs, start=1):
         eid = epoch_id_from_name(ed.name)
         print(f"[{idx}/{len(epoch_dirs)}] Aggregating epoch {eid}")
-        avgs = aggregate_epoch(ed)
+        # Aggregate; optionally limit number of per-epoch samples
+        if int(getattr(args, "num_samples", -1)) < 0:
+            avgs = aggregate_epoch(ed)
+        else:
+            # read only the first N json files
+            files = sorted([p for p in ed.glob("*.json") if p.is_file()])[: int(args.num_samples)]
+            # temporary aggregate of selected files
+            sums = {}
+            counts = {}
+            for fp in files:
+                try:
+                    data = json.loads(fp.read_text())
+                except Exception:
+                    continue
+                for k, v in data.items():
+                    try:
+                        fv = float(v)
+                    except Exception:
+                        continue
+                    sums[k] = sums.get(k, 0.0) + fv
+                    counts[k] = counts.get(k, 0) + 1
+            avgs = {k: float(sums[k] / max(1, counts.get(k, 1))) for k in sums}
         if args.write_per_epoch:
             target_path = model_root / f"epoch_{eid}_metrics.json"
             target_path.write_text(json.dumps({k: avgs.get(k, None) for k in METRIC_ORDER}, indent=2))

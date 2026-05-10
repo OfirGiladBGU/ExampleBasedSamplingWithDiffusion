@@ -39,6 +39,9 @@ from utils.stippling_metrics import (
     visualize_overfit_metrics,
 )
 
+# TODO:
+# - Create dataset inferece script like WVS and GBN, but one that also report times for each method
+# - Neet time to: Rejection sampling, OT, and denoising
 
 # Editable defaults 
 CONFIG_PATH = "config/GBN/config.json"
