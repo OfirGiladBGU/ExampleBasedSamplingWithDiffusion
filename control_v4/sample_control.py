@@ -1,6 +1,7 @@
 """Generate stipple point sets using Dynamic ControlNet V4 (Truncated Control)."""
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -208,7 +209,9 @@ def process_single_image(
     """Runs the inference pipeline for a single image, with exact timing tracking."""
     out_dir = Path(output_dir)
     img_stem = Path(image_path).stem
-    
+    png_dir = out_dir / "png"
+    npy_dir = out_dir / "npy"
+
     out_dir.mkdir(parents=True, exist_ok=True)
     
     t_total_start = time.perf_counter()
@@ -244,8 +247,11 @@ def process_single_image(
         cond_dir = out_dir / "conditions"
         _save_condition_debug_tensors(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid_raw, smart_init_grid, cond_dir)
 
-    # Setup Denoiser
-    controlled = DynamicControlledDenoiser(diffusion.model, control_net)
+    # Setup Denoiser.
+    # If diffusion.model is already wrapped from a previous image, unwrap to the base denoiser
+    # to avoid nested wrappers that break on the `controls` kwarg.
+    base_denoiser = diffusion.model.locked if isinstance(diffusion.model, DynamicControlledDenoiser) else diffusion.model
+    controlled = DynamicControlledDenoiser(base_denoiser, control_net)
     controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid)
     diffusion.model = controlled
     diffusion.set_num_timesteps(timesteps)
@@ -281,8 +287,6 @@ def process_single_image(
     samples_raw = img.detach().cpu().numpy()
 
     # Create Export Dirs
-    npy_dir = out_dir / "npy"
-    png_dir = out_dir / "png"
     if export_npy: npy_dir.mkdir(exist_ok=True)
     if export_png: png_dir.mkdir(exist_ok=True)
 
@@ -328,13 +332,18 @@ def run_inference_on_directory(
     sdf_truncate_px: float = 8.0, resample_jumps: int = 2,
     enable_smart_init_splat_sigma: bool = False, smart_init_splat_sigma_px: float = 0.5,
     no_ot: bool = False, export_png: bool = True, export_npy: bool = True,
-    export_conditions: bool = True, track_time: bool = True, device: str = "cuda"
+    export_conditions: bool = True, track_time: bool = True, device: str = "cuda",
+    target_dir: str | None = None, timestamps_dir: str | None = None,
+    json_path: str | None = None, overwrite: bool = False
 ):
     """
     Public function to run inference on an entire directory.
     Uses 'source' as an anchor to build 'target' and 'timestamps' folders in-place.
     """
     in_path = Path(input_dir)
+    target_root = Path(target_dir) if target_dir is not None else None
+    timestamps_root = Path(timestamps_dir) if timestamps_dir is not None else None
+    json_file = Path(json_path) if json_path is not None else None
     
     print(f"Initializing models on {device}...")
     diffusion, control_net = load_pipeline(
@@ -347,32 +356,65 @@ def run_inference_on_directory(
         image_files.extend(in_path.rglob(ext))
         image_files.extend(in_path.rglob(ext.upper()))
 
+    # Always process in deterministic sorted order.
+    image_files = sorted(set(image_files), key=lambda p: str(p))
+
     print(f"Found {len(image_files)} images in {input_dir}.")
 
-    for i, img_path in enumerate(image_files, 1):
-        if 'source' not in img_path.parts:
-            print(f"[{i}/{len(image_files)}] Skipping {img_path.name}: Not located inside a 'source' folder.")
+    if target_root is not None:
+        target_root.mkdir(parents=True, exist_ok=True)
+    if timestamps_root is not None:
+        timestamps_root.mkdir(parents=True, exist_ok=True)
+
+    json_entries = []
+
+    for i, img_path in enumerate(tqdm(image_files, total=len(image_files), desc="images"), 1):
+        if target_root is None:
+            if 'source' not in img_path.parts:
+                print(f"[{i}/{len(image_files)}] Skipping {img_path.name}: Not located inside a 'source' folder.")
+                continue
+
+            # Find exactly where 'source' is in the path
+            source_idx = img_path.parts.index('source')
+
+            # Base directory containing the 'source' folder
+            base_path = Path(*img_path.parts[:source_idx])
+
+            # Extract the subpath strictly AFTER the 'source' folder (excluding the filename)
+            # E.g., .../source/item_01/image.png -> subpath = "item_01"
+            rel_subpath = Path(*img_path.parts[source_idx + 1:]).parent
+
+            # Build sibling target and timestamps folders
+            target_out_dir = base_path / "target" / rel_subpath
+            timestamp_out_dir = base_path / "timestamps" / rel_subpath
+        else:
+            rel_subpath = img_path.relative_to(in_path).parent
+            target_out_dir = target_root / rel_subpath
+            timestamp_out_dir = timestamps_root / rel_subpath if timestamps_root is not None else None
+
+        json_entries.append(
+            {
+                "source": f"source/{img_path.relative_to(in_path).as_posix()}",
+                "target": f"target/{(img_path.relative_to(in_path).with_suffix('.png')).as_posix()}",
+                "prompt": "Stippling",
+            }
+        )
+
+        expected_paths = []
+        if export_png and not no_ot:
+            expected_paths.append(Path(target_out_dir) / "png" / f"{img_path.stem}.png")
+        if export_npy:
+            expected_paths.append(Path(target_out_dir) / "npy" / f"{img_path.stem}.npy")
+
+        if not overwrite and expected_paths and all(path.exists() for path in expected_paths):
+            print(f"[{i}/{len(image_files)}] Skipping {img_path.name}: outputs already exist")
             continue
-            
-        # Find exactly where 'source' is in the path
-        source_idx = img_path.parts.index('source')
-        
-        # Base directory containing the 'source' folder
-        base_path = Path(*img_path.parts[:source_idx])
-        
-        # Extract the subpath strictly AFTER the 'source' folder (excluding the filename)
-        # E.g., .../source/item_01/image.png -> subpath = "item_01"
-        rel_subpath = Path(*img_path.parts[source_idx + 1:]).parent
-        
-        # Build sibling target and timestamps folders
-        target_out_dir = base_path / "target" / rel_subpath
-        timestamp_out_dir = base_path / "timestamps" / rel_subpath
         
         print(f"[{i}/{len(image_files)}] Processing: {img_path.name}")
         process_single_image(
             image_path=str(img_path), 
             output_dir=str(target_out_dir),
-            timestamp_dir=str(timestamp_out_dir),
+            timestamp_dir=str(timestamp_out_dir) if timestamp_out_dir is not None else None,
             diffusion=diffusion, control_net=control_net,
             grid_size=grid_size, timesteps=timesteps, truncation_ratio=truncation_ratio,
             t_start_step=t_start_step, resample_jumps=resample_jumps,
@@ -382,8 +424,15 @@ def run_inference_on_directory(
             smart_init_splat_sigma_px=smart_init_splat_sigma_px,
             no_ot=no_ot, export_png=export_png, export_npy=export_npy,
             export_conditions=export_conditions, track_time=track_time,
-            device=device, n_samples=1 
+            device=device, n_samples=1
         )
+
+    if json_file is not None:
+        json_file.parent.mkdir(parents=True, exist_ok=True)
+        with json_file.open("w", encoding="utf-8") as f:
+            for entry in json_entries:
+                f.write(json.dumps(entry) + "\n")
+
     print("Directory processing complete.")
 
 
@@ -396,7 +445,7 @@ def main():
     parser.add_argument("--control_ckpt", default=CONTROL_CKPT)
     
     # Input routing (output path inferred dynamically)
-    parser.add_argument("--input", default=INPUT_IMAGE_PATH, help="Path to a single image or a dataset directory.")
+    parser.add_argument("--input", default=INPUT_IMAGE_PATH, help="Path to the input image.")
     parser.add_argument("--out-dir", default=OUTPUT_DIR, help="Base directory where single-image exports will be saved.")
     
     parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
@@ -429,43 +478,33 @@ def main():
     out_path = Path(args.out_dir)
 
     if input_path.is_dir():
-        run_inference_on_directory(
-            input_dir=str(input_path), config_path=args.config,
-            base_ckpt=args.base_ckpt, control_ckpt=args.control_ckpt,
-            grid_size=args.grid_size, timesteps=args.timesteps, enable_gecco=args.enable_gecco,
-            smart_init_features=args.smart_init_features, sdf_features=args.sdf_features,
-            batch_coords_features=args.batch_coords_features, truncation_ratio=args.truncation_ratio,
-            t_start_step=args.t_start_step, smart_init_seed=args.smart_init_seed,
-            sdf_truncate_px=args.sdf_truncate_px, resample_jumps=args.resample_jumps,
-            enable_smart_init_splat_sigma=args.enable_smart_init_splat_sigma,
-            smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
-            no_ot=args.no_ot, export_png=args.export_png, export_npy=args.export_npy,
-            export_conditions=args.export_conditions, track_time=args.track_time, device=args.device
+        raise ValueError(
+            "This CLI now runs a single input image only. Use run_inference_on_directory() "
+            "directly if you need folder processing."
         )
-    else:
-        diffusion, control_net = load_pipeline(
-            args.config, args.base_ckpt, args.control_ckpt, args.grid_size, args.enable_gecco, 
-            args.smart_init_features, args.sdf_features, args.batch_coords_features, args.device
-        )
-        
-        # RESTORED DEFAULT BEHAVIOR:
-        # For a single image, build output inside args.out_dir / filename
-        single_out_dir = out_path / input_path.stem
-        
-        process_single_image(
-            image_path=str(input_path), output_dir=str(single_out_dir), timestamp_dir=None, 
-            diffusion=diffusion, control_net=control_net,
-            grid_size=args.grid_size, timesteps=args.timesteps, truncation_ratio=args.truncation_ratio,
-            t_start_step=args.t_start_step, resample_jumps=args.resample_jumps,
-            smart_init_features=args.smart_init_features, sdf_features=args.sdf_features,
-            smart_init_seed=args.smart_init_seed, sdf_truncate_px=args.sdf_truncate_px,
-            enable_smart_init_splat_sigma=args.enable_smart_init_splat_sigma,
-            smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
-            no_ot=args.no_ot, export_png=args.export_png, export_npy=args.export_npy,
-            export_conditions=args.export_conditions, track_time=args.track_time,
+
+    diffusion, control_net = load_pipeline(
+        args.config, args.base_ckpt, args.control_ckpt, args.grid_size, args.enable_gecco,
+        args.smart_init_features, args.sdf_features, args.batch_coords_features, args.device
+    )
+
+    # Single-image behavior: write under sample_outputs/<image_stem>.
+    single_out_dir = out_path / input_path.stem
+
+    process_single_image(
+        image_path=str(input_path), output_dir=str(single_out_dir), timestamp_dir=None,
+        diffusion=diffusion, control_net=control_net,
+        grid_size=args.grid_size, timesteps=args.timesteps, truncation_ratio=args.truncation_ratio,
+        t_start_step=args.t_start_step, resample_jumps=args.resample_jumps,
+        smart_init_features=args.smart_init_features, sdf_features=args.sdf_features,
+        smart_init_seed=args.smart_init_seed, sdf_truncate_px=args.sdf_truncate_px,
+        enable_smart_init_splat_sigma=args.enable_smart_init_splat_sigma,
+        smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
+        no_ot=args.no_ot, export_png=args.export_png, export_npy=args.export_npy,
+        export_conditions=args.export_conditions, track_time=args.track_time,
             device=args.device, n_samples=args.n_samples
-        )
-        print("Done single image processing.")
+    )
+    print("Done single image processing.")
 
 if __name__ == "__main__":
     main()
