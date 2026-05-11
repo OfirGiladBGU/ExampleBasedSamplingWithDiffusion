@@ -406,7 +406,7 @@ def sample_eval_batch(diffusion, denoiser, control_net, batch, device, n_samples
 
     h, w = target_density.shape[-2], target_density.shape[-1]
     shape = [n_samples, 2, h, w]
-    use_sdedit = (truncation_ratio is not None) and (smart_init_offsets is not None)
+    use_sdedit = (truncation_ratio is not None) and (truncation_ratio < 1.0) and (smart_init_offsets is not None)
     apply_manual_loop = resample_jumps > 0 or use_sdedit
     with torch.no_grad() if not apply_manual_loop else torch.enable_grad():
         if not apply_manual_loop:

@@ -507,12 +507,19 @@ def main():
     t_start = int(np.clip(t_start, 1, max(args.timesteps - 1, 1)))
 
     n_samples = args.n_samples
-    x_init = smart_init_offsets
-    if x_init.shape[0] != n_samples:
-        x_init = x_init.expand(n_samples, -1, -1, -1).contiguous()
+    
+    if args.truncation_ratio == 1.0 and args.t_start_step < 0:
+        # Bypass Smart Init and start from pure random noise for the full schedule
+        img = torch.randn((n_samples, 2, args.grid_size, args.grid_size), device=device)
+        t_start = args.timesteps - 1
+    else:
+        # Standard SDEdit Smart Init start
+        x_init = smart_init_offsets
+        if x_init.shape[0] != n_samples:
+            x_init = x_init.expand(n_samples, -1, -1, -1).contiguous()
 
-    alpha_t = diffusion.alphas_cumprod[t_start]
-    img = add_noise_at_t(x_init, alpha_t)
+        alpha_t = diffusion.alphas_cumprod[t_start]
+        img = add_noise_at_t(x_init, alpha_t)
 
     print(f"Loaded checkpoint : {args.control_ckpt}")
     print(f"GECCO enabled     : {args.enable_gecco}")
