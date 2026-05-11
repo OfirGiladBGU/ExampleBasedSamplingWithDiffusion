@@ -68,7 +68,7 @@ ROW_SPACINGS = [0.2, 0.12, 0.2]
 # only affects the row/column header titles drawn on the metric axes; it does
 # NOT remove the percentage text rendered below the images, nor any colorbar
 # labels or tick labels.
-SHOW_LABELS = True
+SHOW_LABELS = False
 
 # When True, every metric row that has colorbars displays only ONE colorbar
 # placed to the LEFT of column 1 (the first data column), reusing the empty
@@ -88,8 +88,8 @@ TEXT_SIZE = 15
 DEFAULT_INPUT_IMAGE = "experiments/results/quadratic_V2/source/quadratic_density_gradient.png"
 DEFAULT_COMPARE_LIST = [
     {"WVS": "experiments/results/quadratic_V2/target_WVS_1024/quadratic_density_gradient.png"},
-    {"GBN": "experiments/results/quadratic_V2/target_GBN_1024/quadratic_density_gradient.png"},
     {"BNOT": "experiments/results/quadratic_V2/target_BNOT_1024/quadratic_density_gradient.png"},
+    {"GBN": "experiments/results/quadratic_V2/target_GBN_1024/quadratic_density_gradient.png"},
     {"Ours": "experiments/results/quadratic_V2/target_CN_1024/quadratic_density_gradient.png"},
 ]
 CLIP_TO_DOMAIN = False
@@ -100,6 +100,7 @@ MARK_BEST = False  # Draws a red box around the capacity percentage closest to g
 # DEFAULT_INPUT_IMAGE = "experiments/results/monkey/source/emoji-one_4_monkey.png"
 # DEFAULT_COMPARE_LIST = [
 #     {"WVS": "experiments/results/monkey/target_WVS_1024/emoji-one_4_monkey.png"},
+#     {"BNOT": "experiments/results/monkey/target_BNOT_1024/emoji-one_4_monkey.png"},
 #     {"GBN": "experiments/results/monkey/target_GBN_1024/emoji-one_4_monkey.png"},
 #     {"Ours": "experiments/results/monkey/target_CN_1024/emoji-one_4_monkey.png"},
 # ]
@@ -111,6 +112,7 @@ MARK_BEST = False  # Draws a red box around the capacity percentage closest to g
 # DEFAULT_INPUT_IMAGE = "experiments/results/plant2/source/plant2_400x400.png"
 # DEFAULT_COMPARE_LIST = [
 #     {"WVS": "experiments/results/plant2/target_WVS_1024/plant2_400x400.png"},
+#     {"BNOT": "experiments/results/plant2/target_BNOT_1024/plant2_400x400.png"},
 #     {"GBN": "experiments/results/plant2/target_GBN_1024/plant2_400x400.png"},
 #     {"Ours": "experiments/results/plant2/target_CN_1024/plant2_400x400.png"},
 # ]
