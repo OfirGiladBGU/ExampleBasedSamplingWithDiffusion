@@ -204,15 +204,26 @@ def process_single_image(
     smart_init_features=False, sdf_features=False, smart_init_seed=42, sdf_truncate_px=8.0,
     enable_smart_init_splat_sigma=False, smart_init_splat_sigma_px=0.5, no_ot=False,
     export_png=True, export_npy=True, export_conditions=True, track_time=False,
-    device="cuda", n_samples=1
+    device="cuda", n_samples=1, use_subdirs: bool = True
 ):
-    """Runs the inference pipeline for a single image, with exact timing tracking."""
+    """Runs the inference pipeline for a single image, with exact timing tracking.
+    
+    For dataset generation (e.g., via run_inference_on_directory), always uses OT.
+    The no_ot flag is primarily for testing/debugging single-image inference.
+    """
     out_dir = Path(output_dir)
     img_stem = Path(image_path).stem
-    png_dir = out_dir / "png"
-    npy_dir = out_dir / "npy"
+
+    # When `use_subdirs` is True (legacy/sample mode) create `png/` and `npy/`
+    # subfolders. For dataset generation we set `use_subdirs=False` so outputs
+    # are written directly under the `target/` folder to preserve hierarchy.
+    png_dir = out_dir / "png" if use_subdirs else out_dir
+    npy_dir = out_dir / "npy" if use_subdirs else out_dir
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    if use_subdirs:
+        if export_npy: npy_dir.mkdir(parents=True, exist_ok=True)
+        if export_png: png_dir.mkdir(parents=True, exist_ok=True)
     
     t_total_start = time.perf_counter()
     time_si, time_denoise, time_ot = 0.0, 0.0, 0.0
@@ -286,10 +297,6 @@ def process_single_image(
 
     samples_raw = img.detach().cpu().numpy()
 
-    # Create Export Dirs
-    if export_npy: npy_dir.mkdir(exist_ok=True)
-    if export_png: png_dir.mkdir(exist_ok=True)
-
     # 4. Optimal Transport & Saving (TIMED)
     for idx, s in enumerate(samples_raw):
         suffix = f"_{idx + 1}" if n_samples > 1 else ""
@@ -331,14 +338,25 @@ def run_inference_on_directory(
     truncation_ratio: float = 0.30, t_start_step: int = -1, smart_init_seed: int = 42,
     sdf_truncate_px: float = 8.0, resample_jumps: int = 2,
     enable_smart_init_splat_sigma: bool = False, smart_init_splat_sigma_px: float = 0.5,
-    no_ot: bool = False, export_png: bool = True, export_npy: bool = True,
+    export_png: bool = True,
     export_conditions: bool = True, track_time: bool = True, device: str = "cuda",
     target_dir: str | None = None, timestamps_dir: str | None = None,
     json_path: str | None = None, overwrite: bool = False
 ):
     """
-    Public function to run inference on an entire directory.
-    Uses 'source' as an anchor to build 'target' and 'timestamps' folders in-place.
+    Dataset generation function for directory inference.
+    
+    Uses 'source' as input and generates 'target' and 'prompt.json'.
+    Maintains the same directory hierarchy in source/ and target/.
+    
+    Output structure:
+        dataset/
+        ├── source/  (input images)
+        ├── target/  (generated PNGs, same hierarchy as source/)
+        └── prompt.json
+    
+    Always uses Optimal Transport (no_ot=False internally).
+    Exports PNGs only to target/ for dataset generation.
     """
     in_path = Path(input_dir)
     target_root = Path(target_dir) if target_dir is not None else None
@@ -392,25 +410,26 @@ def run_inference_on_directory(
             target_out_dir = target_root / rel_subpath
             timestamp_out_dir = timestamps_root / rel_subpath if timestamps_root is not None else None
 
+        # Build JSON entry (always uses OT for dataset generation)
+        target_rel_path = img_path.relative_to(in_path).with_suffix('.png')
+        source_rel_path = img_path.relative_to(in_path)
         json_entries.append(
             {
-                "source": f"source/{img_path.relative_to(in_path).as_posix()}",
-                "target": f"target/{(img_path.relative_to(in_path).with_suffix('.png')).as_posix()}",
+                "source": f"source/{source_rel_path.as_posix()}",
+                "target": f"target/{target_rel_path.as_posix()}",
                 "prompt": "Stippling",
             }
         )
 
-        expected_paths = []
-        if export_png and not no_ot:
-            expected_paths.append(Path(target_out_dir) / "png" / f"{img_path.stem}.png")
-        if export_npy:
-            expected_paths.append(Path(target_out_dir) / "npy" / f"{img_path.stem}.npy")
+        # Check if output PNG already exists (dataset generation always exports PNG)
+        target_png_path = Path(target_out_dir) / f"{img_path.stem}.png"
 
-        if not overwrite and expected_paths and all(path.exists() for path in expected_paths):
-            print(f"[{i}/{len(image_files)}] Skipping {img_path.name}: outputs already exist")
+        if not overwrite and target_png_path.exists():
+            print(f"[{i}/{len(image_files)}] Skipping {img_path.name}: output PNG already exists")
             continue
         
         print(f"[{i}/{len(image_files)}] Processing: {img_path.name}")
+        # For dataset generation, always use OT (no_ot=False)
         process_single_image(
             image_path=str(img_path), 
             output_dir=str(target_out_dir),
@@ -422,16 +441,37 @@ def run_inference_on_directory(
             smart_init_seed=smart_init_seed, sdf_truncate_px=sdf_truncate_px,
             enable_smart_init_splat_sigma=enable_smart_init_splat_sigma,
             smart_init_splat_sigma_px=smart_init_splat_sigma_px,
-            no_ot=no_ot, export_png=export_png, export_npy=export_npy,
+            no_ot=False, export_png=True, export_npy=False,
             export_conditions=export_conditions, track_time=track_time,
-            device=device, n_samples=1
+            device=device, n_samples=1, use_subdirs=False
         )
 
+    # Write prompt.json at the root dataset level
     if json_file is not None:
         json_file.parent.mkdir(parents=True, exist_ok=True)
         with json_file.open("w", encoding="utf-8") as f:
             for entry in json_entries:
                 f.write(json.dumps(entry) + "\n")
+    else:
+        # Default: write prompt.json at the dataset root
+        if target_root is None:
+            # Infer root from the base_path of the first image
+            if image_files:
+                first_img = image_files[0]
+                if 'source' in first_img.parts:
+                    source_idx = first_img.parts.index('source')
+                    dataset_root = Path(*first_img.parts[:source_idx])
+                    default_json_file = dataset_root / "prompt.json"
+                    with open(default_json_file, "w", encoding="utf-8") as f:
+                        for entry in json_entries:
+                            f.write(json.dumps(entry) + "\n")
+                    print(f"Wrote prompt.json to {default_json_file}")
+        else:
+            default_json_file = target_root.parent / "prompt.json"
+            with open(default_json_file, "w", encoding="utf-8") as f:
+                for entry in json_entries:
+                    f.write(json.dumps(entry) + "\n")
+            print(f"Wrote prompt.json to {default_json_file}")
 
     print("Directory processing complete.")
 
@@ -502,7 +542,7 @@ def main():
         smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
         no_ot=args.no_ot, export_png=args.export_png, export_npy=args.export_npy,
         export_conditions=args.export_conditions, track_time=args.track_time,
-            device=args.device, n_samples=args.n_samples
+        device=args.device, n_samples=args.n_samples
     )
     print("Done single image processing.")
 

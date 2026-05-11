@@ -129,9 +129,7 @@ def main() -> int:
         resample_jumps=args.resample_jumps,
         enable_smart_init_splat_sigma=args.enable_smart_init_splat_sigma,
         smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
-        no_ot=False,
-        export_png=True,
-        export_npy=False,
+        # Dataset generation uses OT and writes PNGs to target/ by default.
         export_conditions=False,
         track_time=args.track_time,
         device=args.device,
