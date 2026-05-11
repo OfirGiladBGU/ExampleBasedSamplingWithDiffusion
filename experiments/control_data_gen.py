@@ -29,7 +29,7 @@ CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT = "config/GBN/model.ckpt"
 CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
-DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/quantitative_advance_metrics/source"
+DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/quantitative_advance_metrics"
 
 # Inference parameters
 TIMESTEPS = 1000
