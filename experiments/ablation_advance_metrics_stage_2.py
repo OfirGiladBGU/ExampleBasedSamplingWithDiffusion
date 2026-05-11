@@ -133,7 +133,6 @@ TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/tar
 OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e20_b100"
 
 MIN_SNR_GAMMA = 5.0
-MIN_SNR_TIMESTEP = 500
 SPLIT_SEED = 42
 VAL_SPLIT = 0.1
 # NUM_SAMPLES = -1
@@ -171,7 +170,6 @@ def parse_args():
     parser.add_argument("--timesteps", type=int, default=EVAL_TIMESTEPS)
     parser.add_argument("--grid-size", type=int, default=GRID_SIZE)
     parser.add_argument("--min-snr-gamma", type=float, default=MIN_SNR_GAMMA)
-    parser.add_argument("--min-snr-timestep", type=int, default=MIN_SNR_TIMESTEP)
     parser.add_argument("--mc-approx", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--samples-per-image", type=int, default=1,
                         help="Number of MinSNR timestep samples per validation image (MC approximation)")
@@ -397,9 +395,6 @@ def compute_minsnr_proxy(pred_points, target_image_u8, diffusion, args, timestep
 
     if args.min_snr_gamma <= 0:
         return mse
-
-    if timesteps is None:
-        timesteps = [int(args.min_snr_timestep)]
 
     total = 0.0
     count = 0
