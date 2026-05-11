@@ -3,11 +3,13 @@
 import argparse
 import os
 import sys
+import time
+from pathlib import Path
 
 import cv2
 import numpy as np
 import torch
-from PIL import Image
+from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -25,39 +27,22 @@ from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDen
 from control_v4.smart_init import (
     add_noise_at_t,
     generate_smart_init_points_from_density,
-    render_smart_init_grid,
-    save_smart_init_debug,
     smart_init_points_to_offsets,
 )
 from data.Transforms import to_pointset_optimal_transport
 from utils.Config import ParseSampleConfig
-from utils.stippling_metrics import (
-    compute_grid_capacity,
-    compute_spacing_quality,
-    geometric_validation_score,
-    resolve_capacity_grid_size,
-    visualize_overfit_metrics,
-)
-
-# TODO:
-# - Create dataset inferece script like WVS and GBN, but one that also report times for each method
-# - Neet time to: Rejection sampling, OT, and denoising
 
 # Editable defaults 
 CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT = "config/GBN/model.ckpt"
-
-# CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep1900.pt"
 # CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
-CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
+CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/source/emoji-one_4_monkey.png"
-# GT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/target/emoji-one_4_monkey.png"
+INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
 
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic/source/quadratic_density_gradient.png"
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/source/quadratic_density_gradient.png"
-INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/test/boots.jpg"
-GT_IMAGE_PATH = ""
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/quadratic_V2/source/quadratic_density_gradient.png"
+
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/plant2/source/plant2_400x400.png"
 
 OUTPUT_DIR = "control_v4/sample_outputs"
 
@@ -81,151 +66,21 @@ SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 N_SAMPLES = 1
 DEVICE = "cuda"
-SHOW_DENOISING = False
-SHOW_DENOISING_INTERVAL = 50
-
 T_START_STEP = -1
 
-CAPACITY_GRID_SIZE = 32
-# CAPACITY_GRID_SIZE = -1  # -1 for full input resolution
-
-
-def extract_points_from_target(img_path, n_points):
-    """Detect dot centroids in a stippled target and return (N, 2) in [0, 1]."""
-    img = Image.open(img_path).convert("L")
-    img_np = np.array(img, dtype=np.uint8)
-
-    inv = 255 - img_np
-    binary = (inv > 127).astype(np.uint8)
-
-    from scipy import ndimage
-    labelled, n_labels = ndimage.label(binary)
-    centroids = ndimage.center_of_mass(binary, labelled, range(1, n_labels + 1))
-
-    h, w = img_np.shape
-    points = np.array([[cx / w, cy / h] for cy, cx in centroids], dtype=np.float64)
-
-    rng = np.random.RandomState(42)
-    if len(points) > n_points:
-        points = points[rng.choice(len(points), n_points, replace=False)]
-    elif len(points) < n_points:
-        deficit = n_points - len(points)
-        points = np.vstack([points, rng.rand(deficit, 2)])
-
-    return points
-
-
-def visualize_sample_metrics_no_gt(source_img_u8, pred_pointsets, save_path, point_size=0.5, capacity_grid_size=16):
-    """Create overfit-style metrics panel without GT column."""
-    if not HAS_MPL:
-        return None
-    if len(pred_pointsets) == 0:
-        return None
-
-    n_preds = min(len(pred_pointsets), 4)
-    n_cols = 1 + n_preds  # INPUT + predictions
-    n_rows = 3
-
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.5 * n_cols, 4.5 * n_rows))
-    if n_cols == 1:
-        axes = axes[:, np.newaxis]
-
-    image_01 = source_img_u8.astype(np.float64) / 255.0
-
-    ax = axes[0, 0]
-    ax.imshow(source_img_u8, cmap="gray", vmin=0, vmax=255)
-    ax.set_title("Condition (Input)")
-    ax.axis("off")
-
-    for i in range(n_preds):
-        ax = axes[0, 1 + i]
-        pts = pred_pointsets[i]
-        ax.scatter(pts[:, 0], 1 - pts[:, 1], c="black", s=point_size, alpha=0.8)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.set_aspect("equal")
-        ax.set_facecolor("white")
-        ax.set_title(f"Predict {i}")
-        ax.axis("off")
-
-    axes[1, 0].axis("off")
-    axes[2, 0].axis("off")
-
-    cap_grid_shape = resolve_capacity_grid_size(image_01, capacity_grid_size)
-    pred_caps = [compute_grid_capacity(pred_pointsets[i], image_01, grid_size=cap_grid_shape) for i in range(n_preds)]
-    pred_spa = [compute_spacing_quality(pred_pointsets[i]) for i in range(n_preds)]
-
-    for i in range(n_preds):
-        cap = pred_caps[i]
-        ax = axes[1, 1 + i]
-        status = cap["grid_status"]
-        h_grid, w_grid = status.shape
-        rgb = np.zeros((h_grid, w_grid, 3), dtype=np.float32)
-        rgb[status == 0, 1] = 1.0
-        rgb[status == -1, 0] = 1.0
-        rgb[status == 1, 2] = 1.0
-        ax.imshow(rgb, origin="upper", aspect="equal")
-        ok_pct = 100.0 - cap["underfilled_pct"] - cap["overfilled_pct"]
-        ax.set_title(
-            f"Predict {i} Capacity\n"
-            f"Grid:{cap_grid_shape[0]}x{cap_grid_shape[1]} | "
-            f"OK:{ok_pct:.0f}% Under:{cap['underfilled_pct']:.0f}% Over:{cap['overfilled_pct']:.0f}%\n"
-            f"Score: {cap['score']:.3f}",
-            fontsize=9,
-        )
-        ax.axis("off")
-
-    all_nn = [s["nn_distances"] for s in pred_spa]
-    vmin = min(d.min() for d in all_nn)
-    vmax = max(d.max() for d in all_nn)
-    if not np.isfinite(vmin) or not np.isfinite(vmax) or abs(vmax - vmin) < 1e-12:
-        vmin, vmax = 0.0, 1.0
-
-    for i in range(n_preds):
-        spa = pred_spa[i]
-        pts = pred_pointsets[i]
-        ax = axes[2, 1 + i]
-        sc = ax.scatter(
-            pts[:, 0],
-            1 - pts[:, 1],
-            c=spa["nn_distances"],
-            cmap="RdYlBu",
-            s=point_size * 3,
-            alpha=0.8,
-            vmin=vmin,
-            vmax=vmax,
-        )
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.set_aspect("equal")
-        ax.set_facecolor("white")
-        ax.set_title(
-            f"Predict {i} Spacing\n"
-            f"CV:{spa['nn_cv']:.3f}  Clumped:{spa['clumped_pct']:.1f}%\n"
-            f"Score: {spa['spacing_score']:.3f}",
-            fontsize=9,
-        )
-        ax.axis("off")
-        plt.colorbar(sc, ax=ax, shrink=0.7, label="NN dist")
-
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close()
-    return save_path
-
+# ── Helper Functions ──────────────────────────────────────────────────────────
 
 def save_sample_image(image_path, pts, out_png_path):
-    cond_img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    cond_img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
     if cond_img is None:
         return
 
     h, w = cond_img.shape
-    # Save only the predicted stipple at exact input resolution.
     out_img = np.full((h, w), 255, dtype=np.uint8)
 
     pts = np.asarray(pts, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 2 or pts.shape[0] == 0:
-        cv2.imwrite(out_png_path, out_img)
+        cv2.imwrite(str(out_png_path), out_img)
         return
 
     px = np.rint(pts[:, 0] * (w - 1)).astype(np.int32)
@@ -233,43 +88,13 @@ def save_sample_image(image_path, pts, out_png_path):
     px = np.clip(px, 0, w - 1)
     py = np.clip(py, 0, h - 1)
 
-    # Each predicted point is exactly one pixel.
     out_img[py, px] = 0
-    cv2.imwrite(out_png_path, out_img)
-
-
-def _save_denoise_step(img_tensor, timestep_i, t_start, out_path):
-    if not HAS_MPL:
-        return
-    offsets = img_tensor[0].detach().cpu().float().numpy()
-    h, w = offsets.shape[1], offsets.shape[2]
-    cx = (np.arange(w) + 0.5) / w
-    cy = (np.arange(h) + 0.5) / h
-    gx, gy = np.meshgrid(cx, cy)
-    px = np.clip(gx + offsets[0] / w, 0.0, 1.0).flatten()
-    py = np.clip(gy + offsets[1] / h, 0.0, 1.0).flatten()
-
-    elapsed = t_start - 1 - timestep_i
-    fig, ax = plt.subplots(1, 1, figsize=(4, 4), dpi=110)
-    ax.scatter(px, 1.0 - py, c="black", s=0.5, alpha=0.8)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.set_aspect("equal")
-    ax.axis("off")
-    ax.set_title(f"step {elapsed}/{max(t_start - 1, 1)} (t={timestep_i})", fontsize=9)
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=110, bbox_inches="tight")
-    plt.close()
+    cv2.imwrite(str(out_png_path), out_img)
 
 
 def _save_condition_debug_tensors(
-    high_res,
-    high_res_sdf,
-    target_density,
-    target_sdf,
-    smart_init_grid_raw,
-    smart_init_grid_model,
-    out_dir,
+    high_res, high_res_sdf, target_density, target_sdf, 
+    smart_init_grid_raw, smart_init_grid_model, out_dir
 ):
     os.makedirs(out_dir, exist_ok=True)
     cond_map = {
@@ -281,20 +106,12 @@ def _save_condition_debug_tensors(
         "smart_init_grid_model_input": smart_init_grid_model,
     }
     for name, tensor in cond_map.items():
-        if tensor is None:
-            continue
+        if tensor is None: continue
         arr = tensor.detach().cpu().float().numpy().squeeze()
         np.save(os.path.join(out_dir, f"{name}.npy"), arr)
 
     if HAS_MPL:
-        ordered_names = [
-            "high_res",
-            "high_res_sdf",
-            "target_density",
-            "target_sdf",
-            "smart_init_grid_raw",
-            "smart_init_grid_model_input",
-        ]
+        ordered_names = ["high_res", "high_res_sdf", "target_density", "target_sdf", "smart_init_grid_raw", "smart_init_grid_model_input"]
         fig, axes = plt.subplots(2, 3, figsize=(10, 7), dpi=140)
         for ax, name in zip(axes.flat, ordered_names):
             tensor = cond_map[name]
@@ -307,10 +124,7 @@ def _save_condition_debug_tensors(
                 ax.axis("off")
                 ax.set_title(f"{name} (invalid)")
                 continue
-            if "sdf" in name:
-                vis = np.clip((arr + 1.0) * 0.5, 0.0, 1.0)
-            else:
-                vis = np.clip(arr, 0.0, 1.0)
+            vis = np.clip((arr + 1.0) * 0.5, 0.0, 1.0) if "sdf" in name else np.clip(arr, 0.0, 1.0)
             ax.imshow(vis, cmap="gray", vmin=0.0, vmax=1.0)
             ax.axis("off")
             ax.set_title(name)
@@ -333,7 +147,6 @@ def _offsets_to_coords_gpu(offsets, grid_size, grid_centers_flat):
 
 
 def _render_smart_init_gpu(coords, grid_size, sigma_px, device):
-    """Gaussian soft splatting of (1, N, 2) coords to (1, 1, G, G) -- matches training."""
     lin = (torch.arange(grid_size, device=device, dtype=torch.float32) + 0.5) / float(grid_size)
     gx, gy = torch.meshgrid(lin, lin, indexing="xy")
     pixel_centers = torch.stack([gx, gy], dim=-1).reshape(1, grid_size * grid_size, 2)
@@ -344,7 +157,7 @@ def _render_smart_init_gpu(coords, grid_size, sigma_px, device):
 
 
 def load_condition(image_path, grid_size, device, sdf_features=True, sdf_truncate_px=0.0):
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
     if img is None:
         raise FileNotFoundError(f"Cannot read image: {image_path}")
     image_01 = img.astype(np.float32) / 255.0
@@ -353,301 +166,306 @@ def load_condition(image_path, grid_size, device, sdf_features=True, sdf_truncat
         target_density = torch.nn.functional.interpolate(high_res, size=(grid_size, grid_size), mode="area")
         return image_01, high_res, target_density, None, None
     high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_image(
-        image_01,
-        grid_size,
-        device,
-        sdf_truncate_px=sdf_truncate_px,
+        image_01, grid_size, device, sdf_truncate_px=sdf_truncate_px,
     )
     return image_01, high_res, target_density, high_res_sdf, target_sdf
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=CONFIG_PATH)
-    parser.add_argument("--base_ckpt", default=BASE_CKPT)
-    parser.add_argument("--control_ckpt", default=CONTROL_CKPT)
-    parser.add_argument("--input-image", "--image", dest="input_image", default=INPUT_IMAGE_PATH)
-    parser.add_argument(
-        "--gt-image",
-        default=GT_IMAGE_PATH,
-        help="Optional GT stipple image path. If empty, GT column is omitted in the metrics panel.",
-    )
-    parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
-    parser.add_argument("--timesteps", type=int, default=TIMESTEPS)
-    parser.add_argument("--grid_size", type=int, default=GRID_SIZE)
-    parser.add_argument("--out-dir", default=OUTPUT_DIR)
-    parser.add_argument("--no_ot", action="store_true")
-    parser.add_argument("--enable-gecco", default=ENABLE_GECCO, action=argparse.BooleanOptionalAction)
-    parser.add_argument("--smart-init-features", action=argparse.BooleanOptionalAction, default=SMART_INIT_FEATURES)
-    parser.add_argument("--batch-coords-features", action=argparse.BooleanOptionalAction, default=BATCH_COORDS_FEATURES)
-    parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
-    parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX)
-    parser.add_argument("--sdf-features", action=argparse.BooleanOptionalAction, default=SDF_FEATURES)
-    parser.add_argument("--show-denoising", action=argparse.BooleanOptionalAction, default=SHOW_DENOISING)
-    parser.add_argument(
-        "--show-denoising-interval",
-        "--denoise-interval",
-        dest="show_denoising_interval",
-        type=int,
-        default=SHOW_DENOISING_INTERVAL,
-    )
-    parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO)
-    parser.add_argument("--t-start-step", type=int, default=T_START_STEP,
-                        help="If >=0, overrides truncation-ratio derived start step")
-    parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
-    parser.add_argument("--smart-init-splat-sigma-px", type=float, default=SMART_INIT_SPLAT_SIGMA_PX,
-                        help="Gaussian sigma in grid-pixel units for Smart Init soft splatting (match training default)")
-    parser.add_argument(
-        "--enable-smart-init-splat-sigma",
-        action=argparse.BooleanOptionalAction,
-        default=ENABLE_SMART_INIT_SPLAT_SIGMA,
-        help="Enable Gaussian soft-splat rendering for Smart Init model input grid.",
-    )
-    parser.add_argument(
-        "--capacity-grid-size",
-        type=int,
-        default=CAPACITY_GRID_SIZE,
-        help="Capacity grid size: >0 uses KxK, -1 uses full input image resolution",
-    )
-    parser.add_argument("--device", default=DEVICE)
-    args = parser.parse_args()
+# ── Core Inference Pipeline ───────────────────────────────────────────────────
 
-    if not (0.0 < args.truncation_ratio <= 1.0):
-        raise ValueError("--truncation-ratio must be in (0,1]")
-    if args.capacity_grid_size == 0 or args.capacity_grid_size < -1:
-        raise ValueError("--capacity-grid-size must be > 0, or -1 for full input resolution")
-
-    device = torch.device(args.device)
-
-    diffusion = ParseSampleConfig(args.config)
-    diffusion.load_state_dict(torch.load(args.base_ckpt, map_location="cpu")["diffu"])
+def load_pipeline(config_path, base_ckpt, control_ckpt, grid_size, enable_gecco, smart_init_features, sdf_features, batch_coords_features, device):
+    """Loads the U-Net and ControlNet into VRAM once."""
+    diffusion = ParseSampleConfig(config_path)
+    diffusion.load_state_dict(torch.load(base_ckpt, map_location="cpu")["diffu"])
     diffusion.to(device)
     denoiser = diffusion.model
     denoiser.eval()
 
     control_net = DynamicControlNet(
         denoiser,
-        grid_size=args.grid_size,
-        enable_gecco=args.enable_gecco,
-        smart_init_features=args.smart_init_features,
-        sdf_features=args.sdf_features,
-        batch_coords_features=args.batch_coords_features,
+        grid_size=grid_size,
+        enable_gecco=enable_gecco,
+        smart_init_features=smart_init_features,
+        sdf_features=sdf_features,
+        batch_coords_features=batch_coords_features,
     ).to(device)
-    state = torch.load(args.control_ckpt, map_location="cpu")
+    
+    state = torch.load(control_ckpt, map_location="cpu")
     control_net.safe_load_state_dict(state, strict=False)
     control_net.eval()
+    
+    return diffusion, control_net
 
-    img_stem = os.path.splitext(os.path.basename(args.input_image))[0]
-    sample_base_dir = os.path.join(args.out_dir, img_stem)
-    os.makedirs(sample_base_dir, exist_ok=True)
 
+def process_single_image(
+    image_path, output_dir, timestamp_dir=None, diffusion=None, control_net=None,
+    grid_size=32, timesteps=1000, truncation_ratio=0.30, t_start_step=-1, resample_jumps=2,
+    smart_init_features=False, sdf_features=False, smart_init_seed=42, sdf_truncate_px=8.0,
+    enable_smart_init_splat_sigma=False, smart_init_splat_sigma_px=0.5, no_ot=False,
+    export_png=True, export_npy=True, export_conditions=True, track_time=False,
+    device="cuda", n_samples=1
+):
+    """Runs the inference pipeline for a single image, with exact timing tracking."""
+    out_dir = Path(output_dir)
+    img_stem = Path(image_path).stem
+    
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    t_total_start = time.perf_counter()
+    time_si, time_denoise, time_ot = 0.0, 0.0, 0.0
+
+    # 1. Condition Loading
     image_01, high_res, target_density, high_res_sdf, target_sdf = load_condition(
-        args.input_image,
-        args.grid_size,
-        device,
-        sdf_features=args.sdf_features,
-        sdf_truncate_px=args.sdf_truncate_px,
+        image_path, grid_size, device, sdf_features=sdf_features, sdf_truncate_px=sdf_truncate_px,
     )
 
-    smart_points = generate_smart_init_points_from_density(
-        image_01,
-        n_points=args.grid_size * args.grid_size,
-        seed=args.smart_init_seed,
-    )
+    # 2. Smart Init / Prior (TIMED)
+    t_si_start = time.perf_counter()
+    smart_points = generate_smart_init_points_from_density(image_01, n_points=grid_size * grid_size, seed=smart_init_seed)
     smart_offsets_np = smart_init_points_to_offsets(smart_points)
     smart_init_offsets = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
 
-    if args.smart_init_features:
-        smart_grid_np = render_smart_init_grid(smart_points, grid_size=args.grid_size)
+    if smart_init_features:
+        from control_v4.smart_init import render_smart_init_grid
+        smart_grid_np = render_smart_init_grid(smart_points, grid_size=grid_size)
         smart_init_grid_raw = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
-        if args.enable_smart_init_splat_sigma:
-            grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets.dtype)
-            smart_coords = _offsets_to_coords_gpu(smart_init_offsets, args.grid_size, grid_centers_flat)
-            smart_init_grid = _render_smart_init_gpu(
-                smart_coords,
-                args.grid_size,
-                args.smart_init_splat_sigma_px,
-                device,
-            )
+        if enable_smart_init_splat_sigma:
+            grid_centers_flat = _grid_centers_flat(grid_size, device, smart_init_offsets.dtype)
+            smart_coords = _offsets_to_coords_gpu(smart_init_offsets, grid_size, grid_centers_flat)
+            smart_init_grid = _render_smart_init_gpu(smart_coords, grid_size, smart_init_splat_sigma_px, device)
         else:
             smart_init_grid = smart_init_grid_raw
     else:
-        smart_grid_np = None
-        smart_init_grid_raw = None
-        smart_init_grid = None
+        smart_init_grid_raw, smart_init_grid = None, None
+    time_si = time.perf_counter() - t_si_start
 
-    conditions_dir = os.path.join(sample_base_dir, "conditions")
-    _save_condition_debug_tensors(
-        high_res,
-        high_res_sdf,
-        target_density,
-        target_sdf,
-        smart_init_grid_raw,
-        smart_init_grid,
-        conditions_dir,
-    )
+    # Condition Export
+    if export_conditions:
+        cond_dir = out_dir / "conditions"
+        _save_condition_debug_tensors(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid_raw, smart_init_grid, cond_dir)
 
-    if args.smart_init_features:
-        smart_dir = os.path.join(sample_base_dir, "smart_init")
-        save_smart_init_debug(
-            smart_dir,
-            smart_points,
-            smart_offsets_np,
-            smart_grid_np,
-            model_input_grid=smart_init_grid.detach().cpu().numpy(),
-        )
-
-    controlled = DynamicControlledDenoiser(denoiser, control_net)
+    # Setup Denoiser
+    controlled = DynamicControlledDenoiser(diffusion.model, control_net)
     controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid)
     diffusion.model = controlled
-    diffusion.set_num_timesteps(args.timesteps)
+    diffusion.set_num_timesteps(timesteps)
     diffusion.eval()
 
-    t_start = args.t_start_step if args.t_start_step >= 0 else int(args.timesteps * args.truncation_ratio)
-    t_start = int(np.clip(t_start, 1, max(args.timesteps - 1, 1)))
+    # Determine schedule start
+    t_start = t_start_step if t_start_step >= 0 else int(timesteps * truncation_ratio)
+    t_start = int(np.clip(t_start, 1, max(timesteps - 1, 1)))
 
-    n_samples = args.n_samples
-    
-    if args.truncation_ratio == 1.0 and args.t_start_step < 0:
-        # Bypass Smart Init and start from pure random noise for the full schedule
-        img = torch.randn((n_samples, 2, args.grid_size, args.grid_size), device=device)
-        t_start = args.timesteps - 1
+    if truncation_ratio == 1.0 and t_start_step < 0:
+        img = torch.randn((n_samples, 2, grid_size, grid_size), device=device)
+        t_start = timesteps - 1
+        time_si = 0.0 # Override because we aren't using the generated prior
     else:
-        # Standard SDEdit Smart Init start
-        x_init = smart_init_offsets
-        if x_init.shape[0] != n_samples:
-            x_init = x_init.expand(n_samples, -1, -1, -1).contiguous()
-
+        x_init = smart_init_offsets.expand(n_samples, -1, -1, -1).contiguous()
         alpha_t = diffusion.alphas_cumprod[t_start]
         img = add_noise_at_t(x_init, alpha_t)
 
-    print(f"Loaded checkpoint : {args.control_ckpt}")
-    print(f"GECCO enabled     : {args.enable_gecco}")
-    print(f"Smart Init enabled: {args.smart_init_features}")
-    print(f"Smart Init splat-sigma enabled: {args.enable_smart_init_splat_sigma}")
-    if args.enable_smart_init_splat_sigma:
-        print(f"Smart Init splat sigma (px): {args.smart_init_splat_sigma_px}")
-    print(f"Batch coords      : {args.batch_coords_features}")
-    print(f"SDF enabled       : {args.sdf_features}")
-    print(f"Timesteps         : {args.timesteps}")
-    print(f"t_start           : {t_start}")
-    print(f"Resample jumps    : {args.resample_jumps}")
-    if args.capacity_grid_size == -1:
-        print("Capacity grid     : full input resolution")
-    else:
-        print(f"Capacity grid     : {args.capacity_grid_size}x{args.capacity_grid_size}")
-
-    steps_dir = None
-    if args.show_denoising:
-        steps_dir = os.path.join(sample_base_dir, "denoising_steps")
-        os.makedirs(steps_dir, exist_ok=True)
-
-    from tqdm import tqdm
-    with torch.no_grad() if args.resample_jumps == 0 else torch.enable_grad():
-        for i in tqdm(reversed(range(t_start)), total=t_start, desc="sampling_v4"):
+    # 3. Denoising (TIMED)
+    t_denoise_start = time.perf_counter()
+    with torch.no_grad() if resample_jumps == 0 else torch.enable_grad():
+        for i in tqdm(reversed(range(t_start)), total=t_start, desc=f"Denoising {img_stem}"):
             t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
-            for u in range(args.resample_jumps + 1):
+            for u in range(resample_jumps + 1):
                 with torch.no_grad():
-                    img = diffusion.p_sample(
-                        img,
-                        cond=None,
-                        t=t_tensor,
-                        clip_denoised=diffusion.sample_clip,
-                        with_sampling=True,
-                    )
-
-                if u == args.resample_jumps or i == 0:
-                    break
+                    img = diffusion.p_sample(img, cond=None, t=t_tensor, clip_denoised=diffusion.sample_clip, with_sampling=True)
+                if u == resample_jumps or i == 0: break
                 beta_i = diffusion.betas[i]
                 noise = torch.randn_like(img)
                 img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
-
-            if steps_dir is not None:
-                elapsed = t_start - 1 - i
-                if elapsed % args.show_denoising_interval == 0:
-                    step_path = os.path.join(steps_dir, f"step_{elapsed:04d}.png")
-                    _save_denoise_step(img, i, t_start, step_path)
+    time_denoise = time.perf_counter() - t_denoise_start
 
     samples_raw = img.detach().cpu().numpy()
 
-    npy_dir = os.path.join(sample_base_dir, "npy")
-    png_dir = os.path.join(sample_base_dir, "png")
-    metrics_dir = os.path.join(sample_base_dir, "metrics")
-    os.makedirs(npy_dir, exist_ok=True)
-    os.makedirs(png_dir, exist_ok=True)
-    os.makedirs(metrics_dir, exist_ok=True)
+    # Create Export Dirs
+    npy_dir = out_dir / "npy"
+    png_dir = out_dir / "png"
+    if export_npy: npy_dir.mkdir(exist_ok=True)
+    if export_png: png_dir.mkdir(exist_ok=True)
 
-    pred_pointsets = []
-
+    # 4. Optimal Transport & Saving (TIMED)
     for idx, s in enumerate(samples_raw):
-        suffix = f"_{idx + 1}"
-        npy_path = os.path.join(npy_dir, f"{img_stem}{suffix}.npy")
-        png_path = os.path.join(png_dir, f"{img_stem}{suffix}.png")
-
-        if not args.no_ot:
+        suffix = f"_{idx + 1}" if n_samples > 1 else ""
+        
+        t_ot_start = time.perf_counter()
+        if not no_ot:
             pts = to_pointset_optimal_transport(s)
             pts = pts.reshape(pts.shape[0], np.prod(pts.shape[1:])).T
-            pred_pointsets.append(pts)
-            np.save(npy_path, pts)
-            save_sample_image(args.input_image, pts, png_path)
         else:
-            np.save(npy_path, s)
+            pts = s
+        time_ot += (time.perf_counter() - t_ot_start)
 
-    if args.no_ot:
-        print("Skipped metrics panel: --no_ot was enabled.")
-    else:
-        input_img_u8 = cv2.imread(args.input_image, cv2.IMREAD_GRAYSCALE)
-        panel_path = os.path.join(metrics_dir, "results_panel.png")
-        panel_saved = None
-        if input_img_u8 is None:
-            print(f"Skipped metrics panel: failed to read input image: {args.input_image}")
-        elif len(pred_pointsets) == 0:
-            print("Skipped metrics panel: no predicted point sets were generated.")
-        elif args.gt_image:
-            gt_img_u8 = cv2.imread(args.gt_image, cv2.IMREAD_GRAYSCALE)
-            if gt_img_u8 is None:
-                print(f"GT image was provided but could not be read, falling back to no-GT panel: {args.gt_image}")
-                panel_saved = visualize_sample_metrics_no_gt(
-                    input_img_u8,
-                    pred_pointsets,
-                    panel_path,
-                    capacity_grid_size=args.capacity_grid_size,
-                )
-            else:
-                gt_points = extract_points_from_target(args.gt_image, pred_pointsets[0].shape[0])
-                panel_saved = visualize_overfit_metrics(
-                    input_img_u8,
-                    gt_img_u8,
-                    gt_points,
-                    pred_pointsets,
-                    panel_path,
-                    step=None,
-                    gt_offsets=None,
-                    capacity_grid_size=args.capacity_grid_size,
-                )
-        else:
-            panel_saved = visualize_sample_metrics_no_gt(
-                input_img_u8,
-                pred_pointsets,
-                panel_path,
-                capacity_grid_size=args.capacity_grid_size,
-            )
+        if export_npy:
+            np.save(npy_dir / f"{img_stem}{suffix}.npy", pts if not no_ot else s)
+        if export_png and not no_ot:
+            save_sample_image(image_path, pts, png_dir / f"{img_stem}{suffix}.png")
 
-        if panel_saved is not None:
-            print(f"Saved metrics panel: {panel_saved}")
-        else:
-            print("Skipped metrics panel: matplotlib is not available.")
+    time_total = time.perf_counter() - t_total_start
 
-        geom = geometric_validation_score(pred_pointsets)
-        print(
-            "Geometry summary | "
-            f"CV={geom['cv']:.4f} | "
-            f"Clumped={geom['clumped_pct']:.2f}% | "
-            f"Score={geom['score']:.4f}"
+    # Time Tracking Export
+    if track_time:
+        ts_dir = Path(timestamp_dir) if timestamp_dir else out_dir
+        ts_dir.mkdir(parents=True, exist_ok=True)
+        with open(ts_dir / f"{img_stem}_time.txt", "w") as f:
+            f.write(f"Smart Init Time: {time_si:.4f} s\n")
+            f.write(f"Denoising Time: {time_denoise:.4f} s\n")
+            f.write(f"Optimal Transport Time: {time_ot:.4f} s\n")
+            f.write(f"Total Inference Time: {time_total:.4f} s\n")
+            
+    return time_total
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def run_inference_on_directory(
+    input_dir: str, config_path: str, base_ckpt: str, control_ckpt: str,
+    grid_size: int = 32, timesteps: int = 1000, enable_gecco: bool = True,
+    smart_init_features: bool = False, sdf_features: bool = False, batch_coords_features: bool = False,
+    truncation_ratio: float = 0.30, t_start_step: int = -1, smart_init_seed: int = 42,
+    sdf_truncate_px: float = 8.0, resample_jumps: int = 2,
+    enable_smart_init_splat_sigma: bool = False, smart_init_splat_sigma_px: float = 0.5,
+    no_ot: bool = False, export_png: bool = True, export_npy: bool = True,
+    export_conditions: bool = True, track_time: bool = True, device: str = "cuda"
+):
+    """
+    Public function to run inference on an entire directory.
+    Uses 'source' as an anchor to build 'target' and 'timestamps' folders in-place.
+    """
+    in_path = Path(input_dir)
+    
+    print(f"Initializing models on {device}...")
+    diffusion, control_net = load_pipeline(
+        config_path, base_ckpt, control_ckpt, grid_size, enable_gecco, 
+        smart_init_features, sdf_features, batch_coords_features, device
+    )
+
+    image_files = []
+    for ext in ["*.png", "*.jpg", "*.jpeg"]:
+        image_files.extend(in_path.rglob(ext))
+        image_files.extend(in_path.rglob(ext.upper()))
+
+    print(f"Found {len(image_files)} images in {input_dir}.")
+
+    for i, img_path in enumerate(image_files, 1):
+        if 'source' not in img_path.parts:
+            print(f"[{i}/{len(image_files)}] Skipping {img_path.name}: Not located inside a 'source' folder.")
+            continue
+            
+        # Find exactly where 'source' is in the path
+        source_idx = img_path.parts.index('source')
+        
+        # Base directory containing the 'source' folder
+        base_path = Path(*img_path.parts[:source_idx])
+        
+        # Extract the subpath strictly AFTER the 'source' folder (excluding the filename)
+        # E.g., .../source/item_01/image.png -> subpath = "item_01"
+        rel_subpath = Path(*img_path.parts[source_idx + 1:]).parent
+        
+        # Build sibling target and timestamps folders
+        target_out_dir = base_path / "target" / rel_subpath
+        timestamp_out_dir = base_path / "timestamps" / rel_subpath
+        
+        print(f"[{i}/{len(image_files)}] Processing: {img_path.name}")
+        process_single_image(
+            image_path=str(img_path), 
+            output_dir=str(target_out_dir),
+            timestamp_dir=str(timestamp_out_dir),
+            diffusion=diffusion, control_net=control_net,
+            grid_size=grid_size, timesteps=timesteps, truncation_ratio=truncation_ratio,
+            t_start_step=t_start_step, resample_jumps=resample_jumps,
+            smart_init_features=smart_init_features, sdf_features=sdf_features,
+            smart_init_seed=smart_init_seed, sdf_truncate_px=sdf_truncate_px,
+            enable_smart_init_splat_sigma=enable_smart_init_splat_sigma,
+            smart_init_splat_sigma_px=smart_init_splat_sigma_px,
+            no_ot=no_ot, export_png=export_png, export_npy=export_npy,
+            export_conditions=export_conditions, track_time=track_time,
+            device=device, n_samples=1 
         )
+    print("Directory processing complete.")
 
-    print("Done.")
 
+# ── CLI Entry Point ───────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", default=CONFIG_PATH)
+    parser.add_argument("--base_ckpt", default=BASE_CKPT)
+    parser.add_argument("--control_ckpt", default=CONTROL_CKPT)
+    
+    # Input routing (output path inferred dynamically)
+    parser.add_argument("--input", default=INPUT_IMAGE_PATH, help="Path to a single image or a dataset directory.")
+    parser.add_argument("--out-dir", default=OUTPUT_DIR, help="Base directory where single-image exports will be saved.")
+    
+    parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
+    parser.add_argument("--timesteps", type=int, default=TIMESTEPS)
+    parser.add_argument("--grid_size", type=int, default=GRID_SIZE)
+    parser.add_argument("--no_ot", action="store_true")
+    
+    # Artifact Exports
+    parser.add_argument("--export-png", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--export-npy", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--export-conditions", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--track-time", action=argparse.BooleanOptionalAction, default=False, help="Export a _time.txt file tracking stage speeds")
+    
+    # Model Flags
+    parser.add_argument("--enable-gecco", default=ENABLE_GECCO, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--smart-init-features", action=argparse.BooleanOptionalAction, default=SMART_INIT_FEATURES)
+    parser.add_argument("--batch-coords-features", action=argparse.BooleanOptionalAction, default=BATCH_COORDS_FEATURES)
+    parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
+    parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX)
+    parser.add_argument("--sdf-features", action=argparse.BooleanOptionalAction, default=SDF_FEATURES)
+    parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO)
+    parser.add_argument("--t-start-step", type=int, default=T_START_STEP)
+    parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
+    parser.add_argument("--smart-init-splat-sigma-px", type=float, default=SMART_INIT_SPLAT_SIGMA_PX)
+    parser.add_argument("--enable-smart-init-splat-sigma", action=argparse.BooleanOptionalAction, default=ENABLE_SMART_INIT_SPLAT_SIGMA)
+    parser.add_argument("--device", default=DEVICE)
+    args = parser.parse_args()
+
+    input_path = Path(args.input)
+    out_path = Path(args.out_dir)
+
+    if input_path.is_dir():
+        run_inference_on_directory(
+            input_dir=str(input_path), config_path=args.config,
+            base_ckpt=args.base_ckpt, control_ckpt=args.control_ckpt,
+            grid_size=args.grid_size, timesteps=args.timesteps, enable_gecco=args.enable_gecco,
+            smart_init_features=args.smart_init_features, sdf_features=args.sdf_features,
+            batch_coords_features=args.batch_coords_features, truncation_ratio=args.truncation_ratio,
+            t_start_step=args.t_start_step, smart_init_seed=args.smart_init_seed,
+            sdf_truncate_px=args.sdf_truncate_px, resample_jumps=args.resample_jumps,
+            enable_smart_init_splat_sigma=args.enable_smart_init_splat_sigma,
+            smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
+            no_ot=args.no_ot, export_png=args.export_png, export_npy=args.export_npy,
+            export_conditions=args.export_conditions, track_time=args.track_time, device=args.device
+        )
+    else:
+        diffusion, control_net = load_pipeline(
+            args.config, args.base_ckpt, args.control_ckpt, args.grid_size, args.enable_gecco, 
+            args.smart_init_features, args.sdf_features, args.batch_coords_features, args.device
+        )
+        
+        # RESTORED DEFAULT BEHAVIOR:
+        # For a single image, build output inside args.out_dir / filename
+        single_out_dir = out_path / input_path.stem
+        
+        process_single_image(
+            image_path=str(input_path), output_dir=str(single_out_dir), timestamp_dir=None, 
+            diffusion=diffusion, control_net=control_net,
+            grid_size=args.grid_size, timesteps=args.timesteps, truncation_ratio=args.truncation_ratio,
+            t_start_step=args.t_start_step, resample_jumps=args.resample_jumps,
+            smart_init_features=args.smart_init_features, sdf_features=args.sdf_features,
+            smart_init_seed=args.smart_init_seed, sdf_truncate_px=args.sdf_truncate_px,
+            enable_smart_init_splat_sigma=args.enable_smart_init_splat_sigma,
+            smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
+            no_ot=args.no_ot, export_png=args.export_png, export_npy=args.export_npy,
+            export_conditions=args.export_conditions, track_time=args.track_time,
+            device=args.device, n_samples=args.n_samples
+        )
+        print("Done single image processing.")
 
 if __name__ == "__main__":
     main()
