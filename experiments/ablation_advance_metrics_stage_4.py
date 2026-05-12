@@ -68,12 +68,16 @@ METRIC_ORDER = [
 METRIC_LABELS = {
     # Each metric can map to either a string (used for both title and ylabel)
     # or a dict with explicit `title` and `ylabel` fields.
-    "M1_cvt_energy": {"title": "M1: CVT Energy", "ylabel": "Energy"},
-    "M2_voronoi_mass_cv": {"title": "M2: Capacity Constraint Fulfillment", "ylabel": "Voronoi Mass"},
-    "M3_emd_distance": {"title": "M3: EMD Distance", "ylabel": "Distance"},
-    "M4_sinkhorn_ot_cost": {"title": "M4: Sinkhorn OT Cost", "ylabel": "Cost"},
-    "M5_spatial_measure_rho_mean": {"title": "M5: Spatial Measure ρ Mean", "ylabel": "ρ Mean"},
-    "M6_minsnr_loss": {"title": "M6: MinSNR Loss", "ylabel": "Loss"},
+    "M1_cvt_energy": {"title": "M1: CVT Energy", "ylabel": "Energy", "exclude_result_dirs": []},
+    "M2_voronoi_mass_cv": {"title": "M2: Capacity Constraint Fulfillment", "ylabel": "Voronoi Mass", "exclude_result_dirs": []},
+    "M3_emd_distance": {"title": "M3: EMD Distance", "ylabel": "Distance", "exclude_result_dirs": []},
+    "M4_sinkhorn_ot_cost": {"title": "M4: Sinkhorn OT Cost", "ylabel": "Cost", "exclude_result_dirs": []},
+    "M5_spatial_measure_rho_mean": {"title": "M5: Spatial Measure ρ Mean", "ylabel": "ρ Mean", "exclude_result_dirs": []},
+    "M6_minsnr_loss": {
+        "title": "M6: MinSNR Loss",
+        "ylabel": "Loss",
+        "exclude_result_dirs": ["sdedit", "sdedit_resample"],
+    },
 }
 
 
@@ -134,8 +138,16 @@ def make_plots(out_base: Path, model_names, metrics_file, fig_width_px: int, fig
     for i, metric in enumerate(METRIC_ORDER):
         fig, ax = plt.subplots(figsize=fig_size_inches)
 
+        metric_cfg = METRIC_LABELS.get(metric, {})
+        metric_include = metric_cfg.get("include_result_dirs", []) if isinstance(metric_cfg, dict) else []
+        metric_exclude = metric_cfg.get("exclude_result_dirs", []) if isinstance(metric_cfg, dict) else []
+
         for mname in model_names:
             if mname not in model_metrics:
+                continue
+            if metric_include and mname not in metric_include:
+                continue
+            if metric_exclude and mname in metric_exclude:
                 continue
             metrics = model_metrics[mname]
             series = metrics.get(metric, {})
@@ -156,14 +168,22 @@ def make_plots(out_base: Path, model_names, metrics_file, fig_width_px: int, fig
             title_text = metric.replace('_', ' ')
             ylabel_text = title_text
 
-        ax.set_title(title_text)
-        ax.set_xlabel("epoch")
-        ax.set_ylabel(ylabel_text)
+        ax.set_title(title_text, fontsize=16)
+        ax.set_xlabel("epoch", fontsize=14)
+        ax.set_ylabel(ylabel_text, fontsize=14)
+        ax.tick_params(axis='both', which='major', labelsize=12)
         ax.grid(True, alpha=0.2)
 
-        # Place legend inside the plot (top-right) with slight transparency
-        ax.legend(fontsize="small", loc='upper right', bbox_to_anchor=(0.98, 0.98),
-              bbox_transform=ax.transAxes, framealpha=0.85)
+        # Place larger legend inside the plot (top-left) for readability.
+        ax.legend(
+            fontsize=13,
+            loc='upper left',
+            bbox_to_anchor=(0.02, 0.98),
+            bbox_transform=ax.transAxes,
+            framealpha=0.9,
+            handlelength=2.0,
+            borderpad=0.6,
+        )
 
         # Tighten layout and save with bbox_inches to ensure the entire plot (including legend)
         fig.tight_layout()
@@ -184,7 +204,14 @@ def main():
     out_base = Path(args.output)
     model_names = [s.strip() for s in args.result_dirs.split(",") if s.strip()]
 
-    make_plots(out_base, model_names, args.metrics_file, args.fig_width, args.fig_height, args.dpi)
+    make_plots(
+        out_base,
+        model_names,
+        args.metrics_file,
+        args.fig_width,
+        args.fig_height,
+        args.dpi,
+    )
 
 
 if __name__ == '__main__':
