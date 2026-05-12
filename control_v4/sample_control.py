@@ -39,13 +39,26 @@ BASE_CKPT = "config/GBN/model.ckpt"
 # CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
 CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
+# Samples Compare
 INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
-
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/quadratic_V2/source/quadratic_density_gradient.png"
-
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/plant2/source/plant2_400x400.png"
-
 OUTPUT_DIR = "control_v4/sample_outputs"
+GRID_SIZE = 32
+
+
+# Sizes Compare
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/original/stress_test_density.png"
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/original/plant4h_V2.png"
+# GRID_SIZE = 8
+# GRID_SIZE = 16
+# GRID_SIZE = 24
+# GRID_SIZE = 32
+# GRID_SIZE = 48
+# GRID_SIZE = 64
+# OUTPUT_DIR = f"control_v4/sample_outputs_{GRID_SIZE}"
+
 
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
@@ -59,7 +72,7 @@ BATCH_COORDS_FEATURES = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 # Model parameters
-GRID_SIZE = 32
+# GRID_SIZE = 32
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
 # SMART_INIT_JITTER_PX = 0.5
