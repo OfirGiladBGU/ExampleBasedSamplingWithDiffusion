@@ -120,6 +120,8 @@ MARK_BEST = False  # Draws a red box around the capacity percentage closest to g
 # CAPACITY_TEST = False
 # MARK_BEST = False 
 
+DEFAULT_SRC_BASE = "control_v4/sample_outputs_advance"
+DEFAULT_OUT_BASE = "experiments/outputs/advance_metrics"
 
 # Styling for CAPACITY_TEST vertical quarter guides in the points row.
 CAPACITY_GUIDE_COLOR = "deepskyblue"  # A bright, static light blue
@@ -819,12 +821,12 @@ def parse_args():
     )
     p.add_argument(
         "--src-base",
-        default="control_v4/sample_outputs_advance",
+        default=DEFAULT_SRC_BASE,
         help="Base folder where sample outputs were written",
     )
     p.add_argument(
         "--out-base",
-        default="experiments/outputs/advance_metrics",
+        default=DEFAULT_OUT_BASE,
         help="Destination base folder to collect outputs into",
     )
     p.add_argument(
