@@ -133,7 +133,7 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e20_b100"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e40_b50"
 
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
@@ -143,9 +143,9 @@ DEVICE = "cuda"
 SPLIT_SEED = 42
 VAL_SPLIT = 0.1
 # NUM_SAMPLES = -1  # Use all validation samples by default
-NUM_SAMPLES = 100
+NUM_SAMPLES = 50
 # NUM_EPOCHS = -1  # Use all checkpoints by default
-NUM_EPOCHS = 20
+NUM_EPOCHS = 40
 
 
 def parse_args():

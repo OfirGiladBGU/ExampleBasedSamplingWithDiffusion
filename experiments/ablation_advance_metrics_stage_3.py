@@ -33,12 +33,12 @@ RESULTS_DIR = "vanilla"
 
 # Default folders
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e20_b100"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e40_b50"
 
 # NUM_SAMPLES = -1
-NUM_SAMPLES = 100
+NUM_SAMPLES = 50
 # NUM_EPOCHS = -1
-NUM_EPOCHS = 20
+NUM_EPOCHS = 40
 
 METRIC_ORDER = [
     "M1_cvt_energy",
@@ -55,10 +55,10 @@ def parse_args():
     p.add_argument("--output", default=OUTPUT_DIR, help="Base output folder used by stages 1/2")
     p.add_argument("--results-dir", default=RESULTS_DIR, help="Subfolder for model results (RESULTS_DIR)")
     p.add_argument("--epochs", default="all", help="'all' or comma-separated substrings to match epoch dirs")
-    p.add_argument("--num-epochs", type=int, default=-1,
-                   help="Number of epoch directories to process in sorted order; -1 means use all")
-    p.add_argument("--num-samples", type=int, default=-1,
-                   help="Limit number of per-epoch samples to aggregate; -1 means use all")
+    p.add_argument("--num-epochs", type=int, default=NUM_EPOCHS,
+                   help=f"Number of epoch directories to process in sorted order; -1 means use all (default: {NUM_EPOCHS})")
+    p.add_argument("--num-samples", type=int, default=NUM_SAMPLES,
+                   help=f"Limit number of examples per epoch to aggregate; -1 means use all (default: {NUM_SAMPLES})")
     p.add_argument("--write-per-epoch", action="store_true", help="Also write per-epoch epoch_{id}_metrics.json files")
     p.add_argument("--metrics-file", default="metrics_avg.json", help="Name of the aggregated metrics file to write in model root")
     p.add_argument("--dry-run", action="store_true")
@@ -109,9 +109,35 @@ def epoch_id_from_name(name):
     return str(int(time.time()))
 
 
-def aggregate_epoch(epoch_dir: Path):
-    """Read all JSONs under epoch_dir and return dict metric->mean"""
-    files = sorted([p for p in epoch_dir.glob("*.json") if p.is_file()])
+def load_manifest_order(out_base):
+    """Load validation_manifest.json to get the canonical file order."""
+    manifest_path = Path(out_base) / "validation_manifest.json"
+    if not manifest_path.exists():
+        return []
+    try:
+        return json.loads(manifest_path.read_text())
+    except Exception:
+        return []
+
+
+def aggregate_epoch(epoch_dir: Path, manifest_names=None):
+    """Read all JSONs under epoch_dir and return dict metric->mean.
+    
+    If manifest_names is provided, process only those files in that order.
+    Otherwise, process all files in sorted order.
+    """
+    all_files = {p.stem: p for p in epoch_dir.glob("*.json") if p.is_file()}
+    
+    # If manifest provided, use it to enforce order and filter
+    if manifest_names:
+        files = []
+        for name in manifest_names:
+            stem = Path(name).stem
+            if stem in all_files:
+                files.append(all_files[stem])
+    else:
+        files = sorted(all_files.values())
+    
     if len(files) == 0:
         return {}
 
@@ -157,6 +183,11 @@ def main():
 
     # Apply numeric epoch limiting if requested
     epoch_dirs = limit_checkpoints(epoch_dirs, getattr(args, "num_epochs", -1))
+    
+    # Load manifest to enforce correct ordering of examples
+    manifest = load_manifest_order(out_base)
+    manifest_limited = limit_validation_images(manifest, getattr(args, "num_samples", -1))
+    print(f"Using {len(manifest_limited)} examples from manifest (in order)")
 
     # Build metric -> { epoch: avg }
     metric_time_series = {m: {} for m in METRIC_ORDER}
@@ -164,28 +195,10 @@ def main():
     for idx, ed in enumerate(epoch_dirs, start=1):
         eid = epoch_id_from_name(ed.name)
         print(f"[{idx}/{len(epoch_dirs)}] Aggregating epoch {eid}")
-        # Aggregate; optionally limit number of per-epoch samples
-        if int(getattr(args, "num_samples", -1)) < 0:
-            avgs = aggregate_epoch(ed)
-        else:
-            # read only the first N json files
-            files = sorted([p for p in ed.glob("*.json") if p.is_file()])[: int(args.num_samples)]
-            # temporary aggregate of selected files
-            sums = {}
-            counts = {}
-            for fp in files:
-                try:
-                    data = json.loads(fp.read_text())
-                except Exception:
-                    continue
-                for k, v in data.items():
-                    try:
-                        fv = float(v)
-                    except Exception:
-                        continue
-                    sums[k] = sums.get(k, 0.0) + fv
-                    counts[k] = counts.get(k, 0) + 1
-            avgs = {k: float(sums[k] / max(1, counts.get(k, 1))) for k in sums}
+        # Aggregate using manifest order to limit and order samples
+        avgs = aggregate_epoch(ed, manifest_names=manifest_limited)
+        if len(avgs) == 0:
+            avgs = {}
         if args.write_per_epoch:
             target_path = model_root / f"epoch_{eid}_metrics.json"
             target_path.write_text(json.dumps({k: avgs.get(k, None) for k in METRIC_ORDER}, indent=2))
