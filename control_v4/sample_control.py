@@ -33,6 +33,29 @@ from control_v4.smart_init import (
 from data.Transforms import to_pointset_optimal_transport
 from utils.Config import ParseSampleConfig
 
+# DEFUALTS
+ENABLE_GECCO = True
+ENABLE_ADAPTIVE_GATE_INJECTION = True
+TIMESTEPS = 1000
+TRUNCATION_RATIO = 0.30
+RESAMPLE_JUMPS = 2
+SMART_INIT_FEATURES = False
+SDF_FEATURES = False
+BATCH_COORDS_FEATURES = False
+SHOW_DENOISING = False
+SHOW_DENOISING_INTERVAL = 50
+# ENABLE_SMART_INIT_JITTER = False
+ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+# Model parameters
+GRID_SIZE = 32
+SMART_INIT_SEED = 42
+SDF_TRUNCATE_PX = 8.0
+# SMART_INIT_JITTER_PX = 0.5
+SMART_INIT_SPLAT_SIGMA_PX = 0.5
+
+# ----
+
 # Editable defaults 
 CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT = "config/GBN/model.ckpt"
@@ -40,12 +63,12 @@ BASE_CKPT = "config/GBN/model.ckpt"
 CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
 # Samples Compare
-INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/quadratic_V2/source/quadratic_density_gradient.png"
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/plant2/source/plant2_400x400.png"
-OUTPUT_DIR = "control_v4/sample_outputs"
-GRID_SIZE = 32
-
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
+# # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/quadratic_V2/source/quadratic_density_gradient.png"
+# # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/plant2/source/plant2_400x400.png"
+# OUTPUT_DIR = "control_v4/sample_outputs"
+# TIMESTEPS = 1000
+# TRUNCATION_RATIO = 0.30
 
 # Sizes Compare
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
@@ -58,25 +81,25 @@ GRID_SIZE = 32
 # GRID_SIZE = 48
 # GRID_SIZE = 64
 # OUTPUT_DIR = f"control_v4/sample_outputs_{GRID_SIZE}"
+# TIMESTEPS = 1000
+# TRUNCATION_RATIO = 0.30
 
 
-ENABLE_GECCO = True
-ENABLE_ADAPTIVE_GATE_INJECTION = True
+INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig1.png"
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig2.png"
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig3.png"
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig4.png"
+SHOW_DENOISING = True
+SHOW_DENOISING_INTERVAL = 100
+
+# OUTPUT_DIR = "control_v4/sample_outputs"
+# TIMESTEPS = 1000
+# TRUNCATION_RATIO = 1.0
+
+OUTPUT_DIR = "control_v4/sample_outputs_trunc"
 TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.30
-RESAMPLE_JUMPS = 2
-SMART_INIT_FEATURES = False
-SDF_FEATURES = False
-BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-ENABLE_SMART_INIT_SPLAT_SIGMA = False
+TRUNCATION_RATIO = 0.3
 
-# Model parameters
-# GRID_SIZE = 32
-SMART_INIT_SEED = 42
-SDF_TRUNCATE_PX = 8.0
-# SMART_INIT_JITTER_PX = 0.5
-SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 N_SAMPLES = 1
 DEVICE = "cuda"
@@ -104,6 +127,31 @@ def save_sample_image(image_path, pts, out_png_path):
 
     out_img[py, px] = 0
     cv2.imwrite(str(out_png_path), out_img)
+
+
+def _save_denoise_step(img_tensor, timestep_i, t_start, out_path):
+    """Save a visualization of the denoising step as a scatter plot."""
+    if not HAS_MPL:
+        return
+    offsets = img_tensor[0].detach().cpu().float().numpy()
+    h, w = offsets.shape[1], offsets.shape[2]
+    cx = (np.arange(w) + 0.5) / w
+    cy = (np.arange(h) + 0.5) / h
+    gx, gy = np.meshgrid(cx, cy)
+    px = np.clip(gx + offsets[0] / w, 0.0, 1.0).flatten()
+    py = np.clip(gy + offsets[1] / h, 0.0, 1.0).flatten()
+
+    elapsed = t_start - 1 - timestep_i
+    fig, ax = plt.subplots(1, 1, figsize=(4, 4), dpi=110)
+    ax.scatter(px, 1.0 - py, c="black", s=0.5, alpha=0.8)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title(f"step {elapsed}/{max(t_start - 1, 1)} (t={timestep_i})", fontsize=9)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=110, bbox_inches="tight")
+    plt.close()
 
 
 def _save_condition_debug_tensors(
@@ -217,7 +265,8 @@ def process_single_image(
     smart_init_features=False, sdf_features=False, smart_init_seed=42, sdf_truncate_px=8.0,
     enable_smart_init_splat_sigma=False, smart_init_splat_sigma_px=0.5, no_ot=False,
     export_png=True, export_npy=True, export_conditions=True, track_time=False,
-    device="cuda", n_samples=1, use_subdirs: bool = True
+    device="cuda", n_samples=1, use_subdirs: bool = True, show_denoising: bool = False,
+    show_denoising_interval: int = 50
 ):
     """Runs the inference pipeline for a single image, with exact timing tracking.
     
@@ -295,6 +344,17 @@ def process_single_image(
         img = add_noise_at_t(x_init, alpha_t)
 
     # 3. Denoising (TIMED)
+    steps_png_dir = None
+    steps_npy_dir = None
+    if show_denoising:
+        if show_denoising_interval <= 0:
+            raise ValueError("show_denoising_interval must be > 0 when show_denoising is enabled")
+        steps_base_dir = out_dir / "denoising_steps"
+        steps_png_dir = steps_base_dir / "png"
+        steps_npy_dir = steps_base_dir / "npy"
+        steps_png_dir.mkdir(parents=True, exist_ok=True)
+        steps_npy_dir.mkdir(parents=True, exist_ok=True)
+    
     t_denoise_start = time.perf_counter()
     with torch.no_grad() if resample_jumps == 0 else torch.enable_grad():
         for i in tqdm(reversed(range(t_start)), total=t_start, desc=f"Denoising {img_stem}"):
@@ -306,6 +366,14 @@ def process_single_image(
                 beta_i = diffusion.betas[i]
                 noise = torch.randn_like(img)
                 img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
+            
+            if steps_png_dir is not None and steps_npy_dir is not None:
+                elapsed = t_start - 1 - i
+                if elapsed % show_denoising_interval == 0:
+                    step_png_path = steps_png_dir / f"step_{elapsed:04d}.png"
+                    step_npy_path = steps_npy_dir / f"step_{elapsed:04d}.npy"
+                    _save_denoise_step(img, i, t_start, str(step_png_path))
+                    np.save(step_npy_path, img.detach().cpu().numpy())
     time_denoise = time.perf_counter() - t_denoise_start
 
     samples_raw = img.detach().cpu().numpy()
@@ -524,6 +592,8 @@ def main():
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
     parser.add_argument("--smart-init-splat-sigma-px", type=float, default=SMART_INIT_SPLAT_SIGMA_PX)
     parser.add_argument("--enable-smart-init-splat-sigma", action=argparse.BooleanOptionalAction, default=ENABLE_SMART_INIT_SPLAT_SIGMA)
+    parser.add_argument("--show-denoising", action=argparse.BooleanOptionalAction, default=SHOW_DENOISING, help="Export denoising steps to denoising_steps/png and denoising_steps/npy")
+    parser.add_argument("--show-denoising-interval", type=int, default=SHOW_DENOISING_INTERVAL, help="Interval for saving denoising steps (every N steps)")
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
 
@@ -555,7 +625,8 @@ def main():
         smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
         no_ot=args.no_ot, export_png=args.export_png, export_npy=args.export_npy,
         export_conditions=args.export_conditions, track_time=args.track_time,
-        device=args.device, n_samples=args.n_samples
+        device=args.device, n_samples=args.n_samples,
+        show_denoising=args.show_denoising, show_denoising_interval=args.show_denoising_interval
     )
     print("Done single image processing.")
 

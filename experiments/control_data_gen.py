@@ -27,13 +27,27 @@ from control_v4.sample_control import run_inference_on_directory
 
 CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT = "config/GBN/model.ckpt"
-CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
-DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/quantitative_advance_metrics"
+# ICONS
+# CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/quantitative_advance_metrics"
+# GRID_SIZE = 32
+
+# Faces Set Sample
+# CONTROL_CKPT = "control_v4/train_outputs_data_celeba_5K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/faces_results_compare"
+# GRID_SIZE = 32
+
+# ICONS - TIMES
+CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/icons_results_runtimes"
+# GRID_SIZE = 24
+# GRID_SIZE = 32
+GRID_SIZE = 48
 
 # Inference parameters
 TIMESTEPS = 1000
-GRID_SIZE = 32
+# GRID_SIZE = 32
 TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 2
 
