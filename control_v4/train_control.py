@@ -215,6 +215,10 @@ PIN_MEMORY = True
 WANDB_VALID_IMAGES = 8
 WANDB_TRAIN_IMAGES = 8
 SHOW_LABELS = True
+SHOW_SELECTED_INPUTS = True
+SHOW_SELECTED_GT = True
+SHOW_SELECTED_PREDICT = True
+SHOW_SELECTED_GT_OFFSETS = True
 
 
 def load_wandb_key():
@@ -521,25 +525,47 @@ def sdf_to_display(sdf_2d):
     return np.clip((sdf_2d + 1.0) * 0.5, 0.0, 1.0)
 
 
-def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, max_samples=4, show_labels=True):
-    """Save a 4-column panel per validation sample.
+def save_val_panel(
+    save_path,
+    cond_batch,
+    gt_offsets_batch,
+    pred_offsets_batch,
+    max_samples=4,
+    show_labels=True,
+    show_selected_inputs=True,
+    show_selected_gt=True,
+    show_selected_predict=True,
+    show_selected_gt_offsets=True,
+):
+    """Save a validation panel with a configurable subset of columns.
 
-    Columns: Condition | GT | Predict | GT Offset Quiver
-    
+    Columns, in order: Condition | GT | Predict | GT Offset Quiver.
+
     Args:
         show_labels: If False, column headers will not be displayed on the top row.
+        show_selected_*: Control whether each column is visible in the panel.
     """
     if not HAS_MPL:
         print("matplotlib unavailable; skipping validation panel export")
         return False
 
+    visible_columns = [
+        ("Condition", show_selected_inputs),
+        ("GT", show_selected_gt),
+        ("Predict", show_selected_predict),
+        ("GT Offset Quiver", show_selected_gt_offsets),
+    ]
+    visible_columns = [column for column in visible_columns if column[1]]
+    if not visible_columns:
+        raise ValueError("At least one show_selected_* flag must be True")
+
     n = min(max_samples, cond_batch.shape[0], gt_offsets_batch.shape[0], pred_offsets_batch.shape[0])
     if n <= 0:
         return False
 
-    fig, axes = plt.subplots(n, 4, figsize=(16, 4 * n), dpi=150)
-    if n == 1:
-        axes = np.expand_dims(axes, axis=0)
+    num_columns = len(visible_columns)
+    fig, axes = plt.subplots(n, num_columns, figsize=(4 * num_columns, 4 * n), dpi=150)
+    axes = np.array(axes, dtype=object).reshape(n, num_columns)
 
     for i in range(n):
         cond = cond_batch[i, 0]
@@ -552,53 +578,62 @@ def save_val_panel(save_path, cond_batch, gt_offsets_batch, pred_offsets_batch, 
         pred_pts_grid = to_pointset_optimal_transport(pred_offsets)
         pred_pts = pred_pts_grid.reshape(2, -1).T
 
-        ax = axes[i, 0]
-        ax.imshow(cond, cmap="gray", vmin=0.0, vmax=1.0)
-        if i == 0 and show_labels:
-            ax.set_title("Condition")
-        ax.axis("off")
+        column_index = 0
 
-        ax = axes[i, 1]
-        ax.scatter(gt_pts[:, 0], 1.0 - gt_pts[:, 1], c="black", s=0.5, alpha=0.8)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.set_aspect("equal")
-        if i == 0 and show_labels:
-            ax.set_title("GT")
-        ax.axis("off")
+        if show_selected_inputs:
+            ax = axes[i, column_index]
+            ax.imshow(cond, cmap="gray", vmin=0.0, vmax=1.0)
+            if i == 0 and show_labels:
+                ax.set_title("Condition")
+            ax.axis("off")
+            column_index += 1
 
-        ax = axes[i, 2]
-        ax.scatter(pred_pts[:, 0], 1.0 - pred_pts[:, 1], c="black", s=0.5, alpha=0.8)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.set_aspect("equal")
-        if i == 0 and show_labels:
-            ax.set_title("Predict")
-        ax.axis("off")
+        if show_selected_gt:
+            ax = axes[i, column_index]
+            ax.scatter(gt_pts[:, 0], 1.0 - gt_pts[:, 1], c="black", s=0.5, alpha=0.8)
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.set_aspect("equal")
+            if i == 0 and show_labels:
+                ax.set_title("GT")
+            ax.axis("off")
+            column_index += 1
 
-        ax = axes[i, 3]
-        n_grid = gt_offsets.shape[-1]
-        yy, xx = np.mgrid[0:n_grid, 0:n_grid]
-        dx, dy = gt_offsets[0], gt_offsets[1]
-        mag = np.sqrt(dx * dx + dy * dy)
-        q = ax.quiver(
-            xx,
-            yy,
-            dx,
-            dy,
-            mag,
-            angles="xy",
-            scale_units="xy",
-            scale=1.0,
-            cmap="viridis",
-            width=0.004,
-        )
-        ax.invert_yaxis()
-        ax.set_aspect("equal")
-        if i == 0 and show_labels:
-            ax.set_title("GT Offset Quiver")
-        ax.tick_params(labelsize=6)
-        fig.colorbar(q, ax=ax, shrink=0.8)
+        if show_selected_predict:
+            ax = axes[i, column_index]
+            ax.scatter(pred_pts[:, 0], 1.0 - pred_pts[:, 1], c="black", s=0.5, alpha=0.8)
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.set_aspect("equal")
+            if i == 0 and show_labels:
+                ax.set_title("Predict")
+            ax.axis("off")
+            column_index += 1
+
+        if show_selected_gt_offsets:
+            ax = axes[i, column_index]
+            n_grid = gt_offsets.shape[-1]
+            yy, xx = np.mgrid[0:n_grid, 0:n_grid]
+            dx, dy = gt_offsets[0], gt_offsets[1]
+            mag = np.sqrt(dx * dx + dy * dy)
+            q = ax.quiver(
+                xx,
+                yy,
+                dx,
+                dy,
+                mag,
+                angles="xy",
+                scale_units="xy",
+                scale=1.0,
+                cmap="viridis",
+                width=0.004,
+            )
+            ax.invert_yaxis()
+            ax.set_aspect("equal")
+            if i == 0 and show_labels:
+                ax.set_title("GT Offset Quiver")
+            ax.tick_params(labelsize=6)
+            fig.colorbar(q, ax=ax, shrink=0.8)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -791,6 +826,30 @@ def main():
         default=SHOW_LABELS,
         help="Show column headers (Condition, GT, Predict, GT Offset Quiver) on top row of panels",
     )
+    parser.add_argument(
+        "--show-selected-inputs",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_INPUTS,
+        help="Show the first panel column (Condition)",
+    )
+    parser.add_argument(
+        "--show-selected-gt",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_GT,
+        help="Show the second panel column (GT)",
+    )
+    parser.add_argument(
+        "--show-selected-predict",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_PREDICT,
+        help="Show the third panel column (Predict)",
+    )
+    parser.add_argument(
+        "--show-selected-gt-offsets",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_GT_OFFSETS,
+        help="Show the last panel column (GT Offset Quiver)",
+    )
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
     run(args=args)
@@ -805,6 +864,8 @@ def run(args):
         raise ValueError("--save_every must be >= 1")
     if not (0.0 < args.truncation_ratio <= 1.0):
         raise ValueError("--truncation-ratio must be in (0, 1]")
+    if not (args.show_selected_inputs or args.show_selected_gt or args.show_selected_predict or args.show_selected_gt_offsets):
+        raise ValueError("At least one of --show-selected-inputs, --show-selected-gt, --show-selected-predict, or --show-selected-gt-offsets must be enabled")
     args.offsets = ensure_offsets_dir(args.source, args.target, args.offsets, args.grid_size)
 
     device = torch.device(args.device)
@@ -1156,6 +1217,10 @@ def run(args):
                 train_pred_raw.cpu().numpy(),
                 max_samples=args.wandb_train_images,
                 show_labels=args.show_labels,
+                show_selected_inputs=args.show_selected_inputs,
+                show_selected_gt=args.show_selected_gt,
+                show_selected_predict=args.show_selected_predict,
+                show_selected_gt_offsets=args.show_selected_gt_offsets,
             )
             if train_saved:
                 print(f"  -> saved train panel: {train_panel_path}")
@@ -1271,6 +1336,10 @@ def run(args):
                     pred_raw.cpu().numpy(),
                     max_samples=args.wandb_valid_images,
                     show_labels=args.show_labels,
+                    show_selected_inputs=args.show_selected_inputs,
+                    show_selected_gt=args.show_selected_gt,
+                    show_selected_predict=args.show_selected_predict,
+                    show_selected_gt_offsets=args.show_selected_gt_offsets,
                 )
                 if saved:
                     print(f"  -> saved validation panel: {panel_path}")

@@ -21,9 +21,22 @@ import sys
 
 import numpy as np
 import torch
+from PIL import Image
+
+try:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    HAS_MPL = True
+except Exception:
+    plt = None
+    HAS_MPL = False
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from data.Transforms import to_pointset_optimal_transport
 from utils.Config import ParseSampleConfig
 from control_v4.DynamicControlNet import DynamicControlNet
 from control_v4.DynamicStippleDataset import DynamicStippleDataset
@@ -37,29 +50,34 @@ from control_v4.train_control import (
     save_val_panel,
 )
 
+#################
+# Defualt Setup #
+#################
+
+# Export Configuration
+STORE_SELECTED_INPUTS = False
+STORE_SELECTED_GT = False
+STORE_SELECTED_PREDICT = False
+STORE_SELECTED_GT_OFFSETS = False
+
+# Panel visibility
+SHOW_SELECTED_INPUTS = True
+SHOW_SELECTED_GT = True
+SHOW_SELECTED_PREDICT = True
+SHOW_SELECTED_GT_OFFSETS = True
+
+# Export Paths
+OFFSETS_DIR = ""
+CACHE_DATA_DIR = ""
+OUTPUT_DIR = "control_v4/eval_outputs"
+PANEL_NAME = "eval_panel.png"
+META_NAME = "eval_selection.json"
 
 # Editable defaults (copied locally so this script is self-contained)
 CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH = "config/GBN/model.ckpt"
 
-CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/train_outputs_icons50_512/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/train_outputs_icons50_512/target"
-TRAIN_SAMPLES = []
-VALID_SAMPLES = [0, 1, 2, 3]
-
-
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_data_celeba_5K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep2780.pt"
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
-# TRAIN_SAMPLES = []
-# VALID_SAMPLES = [0, 1, 2, 3, 4, 6, 8, 10]
-
-
-OFFSETS_DIR = ""
-CACHE_DATA_DIR = ""
-OUTPUT_DIR = "control_v4/eval_outputs"
-
+# [Default] Model Component
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 EVAL_TIMESTEPS = 1000
@@ -71,7 +89,7 @@ BATCH_COORDS_FEATURES = False
 # ENABLE_SMART_INIT_JITTER = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
-# Model parameters
+# [Default] Model parameters
 GRID_SIZE = 32
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
@@ -81,9 +99,186 @@ SMART_INIT_SPLAT_SIGMA_PX = 0.5
 VAL_SPLIT = 0.1
 SPLIT_SEED = 42
 DEVICE = "cuda"
-PANEL_NAME = "eval_panel.png"
-META_NAME = "eval_selection.json"
 SHOW_LABELS = False
+
+
+#####################
+# Customized Subset #
+#####################
+
+# ICONS
+CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
+CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+TRAIN_SAMPLES = []
+VALID_SAMPLES = [1, 2, 3, 4]
+
+
+# FACES
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_data_celeba_5K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
+# TRAIN_SAMPLES = []
+# VALID_SAMPLES = [1, 2, 3, 4, 6, 8, 10, 17, 18, 19, 21, 23, 24, 25, 26, 28, 30, 32, 35, 36]
+
+
+# ANIMALS
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_data_AM-2K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/target"
+# TRAIN_SAMPLES = []
+# VALID_SAMPLES = [0, 2, 4, 8, 9, 10, 11, 12, 13, 14]
+
+
+# ICONS - TIMES
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+# TRAIN_SAMPLES = []
+# VALID_SAMPLES = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+
+# ICONS - TEASER
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+# TRAIN_SAMPLES = []
+# VALID_SAMPLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+# STORE_SELECTED_INPUTS = True
+# STORE_SELECTED_GT = True
+# STORE_SELECTED_PREDICT = True
+# STORE_SELECTED_GT_OFFSETS = True
+
+
+# Ablations #
+
+# Condition config (0.0)
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+# TRAIN_SAMPLES = []
+# VALID_SAMPLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+# STORE_SELECTED_INPUTS = True
+# STORE_SELECTED_GT = True
+# STORE_SELECTED_PREDICT = True
+# STORE_SELECTED_GT_OFFSETS = True
+# SHOW_SELECTED_INPUTS = True
+# SHOW_SELECTED_GT = False
+# SHOW_SELECTED_PREDICT = False
+# SHOW_SELECTED_GT_OFFSETS = False
+# RESULTS_DIR = "condition"
+# OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
+
+
+# Common config (1.0)
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+# TRAIN_SAMPLES = []
+# VALID_SAMPLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+# STORE_SELECTED_INPUTS = True
+# STORE_SELECTED_GT = True
+# STORE_SELECTED_PREDICT = True
+# STORE_SELECTED_GT_OFFSETS = True
+# SHOW_SELECTED_INPUTS = False
+# SHOW_SELECTED_GT = False
+# SHOW_SELECTED_PREDICT = True
+# SHOW_SELECTED_GT_OFFSETS = False
+
+# Vanilla (1.1)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_vanilla/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# RESULTS_DIR = "vanilla"
+# GRID_SIZE = 32
+# OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
+# ENABLE_GECCO = False
+# ENABLE_ADAPTIVE_GATE_INJECTION = False
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 1.0
+# RESAMPLE_JUMPS = 0
+# SMART_INIT_FEATURES = False
+# SDF_FEATURES = False
+# BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+# GECCO (1.2)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_gecco/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# RESULTS_DIR = "gecco"
+# GRID_SIZE = 32
+# OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
+# ENABLE_GECCO = True  # NOTE
+# ENABLE_ADAPTIVE_GATE_INJECTION = False
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 1.0
+# RESAMPLE_JUMPS = 0
+# SMART_INIT_FEATURES = False
+# SDF_FEATURES = False
+# BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+# Adaptive gate injection (1.3)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_agi/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# RESULTS_DIR = "agi"
+# GRID_SIZE = 32
+# OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
+# ENABLE_GECCO = False
+# ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 1.0
+# RESAMPLE_JUMPS = 0
+# SMART_INIT_FEATURES = False
+# SDF_FEATURES = False
+# BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+# Full (1.4)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# RESULTS_DIR = "full"
+# GRID_SIZE = 32
+# OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
+# ENABLE_GECCO = True  # NOTE
+# ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 1.0
+# RESAMPLE_JUMPS = 0
+# SMART_INIT_FEATURES = False
+# SDF_FEATURES = False
+# BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+# Full + SDEdit (1.5)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# RESULTS_DIR = "sdedit"
+# GRID_SIZE = 32
+# OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
+# ENABLE_GECCO = True  # NOTE
+# ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 0.3  # NOTE
+# RESAMPLE_JUMPS = 0
+# SMART_INIT_FEATURES = False
+# SDF_FEATURES = False
+# BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+# Full + SDEdit + resample jumps (1.6)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# RESULTS_DIR = "sdedit_resample"
+# GRID_SIZE = 32
+# OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
+# ENABLE_GECCO = True  # NOTE
+# ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+# EVAL_TIMESTEPS = 1000
+# TRUNCATION_RATIO = 0.3  # NOTE
+# RESAMPLE_JUMPS = 2  # NOTE
+# SMART_INIT_FEATURES = False
+# SDF_FEATURES = False
+# BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
 def _parse_index_list(raw_text, arg_name):
@@ -113,6 +308,113 @@ def _validate_indices(indices, split_size, split_name):
         raise IndexError(
             f"{split_name} indices out of range for split size {split_size}: {bad}"
         )
+
+
+def _safe_sample_name(row, fallback_index):
+    filename = os.path.splitext(os.path.basename(row["filename"]))[0]
+    return f"{fallback_index:03d}_{row['split']}_{row['split_index']:04d}_{filename}"
+
+
+def _save_condition_image(save_path, cond_image):
+    image_u8 = np.clip(np.round(cond_image * 255.0), 0, 255).astype(np.uint8)
+    Image.fromarray(image_u8, mode="L").save(save_path)
+
+
+def _save_point_scatter(save_path, offsets, title=None):
+    if not HAS_MPL:
+        return False
+
+    pts_grid = to_pointset_optimal_transport(offsets)
+    pts = pts_grid.reshape(2, -1).T
+
+    fig, ax = plt.subplots(figsize=(5, 5), dpi=150)
+    ax.scatter(pts[:, 0], 1.0 - pts[:, 1], c="black", s=0.5, alpha=0.8)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect("equal")
+    if title:
+        ax.set_title(title)
+    ax.axis("off")
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return True
+
+
+def _save_offset_quiver(save_path, offsets, title=None):
+    if not HAS_MPL:
+        return False
+
+    n_grid = offsets.shape[-1]
+    yy, xx = np.mgrid[0:n_grid, 0:n_grid]
+    dx, dy = offsets[0], offsets[1]
+    mag = np.sqrt(dx * dx + dy * dy)
+
+    fig, ax = plt.subplots(figsize=(5, 5), dpi=150)
+    q = ax.quiver(
+        xx,
+        yy,
+        dx,
+        dy,
+        mag,
+        angles="xy",
+        scale_units="xy",
+        scale=1.0,
+        cmap="viridis",
+        width=0.004,
+    )
+    ax.invert_yaxis()
+    ax.set_aspect("equal")
+    if title:
+        ax.set_title(title)
+    ax.axis("off")
+    fig.colorbar(q, ax=ax, shrink=0.8)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return True
+
+
+def _export_selected_columns(out_dir, meta_rows, cond_batch, gt_offsets_batch, pred_offsets_batch,
+                             store_inputs=False, store_gt=False, store_predict=False, store_gt_offsets=False):
+    if not (store_inputs or store_gt or store_predict or store_gt_offsets):
+        return
+
+    os.makedirs(out_dir, exist_ok=True)
+    input_dir = os.path.join(out_dir, "inputs")
+    gt_dir = os.path.join(out_dir, "gt")
+    predict_dir = os.path.join(out_dir, "predict")
+    gt_offsets_dir = os.path.join(out_dir, "gt_offsets")
+
+    if store_inputs:
+        os.makedirs(input_dir, exist_ok=True)
+    if store_gt:
+        os.makedirs(gt_dir, exist_ok=True)
+    if store_predict:
+        os.makedirs(predict_dir, exist_ok=True)
+    if store_gt_offsets:
+        os.makedirs(gt_offsets_dir, exist_ok=True)
+
+    for i, row in enumerate(meta_rows):
+        sample_name = _safe_sample_name(row, i)
+
+        if store_inputs:
+            _save_condition_image(os.path.join(input_dir, f"{sample_name}.png"), cond_batch[i, 0])
+
+        if store_gt:
+            if not _save_point_scatter(os.path.join(gt_dir, f"{sample_name}.png"), gt_offsets_batch[i]):
+                print("matplotlib unavailable; skipping GT export")
+                return
+
+        if store_predict:
+            if not _save_point_scatter(os.path.join(predict_dir, f"{sample_name}.png"), pred_offsets_batch[i]):
+                print("matplotlib unavailable; skipping predict export")
+                return
+
+        if store_gt_offsets:
+            if not _save_offset_quiver(os.path.join(gt_offsets_dir, f"{sample_name}.png"), gt_offsets_batch[i]):
+                print("matplotlib unavailable; skipping GT offset export")
+                return
 
 
 def _load_models(args, device):
@@ -207,6 +509,54 @@ def main():
         help="Show column headers (Condition, GT, Predict, GT Offset Quiver) on top row of panel",
     )
     parser.add_argument(
+        "--show-selected-inputs",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_INPUTS,
+        help="Show the first panel column (Condition)",
+    )
+    parser.add_argument(
+        "--show-selected-gt",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_GT,
+        help="Show the second panel column (GT)",
+    )
+    parser.add_argument(
+        "--show-selected-predict",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_PREDICT,
+        help="Show the third panel column (Predict)",
+    )
+    parser.add_argument(
+        "--show-selected-gt-offsets",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_GT_OFFSETS,
+        help="Show the last panel column (GT Offset Quiver)",
+    )
+    parser.add_argument(
+        "--store-selected-inputs",
+        action=argparse.BooleanOptionalAction,
+        default=STORE_SELECTED_INPUTS,
+        help="Export the first panel column into <out>/inputs/ as separate images",
+    )
+    parser.add_argument(
+        "--store-selected-gt",
+        action=argparse.BooleanOptionalAction,
+        default=STORE_SELECTED_GT,
+        help="Export the second panel column into <out>/gt/ as separate images",
+    )
+    parser.add_argument(
+        "--store-selected-predict",
+        action=argparse.BooleanOptionalAction,
+        default=STORE_SELECTED_PREDICT,
+        help="Export the third panel column into <out>/predict/ as separate images",
+    )
+    parser.add_argument(
+        "--store-selected-gt-offsets",
+        action=argparse.BooleanOptionalAction,
+        default=STORE_SELECTED_GT_OFFSETS,
+        help="Export the last panel column into <out>/gt_offsets/ as separate images",
+    )
+    parser.add_argument(
         "--enable-adaptive-gate-injection",
         action=argparse.BooleanOptionalAction,
         default=ENABLE_ADAPTIVE_GATE_INJECTION,
@@ -218,6 +568,8 @@ def main():
         raise ValueError("--val-split must be in [0, 1)")
     if not (0.0 < args.truncation_ratio <= 1.0):
         raise ValueError("--truncation-ratio must be in (0, 1]")
+    if not (args.show_selected_inputs or args.show_selected_gt or args.show_selected_predict or args.show_selected_gt_offsets):
+        raise ValueError("At least one of --show-selected-inputs, --show-selected-gt, --show-selected-predict, or --show-selected-gt-offsets must be enabled")
 
     train_samples = _parse_index_list(args.train_samples, "--train-samples")
     valid_samples = _parse_index_list(args.valid_samples, "--valid-samples")
@@ -352,9 +704,25 @@ def main():
         pred_raw.detach().cpu().numpy(),
         max_samples=len(selected),
         show_labels=args.show_labels,
+        show_selected_inputs=args.show_selected_inputs,
+        show_selected_gt=args.show_selected_gt,
+        show_selected_predict=args.show_selected_predict,
+        show_selected_gt_offsets=args.show_selected_gt_offsets,
     )
     if not saved:
         raise RuntimeError("Panel export failed (matplotlib unavailable or no samples)")
+
+    _export_selected_columns(
+        args.out,
+        meta_rows,
+        batch["high_res"].detach().cpu().numpy(),
+        batch["offsets"].detach().cpu().numpy(),
+        pred_raw.detach().cpu().numpy(),
+        store_inputs=args.store_selected_inputs,
+        store_gt=args.store_selected_gt,
+        store_predict=args.store_selected_predict,
+        store_gt_offsets=args.store_selected_gt_offsets,
+    )
 
     meta = {
         "source": args.source,
@@ -367,6 +735,10 @@ def main():
         "selected_rows": meta_rows,
         "panel_path": panel_path,
         "control_ckpt": args.control_ckpt,
+        "store_selected_inputs": args.store_selected_inputs,
+        "store_selected_gt": args.store_selected_gt,
+        "store_selected_predict": args.store_selected_predict,
+        "store_selected_gt_offsets": args.store_selected_gt_offsets,
     }
     meta_path = os.path.join(args.out, args.meta_name)
     with open(meta_path, "w", encoding="utf-8") as f:
