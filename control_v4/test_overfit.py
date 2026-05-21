@@ -90,6 +90,8 @@ SMART_INIT_SPLAT_SIGMA_PX = 0.5
 # Loss parameters
 MIN_SNR_GAMMA = 5.0
 GEOM_CLUMP_WEIGHT = 5.0
+BEST_MAX_CV = 1e9
+BEST_MAX_CLUMPED_PCT = 100.0
 
 # Training configuration
 WANDB_ACTIVE = False
@@ -98,6 +100,7 @@ STEPS = 10000
 SAMPLE_INDEX = 0
 LR = 5e-4
 VIS_EVERY = 500
+RESUME_LATEST = False
 N_SAMPLES = 2
 SEED = 42
 DEVICE = "cuda"
@@ -417,8 +420,6 @@ def main():
     )
 
     # Model parameters
-    parser.add_argument("--sample-timesteps", type=int, default=SAMPLE_TIMESTEPS,
-                        help="Diffusion timesteps when sampling")
     parser.add_argument(
         "--enable-gecco",
         action=argparse.BooleanOptionalAction,
@@ -426,10 +427,30 @@ def main():
         help="Enable GECCO dynamic feature sampling in the control hint path",
     )
     parser.add_argument(
+        "--enable-adaptive-gate-injection",
+        action=argparse.BooleanOptionalAction,
+        default=ENABLE_ADAPTIVE_GATE_INJECTION,
+        help="Use sigmoid-gated adaptive injection; disable for zero-conv style injections",
+    )
+    parser.add_argument(
         "--resample-jumps",
         type=int,
         default=RESAMPLE_JUMPS,
         help="RePaint-style micro-loops per timestep during sampling (0=disabled)",
+    )
+    parser.add_argument(
+        "--sample-timesteps",
+        "--eval-timesteps",
+        dest="sample_timesteps",
+        type=int,
+        default=SAMPLE_TIMESTEPS,
+        help="Diffusion timesteps used when sampling the model for visualisation",
+    )
+    parser.add_argument(
+        "--truncation-ratio",
+        type=float,
+        default=TRUNCATION_RATIO,
+        help="Train/sampling truncation ratio for late-timestep diffusion",
     )
     parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX,
                         help="Truncate signed distance magnitudes before max-normalization (0 disables)")
@@ -485,6 +506,24 @@ def main():
         default=MIN_SNR_GAMMA,
         help="Gamma for Min-SNR loss weighting (0 disables)",
     )
+    parser.add_argument(
+        "--geom-clump-weight",
+        type=float,
+        default=GEOM_CLUMP_WEIGHT,
+        help="Weight of clumped_pct in geometric score: score = cv + w*(clumped_pct/100)",
+    )
+    parser.add_argument(
+        "--best-max-cv",
+        type=float,
+        default=BEST_MAX_CV,
+        help="Only save best-geom checkpoint if CV <= this value",
+    )
+    parser.add_argument(
+        "--best-max-clumped-pct",
+        type=float,
+        default=BEST_MAX_CLUMPED_PCT,
+        help="Only save best-geom checkpoint if clumped_pct <= this value",
+    )
 
     # Training configuration
     parser.add_argument("--steps", type=int, default=STEPS)
@@ -496,14 +535,56 @@ def main():
         default=FREEZE_DENOISER,
         help="Freeze the base denoiser (default); use --no-freeze-denoiser to train jointly",
     )
-    parser.add_argument("--vis-every", type=int, default=VIS_EVERY,
-                        help="Visualise & sample every N steps")
+    parser.add_argument(
+        "--resume-latest",
+        action=argparse.BooleanOptionalAction,
+        default=RESUME_LATEST,
+        help="Resume from the latest checkpoint found in the output directory",
+    )
+    parser.add_argument(
+        "--vis-every",
+        "--save_every",
+        dest="vis_every",
+        type=int,
+        default=VIS_EVERY,
+        help="Visualise, sample, and checkpoint every N steps",
+    )
     parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
     parser.add_argument(
         "--capacity-grid-size",
         type=int,
         default=CAPACITY_GRID_SIZE,
         help="Capacity grid size: >0 uses KxK, -1 uses full source image resolution",
+    )
+    parser.add_argument(
+        "--show-labels",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Accepted for CLI parity with train_control.py",
+    )
+    parser.add_argument(
+        "--show-selected-inputs",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Accepted for CLI parity with train_control.py",
+    )
+    parser.add_argument(
+        "--show-selected-gt",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Accepted for CLI parity with train_control.py",
+    )
+    parser.add_argument(
+        "--show-selected-predict",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Accepted for CLI parity with train_control.py",
+    )
+    parser.add_argument(
+        "--show-selected-gt-offsets",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Accepted for CLI parity with train_control.py",
     )
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--device", default=DEVICE)
@@ -615,7 +696,7 @@ def main():
 
     denoiser = diffusion.model
     num_timesteps = diffusion.num_timesteps
-    truncation_cutoff = max(1, int(num_timesteps * TRUNCATION_RATIO))
+    truncation_cutoff = max(1, int(num_timesteps * args.truncation_ratio))
 
     # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
     control_net = DynamicControlNet(
@@ -625,6 +706,7 @@ def main():
         smart_init_features=args.smart_init_features,
         sdf_features=args.sdf_features,
         batch_coords_features=args.batch_coords_features,
+        enable_adaptive_gate_injection=args.enable_adaptive_gate_injection,
     ).to(device)
     control_net.train()
 
@@ -639,44 +721,59 @@ def main():
     control_params = sum(p.numel() for p in control_net.parameters() if p.requires_grad)
     denoiser_params = sum(p.numel() for p in denoiser.parameters())
     if args.freeze_denoiser:
-        print(f"  Trainable ControlNet params: {control_params:,}")
-        print(f"  Frozen denoiser params: {denoiser_params:,}")
+        print(f"Trainable ControlNet params           : {control_params:,}")
+        print(f"Frozen denoiser params                : {denoiser_params:,}")
     else:
         trainable_total = control_params + sum(p.numel() for p in denoiser.parameters() if p.requires_grad)
-        print(f"  Trainable params (control + denoiser): {trainable_total:,}")
-    print(f"  GECCO dynamic features enabled: {args.enable_gecco}")
-    print(f"  Smart Init features enabled    : {args.smart_init_features}")
-    print(f"  SDF features enabled           : {args.sdf_features}")
-    print(f"  Batch coords features enabled   : {args.batch_coords_features}")
-    print(f"  Min-SNR gamma: {args.min_snr_gamma}")
-    print(f"  Resample jumps (RePaint): {args.resample_jumps}")
-    print(f"  SDF truncation (px): {args.sdf_truncate_px}")
-    print(f"  SDF conditioning enabled: {args.sdf_features}")
-    print(f"  Smart Init micro-jitter (px): {args.smart_init_jitter_px}")
-    print(f"  Smart Init soft-splat sigma (px): {args.smart_init_splat_sigma_px}")
-    print(f"  Smart Init jitter enabled: {args.enable_smart_init_jitter}")
-    print(f"  Smart Init splat-sigma enabled: {args.enable_smart_init_splat_sigma}")
+        print(f"Trainable params (control + denoiser) : {trainable_total:,}")
+    print(f"GECCO dynamic features enabled        : {args.enable_gecco}")
+    print(f"Adaptive gate injection enabled       : {args.enable_adaptive_gate_injection}")
+    print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
+    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{num_timesteps}")
+    print(f"Eval resample-jumps                   : {args.resample_jumps}")
+    print(f"Smart Init features enabled           : {args.smart_init_features}")
+    print(f"SDF features enabled                  : {args.sdf_features}")
+    print(f"Batch coords features enabled         : {args.batch_coords_features}")
+    print(f"Min-SNR gamma                         : {args.min_snr_gamma}")
+    print(f"SDF truncation (px)                   : {args.sdf_truncate_px}")
+    print(f"Smart Init micro-jitter (train, px)  : {args.smart_init_jitter_px}")
+    print(f"Smart Init soft-splat sigma (px)     : {args.smart_init_splat_sigma_px}")
+    print(f"Smart Init jitter enabled            : {args.enable_smart_init_jitter}")
+    print(f"Smart Init splat-sigma enabled       : {args.enable_smart_init_splat_sigma}")
     if args.capacity_grid_size == -1:
         print("  Capacity grid size: full source resolution")
     else:
         print(f"  Capacity grid size: {args.capacity_grid_size}x{args.capacity_grid_size}")
-    print(f"  Truncation ratio: {TRUNCATION_RATIO:.3f} -> cutoff {truncation_cutoff}/{num_timesteps}")
 
     if args.freeze_denoiser:
         optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
     else:
         all_params = list(control_net.parameters()) + list(denoiser.parameters())
         optimizer = torch.optim.AdamW(all_params, lr=args.lr)
+    latest_ckpt_path = os.path.join(ckpt_dir, "latest_controlnet.pt")
     best_val_score = float("inf")
     best_ckpt_path = None
     last_geom = {"cv": None, "clumped_pct": None, "score": None}
+
+    start_step = 1
+    if args.resume_latest and os.path.exists(latest_ckpt_path):
+        checkpoint = torch.load(latest_ckpt_path, map_location=device)
+        control_net.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        best_val_score = float(checkpoint.get("best_val_score", best_val_score))
+        start_step = int(checkpoint.get("step", 0)) + 1
+        print(f"Resumed from latest checkpoint: {latest_ckpt_path} (start_step={start_step})")
+
+    if start_step > args.steps:
+        print(f"Nothing to do: start_step={start_step} is already beyond steps={args.steps}")
+        return
 
     # ── training loop ────────────────────────────────────────────────
     print(f"\n{'Step':>6}  {'Loss':>12}")
     print("-" * 22)
 
     losses = []
-    for step in range(1, args.steps + 1):
+    for step in range(start_step, args.steps + 1):
         # Reset to base values each step (mirrors train's fresh dataloader unpack)
         if args.smart_init_features:
             smart_init_grid = smart_init_grid_base
@@ -768,7 +865,7 @@ def main():
                 n_samples=args.n_samples,
                 timesteps=args.sample_timesteps,
                 resample_jumps=args.resample_jumps,
-                truncation_ratio=TRUNCATION_RATIO,
+                truncation_ratio=args.truncation_ratio,
             )
             vis_path = os.path.join(vis_dir, f"vis_step{step:05d}.png")
             saved = visualize_overfit_metrics(
@@ -780,7 +877,7 @@ def main():
             np.save(os.path.join(points_dir, f"points_step{step:05d}.npy"), pts)
             print(f"  -> saved visualisation: {vis_path}")
 
-            geom = geometric_validation_score(pts, clump_weight=GEOM_CLUMP_WEIGHT)
+            geom = geometric_validation_score(pts, clump_weight=args.geom_clump_weight)
             last_geom = geom
             print(
                 "  -> geometry "
@@ -802,10 +899,13 @@ def main():
                 "config": vars(args),
             }
 
-            latest_ckpt_path = os.path.join(ckpt_dir, "latest_controlnet.pt")
             torch.save(checkpoint, latest_ckpt_path)
 
-            if geom["score"] < best_val_score:
+            if (
+                geom["score"] < best_val_score
+                and geom["cv"] <= args.best_max_cv
+                and geom["clumped_pct"] <= args.best_max_clumped_pct
+            ):
                 best_val_score = geom["score"]
                 best_filename = (
                     f"best_controlnet_step{step:05d}"
