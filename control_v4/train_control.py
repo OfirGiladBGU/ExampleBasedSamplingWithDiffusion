@@ -935,19 +935,19 @@ def run(args):
         trainable_total = control_params + sum(p.numel() for p in denoiser.parameters() if p.requires_grad)
         print(f"Trainable params (control + denoiser) : {trainable_total:,}")
     print(f"GECCO dynamic features enabled        : {args.enable_gecco}")
+    print(f"Adaptive gate injection enabled       : {args.enable_adaptive_gate_injection}")
+    print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
+    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{num_timesteps}")
+    print(f"Eval resample-jumps                   : {args.resample_jumps}")
     print(f"Smart Init features enabled           : {args.smart_init_features}")
     print(f"SDF features enabled                  : {args.sdf_features}")
     print(f"Batch coords features enabled         : {args.batch_coords_features}")
     print(f"Min-SNR gamma                         : {args.min_snr_gamma}")
     print(f"SDF truncation (px)                   : {args.sdf_truncate_px}")
-    print(f"SDF conditioning enabled              : {args.sdf_features}")
     print(f"Smart Init micro-jitter (train, px)  : {args.smart_init_jitter_px}")
     print(f"Smart Init soft-splat sigma (px)     : {args.smart_init_splat_sigma_px}")
     print(f"Smart Init jitter enabled            : {args.enable_smart_init_jitter}")
     print(f"Smart Init splat-sigma enabled       : {args.enable_smart_init_splat_sigma}")
-    print(f"Eval resample-jumps                   : {args.resample_jumps}")
-    print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
-    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{num_timesteps}")
 
     # ── dataset ──────────────────────────────────────────────────────
     cache_data_dir = args.cache_data_dir
