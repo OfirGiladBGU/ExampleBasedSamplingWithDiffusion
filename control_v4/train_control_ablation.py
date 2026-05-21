@@ -28,6 +28,11 @@ from control_v4.train_control import run  # noqa: E402
 
 # ── default globals (edit here for quick experiments) ───────────────
 
+SHOW_SELECTED_INPUTS = True
+SHOW_SELECTED_GT = True
+SHOW_SELECTED_PREDICT = True
+SHOW_SELECTED_GT_OFFSETS = True
+
 # Paths and I/O
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
 
@@ -46,7 +51,7 @@ SAVE_EVERY = 25
 ENABLE_GECCO = False
 ENABLE_ADAPTIVE_GATE_INJECTION = False
 EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = None
+TRUNCATION_RATIO = 1.0
 RESAMPLE_JUMPS = 0
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
@@ -66,7 +71,7 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = False
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = None
+# TRUNCATION_RATIO = 1.0
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -86,7 +91,7 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = False
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = None
+# TRUNCATION_RATIO = 1.0
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -106,7 +111,7 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = None
+# TRUNCATION_RATIO = 1.0
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -296,6 +301,30 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=SHOW_LABELS,
         help="Show column headers (Condition, GT, Predict, GT Offset Quiver) on top row of panels",
+    )
+    parser.add_argument(
+        "--show-selected-inputs",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_INPUTS,
+        help="Show the first panel column (Condition)",
+    )
+    parser.add_argument(
+        "--show-selected-gt",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_GT,
+        help="Show the second panel column (GT)",
+    )
+    parser.add_argument(
+        "--show-selected-predict",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_PREDICT,
+        help="Show the third panel column (Predict)",
+    )
+    parser.add_argument(
+        "--show-selected-gt-offsets",
+        action=argparse.BooleanOptionalAction,
+        default=SHOW_SELECTED_GT_OFFSETS,
+        help="Show the last panel column (GT Offset Quiver)",
     )
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
