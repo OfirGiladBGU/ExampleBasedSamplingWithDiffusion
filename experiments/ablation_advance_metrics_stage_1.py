@@ -20,6 +20,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
+from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -224,7 +225,7 @@ def backup_validation_images(val_images, out_base, target_dir):
         if target_file.is_file() and target_file.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp"}:
             target_map[target_file.name] = target_file
     
-    for img in val_images:
+    for img in tqdm(val_images, desc="Backing up validation images"):
         src = Path(img)
         # Backup source image
         src_dst = source_backup_dir / src.name
