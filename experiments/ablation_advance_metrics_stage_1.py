@@ -24,20 +24,11 @@ from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from control_v4.conditioning import build_condition_tensors_from_image
-from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
-from control_v4.smart_init import (
-    add_noise_at_t,
-    generate_smart_init_points_from_density,
-    render_smart_init_grid,
-    smart_init_points_to_offsets,
-)
-from data.Transforms import to_pointset_optimal_transport
-from utils.Config import ParseSampleConfig
+from control_v4.sample_control import load_pipeline, process_single_image
 
 
-CONFIG_PATH = "config/GBN/config.json"
-CKPT_PATH = "config/GBN/model.ckpt"
+BASE_CONFIG_PATH = "config/GBN/config.json"
+BASE_CKPT_PATH = "config/GBN/model.ckpt"
 
 # Vanilla
 WEIGHTS_DIR = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_vanilla/checkpoints"
@@ -162,15 +153,6 @@ def parse_args():
     p.add_argument("--seed", type=int, default=SPLIT_SEED, help="Deterministic seed for split")
     p.add_argument("--checkpoints", default="all", help="'all' or comma-separated filename substrings")
     p.add_argument("--dry-run", action="store_true", help="Only show what would be done")
-    p.add_argument("--device", default=DEVICE)
-    p.add_argument("--config", default=CONFIG_PATH)
-    p.add_argument("--base-ckpt", default=CKPT_PATH)
-    p.add_argument("--timesteps", type=int, default=EVAL_TIMESTEPS)
-    p.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO)
-    p.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
-    p.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
-    p.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX)
-    p.add_argument("--smart-init-splat-sigma-px", type=float, default=SMART_INIT_SPLAT_SIGMA_PX)
     return p.parse_args()
 
 
@@ -279,171 +261,6 @@ def epoch_id_from_name(name):
     return str(int(time.time()))
 
 
-def _grid_centers_flat(grid_size, device, dtype):
-    lin = (torch.arange(grid_size, device=device, dtype=dtype) + 0.5) / float(grid_size)
-    gx, gy = torch.meshgrid(lin, lin, indexing="xy")
-    return torch.stack([gx, gy], dim=-1).reshape(1, grid_size * grid_size, 2)
-
-
-def _offsets_to_coords_gpu(offsets, grid_size, grid_centers_flat):
-    bsz = offsets.shape[0]
-    offs = offsets.permute(0, 2, 3, 1).reshape(bsz, grid_size * grid_size, 2)
-    coords = grid_centers_flat.expand(bsz, -1, -1) + offs / float(grid_size)
-    return coords.clamp(0.0, 1.0)
-
-
-def _render_smart_init_gpu(coords, grid_size, sigma_px, device):
-    lin = (torch.arange(grid_size, device=device, dtype=torch.float32) + 0.5) / float(grid_size)
-    gx, gy = torch.meshgrid(lin, lin, indexing="xy")
-    pixel_centers = torch.stack([gx, gy], dim=-1).reshape(1, grid_size * grid_size, 2)
-    sigma = max(float(sigma_px), 1e-4) / float(grid_size)
-    dist = torch.cdist(pixel_centers, coords, p=2)
-    gauss = torch.exp(-(dist * dist) / (2.0 * sigma * sigma))
-    return gauss.amax(dim=2).reshape(1, 1, grid_size, grid_size).clamp(0.0, 1.0)
-
-
-def load_condition(image_path, grid_size, device, sdf_features, sdf_truncate_px):
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        raise FileNotFoundError(f"Cannot read image: {image_path}")
-    image_01 = img.astype(np.float32) / 255.0
-    if not sdf_features:
-        high_res = torch.from_numpy(image_01).unsqueeze(0).unsqueeze(0).to(device)
-        target_density = torch.nn.functional.interpolate(high_res, size=(grid_size, grid_size), mode="area")
-        return image_01, high_res, target_density, None, None
-
-    high_res, target_density, high_res_sdf, target_sdf = build_condition_tensors_from_image(
-        image_01,
-        grid_size,
-        device,
-        sdf_truncate_px=sdf_truncate_px,
-    )
-    return image_01, high_res, target_density, high_res_sdf, target_sdf
-
-
-def build_runtime(args):
-    diffusion = ParseSampleConfig(args.config)
-    # Initialize models and move them to the requested device, mirroring train script.
-    device = torch.device(args.device)
-
-    diffusion = ParseSampleConfig(args.config)
-    # Load the base diffusion weights to CPU as in training script.
-    diffusion.load_state_dict(torch.load(args.base_ckpt, map_location="cpu")["diffu"])
-    diffusion.to(device)
-    diffusion.eval()
-
-    denoiser = diffusion.model
-
-    # Build DynamicControlNet and move to device (same order as training)
-    control_net = DynamicControlNet(
-        denoiser,
-        grid_size=GRID_SIZE,
-        enable_gecco=ENABLE_GECCO,
-        smart_init_features=SMART_INIT_FEATURES,
-        sdf_features=SDF_FEATURES,
-        batch_coords_features=BATCH_COORDS_FEATURES,
-        enable_adaptive_gate_injection=ENABLE_ADAPTIVE_GATE_INJECTION,
-    ).to(device)
-    control_net.eval()
-
-    controlled = DynamicControlledDenoiser(denoiser, control_net).to(device)
-    controlled.eval()
-
-    diffusion.model = controlled
-    diffusion.set_num_timesteps(args.timesteps)
-    diffusion.eval()
-
-    return diffusion, control_net, controlled, device
-
-
-def load_checkpoint_into_model(control_net, diffusion, checkpoint_path, device):
-    # Load checkpoint tensors directly to the target device, then move models there.
-    state = torch.load(checkpoint_path, map_location=device)
-    control_net.safe_load_state_dict(state, strict=False)
-
-    # Move control net and diffusion (which wraps the controlled denoiser) to device
-    control_net.to(device)
-    try:
-        diffusion.to(device)
-    except Exception:
-        # diffusion may not implement .to cleanly; ensure its model is moved
-        if hasattr(diffusion, "model"):
-            diffusion.model.to(device)
-
-    control_net.eval()
-    diffusion.eval()
-
-
-def sample_points_for_image(diffusion, controlled, device, image_path, args):
-    image_01, high_res, target_density, high_res_sdf, target_sdf = load_condition(
-        image_path,
-        GRID_SIZE,
-        device,
-        sdf_features=SDF_FEATURES,
-        sdf_truncate_px=args.sdf_truncate_px,
-    )
-
-    smart_points = generate_smart_init_points_from_density(
-        image_01,
-        n_points=GRID_SIZE * GRID_SIZE,
-        seed=args.smart_init_seed,
-    )
-    smart_offsets_np = smart_init_points_to_offsets(smart_points)
-    smart_init_offsets = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
-
-    if SMART_INIT_FEATURES:
-        smart_grid_np = render_smart_init_grid(smart_points, grid_size=GRID_SIZE)
-        smart_init_grid_raw = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
-        if ENABLE_SMART_INIT_SPLAT_SIGMA:
-            grid_centers_flat = _grid_centers_flat(GRID_SIZE, device, smart_init_offsets.dtype)
-            smart_coords = _offsets_to_coords_gpu(smart_init_offsets, GRID_SIZE, grid_centers_flat)
-            smart_init_grid = _render_smart_init_gpu(
-                smart_coords,
-                GRID_SIZE,
-                args.smart_init_splat_sigma_px,
-                device,
-            )
-        else:
-            smart_init_grid = smart_init_grid_raw
-    else:
-        smart_init_grid = None
-
-    controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid)
-
-    trunc_ratio = args.truncation_ratio
-    if trunc_ratio is None:
-        t_start = args.timesteps
-    else:
-        t_start = int(args.timesteps * trunc_ratio)
-    t_start = int(np.clip(t_start, 1, max(args.timesteps - 1, 1)))
-
-    alpha_t = diffusion.alphas_cumprod[t_start]
-    img = add_noise_at_t(smart_init_offsets, alpha_t)
-
-    with torch.no_grad() if args.resample_jumps == 0 else torch.enable_grad():
-        for i in reversed(range(t_start)):
-            t_tensor = torch.full((1,), i, dtype=torch.int64, device=device)
-            for u in range(args.resample_jumps + 1):
-                with torch.no_grad():
-                    img = diffusion.p_sample(
-                        img,
-                        cond=None,
-                        t=t_tensor,
-                        clip_denoised=diffusion.sample_clip,
-                        with_sampling=True,
-                    )
-                if u == args.resample_jumps or i == 0:
-                    break
-                beta_i = diffusion.betas[i]
-                noise = torch.randn_like(img)
-                img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
-
-    s = img.detach().cpu().numpy()[0]
-    pts = to_pointset_optimal_transport(s)
-    pts = pts.reshape(pts.shape[0], np.prod(pts.shape[1:])).T
-    return np.asarray(pts, dtype=np.float32)
-
-
 def main():
     args = parse_args()
     out_base = Path(args.output)
@@ -493,21 +310,58 @@ def main():
             print(f"DRY epoch {eid} -> {(model_out_base / f'epoch_{eid}_npy')}")
         return 0
 
-    diffusion, control_net, controlled, device = build_runtime(args)
-
     total_ckpts = len(ckpts)
     for ckpt_idx, ckpt in enumerate(ckpts, start=1):
         eid = epoch_id_from_name(os.path.basename(ckpt))
         epoch_dir = model_out_base / f"epoch_{eid}_npy"
         epoch_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"[{ckpt_idx}/{total_ckpts}] running epoch {eid} -> {epoch_dir}", flush=True)
-        load_checkpoint_into_model(control_net, diffusion, ckpt, device)
+        diffusion, control_net = load_pipeline(
+            base_config_path=BASE_CONFIG_PATH, 
+            base_ckpt_path=BASE_CKPT_PATH, 
+            control_ckpt_path=ckpt, # NOTE: Load current checkpoint for each epoch
+            grid_size=GRID_SIZE, 
+            enable_gecco=ENABLE_GECCO, 
+            enable_adaptive_gate_injection=ENABLE_ADAPTIVE_GATE_INJECTION, 
+            smart_init_features=SMART_INIT_FEATURES, 
+            sdf_features=SDF_FEATURES, 
+            batch_coords_features=BATCH_COORDS_FEATURES, 
+            device=DEVICE
+        )
 
+        print(f"[{ckpt_idx}/{total_ckpts}] running epoch {eid} -> {epoch_dir}", flush=True)
         for img_idx, img in enumerate(val_images, start=1):
             print(f"epoch {eid} image {img_idx}: {Path(img).name}", flush=True)
-            pts = sample_points_for_image(diffusion, controlled, device, img, args)
-            np.save(epoch_dir / f"{Path(img).stem}.npy", pts)
+
+            process_single_image(
+                image_path=Path(img), 
+                diffusion=diffusion, 
+                control_net=control_net,
+                grid_size=GRID_SIZE,
+                truncation_ratio=TRUNCATION_RATIO,
+                eval_timesteps=EVAL_TIMESTEPS,
+                smart_init_features=SMART_INIT_FEATURES,
+                sdf_features=SDF_FEATURES,
+                resample_jumps=RESAMPLE_JUMPS,
+                sdf_truncate_px=SDF_TRUNCATE_PX,
+                t_start_step=-1,
+                smart_init_seed=SMART_INIT_SEED,
+                smart_init_splat_sigma_px=SMART_INIT_SPLAT_SIGMA_PX,
+                enable_smart_init_splat_sigma=ENABLE_SMART_INIT_SPLAT_SIGMA,
+                show_denoising_interval=50,
+                device=DEVICE,
+                # Exports
+                export_conditions=False,
+                export_png=False,
+                export_npy=True,  # NOTE: Export NPY
+                track_time=False,
+                show_denoising=False,
+                conditions_dir=None,
+                png_dir=None,
+                npy_dir=Path(epoch_dir),  # NOTE: Export NPY
+                timestamps_dir=None,
+                denoising_dir=None,
+            )
 
         print(f"Finished checkpoint {ckpt}")
 

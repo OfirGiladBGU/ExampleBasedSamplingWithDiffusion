@@ -55,8 +55,8 @@ from utils.stippling_metrics import geometric_validation_score
 # Paths and I/O
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
 
-CONFIG_PATH = "config/GBN/config.json"
-CKPT_PATH = "config/GBN/model.ckpt"
+BASE_CONFIG_PATH = "config/GBN/config.json"
+BASE_CKPT_PATH = "config/GBN/model.ckpt"
 
 
 # ICONS 1024
@@ -684,8 +684,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
 
     # Paths and I/O
-    parser.add_argument("--config", default=CONFIG_PATH)
-    parser.add_argument("--ckpt", default=CKPT_PATH)
+    parser.add_argument("--base_config_path", default=BASE_CONFIG_PATH)
+    parser.add_argument("--base_ckpt_path", default=BASE_CKPT_PATH)
     parser.add_argument("--source",
                         default=SOURCE_DIR,
                         help="Dir of full-resolution grayscale source images")
@@ -897,8 +897,8 @@ def run(args):
             use_wandb = False
 
     # ── load pretrained diffusion model ──────────────────────────────
-    diffusion = ParseSampleConfig(args.config)
-    diffusion.load_state_dict(torch.load(args.ckpt, map_location="cpu")["diffu"])
+    diffusion = ParseSampleConfig(args.base_config_path)
+    diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"])
     diffusion.to(device)
     diffusion.eval()
 

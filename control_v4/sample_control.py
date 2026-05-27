@@ -61,10 +61,10 @@ T_START_STEP = -1
 # ----
 
 # Editable defaults 
-CONFIG_PATH = "config/GBN/config.json"
-BASE_CKPT = "config/GBN/model.ckpt"
-# CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
-CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+BASE_CONFIG_PATH = "config/GBN/config.json"
+BASE_CKPT_PATH = "config/GBN/model.ckpt"
+# CONTROL_CKPT_PATH = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
+CONTROL_CKPT_PATH = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
 # Samples Compare
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
@@ -159,7 +159,7 @@ def _save_condition_debug_tensors(
     high_res, high_res_sdf, target_density, target_sdf, 
     smart_init_grid_raw, smart_init_grid_model, out_dir, image_stem
 ):
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     cond_map = {
         "high_res": high_res,
         "high_res_sdf": high_res_sdf,
@@ -171,7 +171,7 @@ def _save_condition_debug_tensors(
     for name, tensor in cond_map.items():
         if tensor is None: continue
         arr = tensor.detach().cpu().float().numpy().squeeze()
-        np.save(os.path.join(out_dir, f"{image_stem}_{name}.npy"), arr)
+        np.save(out_dir / f"{image_stem}_{name}.npy", arr)
 
     if HAS_MPL:
         ordered_names = ["high_res", "high_res_sdf", "target_density", "target_sdf", "smart_init_grid_raw", "smart_init_grid_model_input"]
@@ -192,7 +192,7 @@ def _save_condition_debug_tensors(
             ax.axis("off")
             ax.set_title(name)
         plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, f"{image_stem}_conditions_collage.png"), dpi=140, bbox_inches="tight")
+        plt.savefig(out_dir / f"{image_stem}_conditions_collage.png", dpi=140, bbox_inches="tight")
         plt.close()
 
 
@@ -236,10 +236,10 @@ def load_condition(image_path, grid_size, device, sdf_features=True, sdf_truncat
 
 # ── Core Inference Pipeline ───────────────────────────────────────────────────
 
-def load_pipeline(config_path, base_ckpt, control_ckpt, grid_size, enable_gecco, enable_adaptive_gate_injection, smart_init_features, sdf_features, batch_coords_features, device):
+def load_pipeline(base_config_path, base_ckpt_path, control_ckpt_path, grid_size, enable_gecco, enable_adaptive_gate_injection, smart_init_features, sdf_features, batch_coords_features, device):
     """Loads the U-Net and ControlNet into VRAM once."""
-    diffusion = ParseSampleConfig(config_path)
-    diffusion.load_state_dict(torch.load(base_ckpt, map_location="cpu")["diffu"])
+    diffusion = ParseSampleConfig(base_config_path)
+    diffusion.load_state_dict(torch.load(base_ckpt_path, map_location="cpu")["diffu"])
     diffusion.to(device)
     denoiser = diffusion.model
     denoiser.eval()
@@ -254,7 +254,7 @@ def load_pipeline(config_path, base_ckpt, control_ckpt, grid_size, enable_gecco,
         batch_coords_features=batch_coords_features,
     ).to(device)
     
-    state = torch.load(control_ckpt, map_location="cpu")
+    state = torch.load(control_ckpt_path, map_location="cpu")
     control_net.safe_load_state_dict(state, strict=False)
     control_net.eval()
     
@@ -268,20 +268,19 @@ TIME_SUBDIR = "timestamps"
 DENOISING_SUBDIR = "denoising_steps"
 
 def process_single_image(
-    image_path, diffusion=None, control_net=None,
+    image_path: Path, diffusion=None, control_net=None,
     grid_size=32, eval_timesteps=1000, truncation_ratio=0.30, t_start_step=-1, resample_jumps=2,
     smart_init_features=False, sdf_features=False, smart_init_seed=42, sdf_truncate_px=8.0,
-    enable_smart_init_splat_sigma=False, smart_init_splat_sigma_px=0.5, no_ot=False,
+    enable_smart_init_splat_sigma=False, smart_init_splat_sigma_px=0.5,
     device="cuda", n_samples=1, show_denoising_interval=50,
     # Exports
-    output_dir=None,
+    output_dir: Path | None=None,
     export_conditions=True, export_png=True, export_npy=True, track_time=True, show_denoising=False,
     conditions_dir=None, png_dir=None, npy_dir=None, timestamps_dir=None, denoising_dir=None,
 ):
     """Runs the inference pipeline for a single image, with exact timing tracking.
     
-    For dataset generation (e.g., via run_inference_on_directory), always uses OT.
-    The no_ot flag is primarily for testing/debugging single-image inference.
+    For dataset generation (e.g., via run_inference_on_directory).
     """
     out_dir = output_dir if output_dir else Path("./output")
     img_stem = image_path.stem
@@ -392,17 +391,14 @@ def process_single_image(
         suffix = f"_{idx + 1}" if n_samples > 1 else ""
         
         t_ot_start = time.perf_counter()
-        if not no_ot:
-            pts = to_pointset_optimal_transport(s)
-            pts = pts.reshape(pts.shape[0], np.prod(pts.shape[1:])).T
-        else:
-            pts = s
+        pts = to_pointset_optimal_transport(s)
+        pts = pts.reshape(pts.shape[0], np.prod(pts.shape[1:])).T
         time_ot += (time.perf_counter() - t_ot_start)
 
         if export_npy:
             npy_filename = npy_dir / f"{img_stem}{suffix}.npy"
             np.save(npy_filename, pts)
-        if export_png and not no_ot:
+        if export_png:
             png_filename = png_dir / f"{img_stem}{suffix}.png"
             save_sample_image(image_path, pts, png_filename)
 
@@ -422,7 +418,7 @@ def process_single_image(
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def run_inference_on_directory(
-    config_path: str, base_ckpt: str, control_ckpt: str,
+    base_config_path: str, base_ckpt_path: str, control_ckpt_path: str,
     grid_size: int = 32, eval_timesteps: int = 1000, enable_gecco: bool = True, enable_adaptive_gate_injection: bool = True,
     smart_init_features: bool = False, sdf_features: bool = False, batch_coords_features: bool = False,
     truncation_ratio: float = 0.30, t_start_step: int = -1, smart_init_seed: int = 42,
@@ -452,7 +448,6 @@ def run_inference_on_directory(
         ├── target/  (generated PNGs, same hierarchy as source/)
         └── prompt.json
     
-    Always uses Optimal Transport (no_ot=False internally).
     Exports PNGs only to target/ for dataset generation.
     Extended exports to paths: target_npy_path for NPY, timestamps_path for timing.
     """
@@ -460,7 +455,7 @@ def run_inference_on_directory(
     
     print(f"Initializing models on {device}...")
     diffusion, control_net = load_pipeline(
-        config_path, base_ckpt, control_ckpt, 
+        base_config_path, base_ckpt_path, control_ckpt_path, 
         grid_size, enable_gecco, enable_adaptive_gate_injection,
         smart_init_features, sdf_features, batch_coords_features, device
     )
@@ -495,7 +490,6 @@ def run_inference_on_directory(
             continue
         
         print(f"[{i}/{len(image_files)}] Processing: {img_path.name}")
-        # For dataset generation, always use OT (no_ot=False)
         process_single_image(
             image_path=img_path, 
             diffusion=diffusion, control_net=control_net,
@@ -505,7 +499,7 @@ def run_inference_on_directory(
             smart_init_seed=smart_init_seed, sdf_truncate_px=sdf_truncate_px,
             enable_smart_init_splat_sigma=enable_smart_init_splat_sigma,
             smart_init_splat_sigma_px=smart_init_splat_sigma_px,
-            no_ot=False, device=device, n_samples=1,
+            device=device, n_samples=1,
             # Exports
             output_dir=None,
             export_conditions=False, export_png=export_png, export_npy=export_npy, track_time=track_time, show_denoising=False,
@@ -527,62 +521,70 @@ def run_inference_on_directory(
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=CONFIG_PATH)
-    parser.add_argument("--base_ckpt", default=BASE_CKPT)
-    parser.add_argument("--control_ckpt", default=CONTROL_CKPT)
-    
+    parser.add_argument("--base_config_path", default=BASE_CONFIG_PATH)
+    parser.add_argument("--base_ckpt_path", default=BASE_CKPT_PATH)
+    parser.add_argument("--control_ckpt_path", default=CONTROL_CKPT_PATH)
+
     # Input routing (output path inferred dynamically)
-    parser.add_argument("--input", default=INPUT_IMAGE_PATH, help="Path to the input image.")
-    parser.add_argument("--output-dir", default=OUTPUT_DIR, help="Base directory where single-image exports will be saved.")
-    
-    parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
-    parser.add_argument("--eval-timesteps", type=int, default= EVAL_TIMESTEPS)
-    parser.add_argument("--grid_size", type=int, default=GRID_SIZE)
-    parser.add_argument("--no_ot", action="store_true")
-    
-    # Artifact Exports
-    parser.add_argument("--export-png", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--export-npy", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--export-conditions", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--track-time", action=argparse.BooleanOptionalAction, default=False, help="Export a _time.txt file tracking stage speeds")
+    parser.add_argument("--image_path", default=INPUT_IMAGE_PATH, help="Path to the input image.")
+    parser.add_argument("--output_dir", default=OUTPUT_DIR, help="Base directory where single-image exports will be saved.")
+    parser.add_argument("--n_samples", type=int, default=N_SAMPLES)
     
     # Model Flags
-    parser.add_argument("--enable-gecco", default=ENABLE_GECCO, action=argparse.BooleanOptionalAction)
-    parser.add_argument("--enable-adaptive-gate-injection", default=ENABLE_ADAPTIVE_GATE_INJECTION, action=argparse.BooleanOptionalAction)
-    parser.add_argument("--smart-init-features", action=argparse.BooleanOptionalAction, default=SMART_INIT_FEATURES)
-    parser.add_argument("--sdf-features", action=argparse.BooleanOptionalAction, default=SDF_FEATURES)
-    parser.add_argument("--batch-coords-features", action=argparse.BooleanOptionalAction, default=BATCH_COORDS_FEATURES)
-    parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
-    parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX)
-    parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO)
-    parser.add_argument("--t-start-step", type=int, default=T_START_STEP)
-    parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
-    parser.add_argument("--smart-init-splat-sigma-px", type=float, default=SMART_INIT_SPLAT_SIGMA_PX)
-    parser.add_argument("--enable-smart-init-splat-sigma", action=argparse.BooleanOptionalAction, default=ENABLE_SMART_INIT_SPLAT_SIGMA)
-    parser.add_argument("--show-denoising", action=argparse.BooleanOptionalAction, default=SHOW_DENOISING, help="Export denoising steps to denoising_steps/png and denoising_steps/npy")
-    parser.add_argument("--show-denoising-interval", type=int, default=SHOW_DENOISING_INTERVAL, help="Interval for saving denoising steps (every N steps)")
+    parser.add_argument("--grid_size", type=int, default=GRID_SIZE)
+    parser.add_argument("--enable_gecco", default=ENABLE_GECCO, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--enable_adaptive_gate_injection", default=ENABLE_ADAPTIVE_GATE_INJECTION, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--truncation_ratio", type=float, default=TRUNCATION_RATIO)
+    parser.add_argument("--eval_timesteps", type=int, default= EVAL_TIMESTEPS)
+    parser.add_argument("--smart_init_features", action=argparse.BooleanOptionalAction, default=SMART_INIT_FEATURES)
+    parser.add_argument("--sdf_features", action=argparse.BooleanOptionalAction, default=SDF_FEATURES)
+    parser.add_argument("--batch_coords_features", action=argparse.BooleanOptionalAction, default=BATCH_COORDS_FEATURES)
+    parser.add_argument("--resample_jumps", type=int, default=RESAMPLE_JUMPS)
+    parser.add_argument("--sdf_truncate_px", type=float, default=SDF_TRUNCATE_PX)
+    parser.add_argument("--t_start_step", type=int, default=T_START_STEP)
+    parser.add_argument("--smart_init_seed", type=int, default=SMART_INIT_SEED)
+    parser.add_argument("--smart_init_splat_sigma_px", type=float, default=SMART_INIT_SPLAT_SIGMA_PX)
+    parser.add_argument("--enable_smart_init_splat_sigma", action=argparse.BooleanOptionalAction, default=ENABLE_SMART_INIT_SPLAT_SIGMA)
+    parser.add_argument("--show_denoising_interval", type=int, default=SHOW_DENOISING_INTERVAL, help="Interval for saving denoising steps (every N steps)")
     parser.add_argument("--device", default=DEVICE)
-    args = parser.parse_args()
+    
+     # Artifact Exports
+    parser.add_argument("--export_conditions", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--export_png", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--export_npy", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--track_time", action=argparse.BooleanOptionalAction, default=False, help="Export a _time.txt file tracking stage speeds")
+    parser.add_argument("--show_denoising", action=argparse.BooleanOptionalAction, default=SHOW_DENOISING, help="Export denoising steps to denoising_steps/png and denoising_steps/npy")
 
-    input_path = Path(args.input)
+    parser.add_argument("--conditions_dir", default=None, help="Directory to save condition tensors (overrides default)")
+    parser.add_argument("--png_dir", default=None, help="Directory to save output PNGs (overrides default)")
+    parser.add_argument("--npy_dir", default=None, help="Directory to save output NPYs (overrides default)")
+    parser.add_argument("--timestamps_dir", default=None, help="Directory to save timing TXT files (overrides default)")
+    parser.add_argument("--denoising_dir", default=None, help="Directory to save denoising step visualizations (overrides default)")
+
+    args = parser.parse_args()
+    run(args)
+
+
+def run(args):
+    image_path = Path(args.image_path)
     output_path = Path(args.output_dir)
 
-    if input_path.is_dir():
+    if image_path.is_dir():
         raise ValueError(
             "This CLI now runs a single input image only. Use run_inference_on_directory() "
             "directly if you need folder processing."
         )
 
     diffusion, control_net = load_pipeline(
-        args.config, args.base_ckpt, args.control_ckpt, args.grid_size, args.enable_gecco, args.enable_adaptive_gate_injection,
+        args.base_config_path, args.base_ckpt_path, args.control_ckpt_path, args.grid_size, args.enable_gecco, args.enable_adaptive_gate_injection,
         args.smart_init_features, args.sdf_features, args.batch_coords_features, args.device
     )
 
     # Single-image behavior: write under sample_outputs/<image_stem>.
-    single_output_dir = output_path / input_path.stem
+    single_output_dir = output_path / image_path.stem
 
     process_single_image(
-        image_path=Path(input_path),
+        image_path=Path(image_path),
         diffusion=diffusion, control_net=control_net,
         grid_size=args.grid_size, eval_timesteps=args.eval_timesteps, truncation_ratio=args.truncation_ratio,
         t_start_step=args.t_start_step, resample_jumps=args.resample_jumps,
@@ -590,12 +592,12 @@ def main():
         smart_init_seed=args.smart_init_seed, sdf_truncate_px=args.sdf_truncate_px,
         enable_smart_init_splat_sigma=args.enable_smart_init_splat_sigma,
         smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
-        no_ot=args.no_ot, device=args.device, n_samples=args.n_samples,
+        device=args.device, n_samples=args.n_samples,
         show_denoising_interval=args.show_denoising_interval,
         # Exports
         output_dir=Path(single_output_dir),
         export_conditions=args.export_conditions, export_png=args.export_png, export_npy=args.export_npy, track_time=args.track_time, show_denoising=args.show_denoising,
-        conditions_dir=None, png_dir=None, npy_dir=None, timestamps_dir=None, denoising_dir=None,
+        conditions_dir=args.conditions_dir, png_dir=args.png_dir, npy_dir=args.npy_dir, timestamps_dir=args.timestamps_dir, denoising_dir=args.denoising_dir,
     )
     print("Done single image processing at:", single_output_dir)
 

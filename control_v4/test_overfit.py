@@ -60,8 +60,8 @@ DATA_ROOT = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1"
 # DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_taksim"
 SOURCE_DIR = os.path.join(DATA_ROOT, "source")
 TARGET_DIR = os.path.join(DATA_ROOT, "target")
-CONFIG_PATH = "config/GBN/config.json"
-CKPT_PATH = "config/GBN/model.ckpt"
+BASE_CONFIG_PATH = "config/GBN/config.json"
+BASE_CKPT_PATH = "config/GBN/model.ckpt"
 OUTPUT_DIR = "control_v4/overfit_outputs"
 WANDB_ENV = ".env"
 EXPORT_GT_OFFSET = True
@@ -693,9 +693,9 @@ def main():
         }, step=0)
 
     # ── load pretrained diffusion + build Dynamic ControlNet V4 ──────
-    diffusion = ParseSampleConfig(CONFIG_PATH)
+    diffusion = ParseSampleConfig(BASE_CONFIG_PATH)
     diffusion.load_state_dict(
-        torch.load(CKPT_PATH, map_location="cpu")["diffu"])
+        torch.load(BASE_CKPT_PATH, map_location="cpu")["diffu"])
     diffusion.to(device)
 
     denoiser = diffusion.model

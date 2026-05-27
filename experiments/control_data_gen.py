@@ -25,8 +25,8 @@ from control_v4.sample_control import run_inference_on_directory
 
 # ── Editable Defaults ───────────────────────────────────────────────────
 
-CONFIG_PATH = "config/GBN/config.json"
-BASE_CKPT = "config/GBN/model.ckpt"
+BASE_CONFIG_PATH = "config/GBN/config.json"
+BASE_CKPT_PATH = "config/GBN/model.ckpt"
 
 # ICONS
 # CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
@@ -80,11 +80,11 @@ def main() -> int:
     )
     parser.add_argument("--data_path", type=Path, default=DATA_PATH,
                         help="Root data folder containing 'source/' subfolder")
-    parser.add_argument("--config", type=str, default=CONFIG_PATH,
-                        help="Path to diffusion model config")
-    parser.add_argument("--base_ckpt", type=str, default=BASE_CKPT,
+    parser.add_argument("--base_config_path", type=str, default=BASE_CONFIG_PATH,
+                        help="Path to base diffusion model config")
+    parser.add_argument("--base_ckpt_path", type=str, default=BASE_CKPT_PATH,
                         help="Path to base diffusion model checkpoint")
-    parser.add_argument("--control_ckpt", type=str, default=CONTROL_CKPT,
+    parser.add_argument("--control_ckpt_path", type=str, default=CONTROL_CKPT,
                         help="Path to ControlNet checkpoint")
     parser.add_argument("--eval_timesteps", type=int, default=EVAL_TIMESTEPS)
     parser.add_argument("--grid_size", type=int, default=GRID_SIZE)
@@ -157,9 +157,9 @@ def main() -> int:
     # Call the public API from sample_control
     # Dataset generation uses OT and writes PNGs to target/ by default.
     run_inference_on_directory(
-        config_path=args.config,
-        base_ckpt=args.base_ckpt,
-        control_ckpt=args.control_ckpt,
+        base_config_path=args.base_config_path,
+        base_ckpt_path=args.base_ckpt_path,
+        control_ckpt_path=args.control_ckpt_path,
         grid_size=args.grid_size,
         eval_timesteps=args.eval_timesteps,
         enable_gecco=args.enable_gecco,
