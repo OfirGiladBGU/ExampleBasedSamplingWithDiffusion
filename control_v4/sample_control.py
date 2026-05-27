@@ -42,8 +42,6 @@ RESAMPLE_JUMPS = 2
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
 BATCH_COORDS_FEATURES = False
-SHOW_DENOISING = False
-SHOW_DENOISING_INTERVAL = 50
 # ENABLE_SMART_INIT_JITTER = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
@@ -57,6 +55,13 @@ SMART_INIT_SPLAT_SIGMA_PX = 0.5
 N_SAMPLES = 1
 DEVICE = "cuda"
 T_START_STEP = -1
+SHOW_DENOISING_INTERVAL = 50
+
+EXPORT_CONDITIONS = True
+EXPORT_PNG = True
+EXPORT_NPY = True
+TRACK_TIME = True
+SHOW_DENOISING = False
 
 # ----
 
@@ -549,10 +554,10 @@ def main():
     parser.add_argument("--device", default=DEVICE)
     
      # Artifact Exports
-    parser.add_argument("--export_conditions", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--export_png", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--export_npy", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--track_time", action=argparse.BooleanOptionalAction, default=False, help="Export a _time.txt file tracking stage speeds")
+    parser.add_argument("--export_conditions", action=argparse.BooleanOptionalAction, default=EXPORT_CONDITIONS)
+    parser.add_argument("--export_png", action=argparse.BooleanOptionalAction, default=EXPORT_PNG)
+    parser.add_argument("--export_npy", action=argparse.BooleanOptionalAction, default=EXPORT_NPY)
+    parser.add_argument("--track_time", action=argparse.BooleanOptionalAction, default=TRACK_TIME, help="Export a _time.txt file tracking stage speeds")
     parser.add_argument("--show_denoising", action=argparse.BooleanOptionalAction, default=SHOW_DENOISING, help="Export denoising steps to denoising_steps/png and denoising_steps/npy")
 
     parser.add_argument("--conditions_dir", default=None, help="Directory to save condition tensors (overrides default)")
