@@ -68,7 +68,7 @@ EXPORT_GT_OFFSET = True
 
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
-SAMPLE_TIMESTEPS = 1000
+EVAL_TIMESTEPS = 1000
 TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 2
 SMART_INIT_FEATURES = False
@@ -325,7 +325,7 @@ def export_gt_offset_artifacts(out_dir, gt_offsets):
 
 def sample_from_model(diffusion, control_net, denoiser, high_res, high_res_sdf,
                       target_density, target_sdf, smart_init_grid, x_init_offsets,
-                      device, n_samples=2, timesteps=200, resample_jumps=0, truncation_ratio=0.30):
+                      device, n_samples=2, eval_timesteps=1000, resample_jumps=0, truncation_ratio=0.30):
     """Run truncated reverse diffusion from Smart Init (SDEdit-style)."""
     from tqdm import tqdm as _tqdm
     controlled = DynamicControlledDenoiser(denoiser, control_net)
@@ -333,7 +333,7 @@ def sample_from_model(diffusion, control_net, denoiser, high_res, high_res_sdf,
 
     orig_model = diffusion.model
     diffusion.model = controlled
-    diffusion.set_num_timesteps(timesteps)
+    diffusion.set_num_timesteps(eval_timesteps)
     diffusion.eval()
 
     shape = [n_samples, 2, GRID_SIZE, GRID_SIZE]
@@ -421,6 +421,12 @@ def main():
 
     # Model parameters
     parser.add_argument(
+        "--grid-size", 
+        type=int, 
+        default=GRID_SIZE,
+        help="Grid resolution for offset export and dataset loading",
+    )
+    parser.add_argument(
         "--enable-gecco",
         action=argparse.BooleanOptionalAction,
         default=ENABLE_GECCO,
@@ -439,11 +445,9 @@ def main():
         help="RePaint-style micro-loops per timestep during sampling (0=disabled)",
     )
     parser.add_argument(
-        "--sample-timesteps",
         "--eval-timesteps",
-        dest="sample_timesteps",
         type=int,
-        default=SAMPLE_TIMESTEPS,
+        default=EVAL_TIMESTEPS,
         help="Diffusion timesteps used when sampling the model for visualisation",
     )
     parser.add_argument(
@@ -644,7 +648,7 @@ def main():
 
     high_res, target_density, high_res_sdf, target_sdf = load_condition(
         source_path,
-        GRID_SIZE,
+        args.grid_size,
         device,
         sdf_features=args.sdf_features,
         sdf_truncate_px=args.sdf_truncate_px,
@@ -660,10 +664,10 @@ def main():
     smart_offsets_np = smart_init_points_to_offsets(smart_points_base)
     smart_init_offsets_base = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
     if args.smart_init_features:
-        smart_grid_np = render_smart_init_grid(smart_points_base, grid_size=GRID_SIZE)
+        smart_grid_np = render_smart_init_grid(smart_points_base, grid_size=args.grid_size)
         smart_init_grid_base = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
-        smart_grid_centers_flat = _grid_centers_flat(GRID_SIZE, device, smart_init_offsets_base.dtype)
-        smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, GRID_SIZE, smart_grid_centers_flat)
+        smart_grid_centers_flat = _grid_centers_flat(args.grid_size, device, smart_init_offsets_base.dtype)
+        smart_points_base = offsets_to_coords_gpu(smart_init_offsets_base, args.grid_size, smart_grid_centers_flat)
     else:
         smart_init_grid_base = None
         smart_grid_centers_flat = None
@@ -695,18 +699,17 @@ def main():
     diffusion.to(device)
 
     denoiser = diffusion.model
-    num_timesteps = diffusion.num_timesteps
-    truncation_cutoff = max(1, int(num_timesteps * args.truncation_ratio))
+    truncation_cutoff = max(1, int(args.eval_timesteps * args.truncation_ratio))
 
     # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
     control_net = DynamicControlNet(
         denoiser,
-        grid_size=GRID_SIZE,
+        grid_size=args.grid_size,
         enable_gecco=args.enable_gecco,
+        enable_adaptive_gate_injection=args.enable_adaptive_gate_injection,
         smart_init_features=args.smart_init_features,
         sdf_features=args.sdf_features,
         batch_coords_features=args.batch_coords_features,
-        enable_adaptive_gate_injection=args.enable_adaptive_gate_injection,
     ).to(device)
     control_net.train()
 
@@ -726,10 +729,11 @@ def main():
     else:
         trainable_total = control_params + sum(p.numel() for p in denoiser.parameters() if p.requires_grad)
         print(f"Trainable params (control + denoiser) : {trainable_total:,}")
+    print(f"Grid size                             : {args.grid_size}x{args.grid_size}")
     print(f"GECCO dynamic features enabled        : {args.enable_gecco}")
     print(f"Adaptive gate injection enabled       : {args.enable_adaptive_gate_injection}")
     print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
-    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{num_timesteps}")
+    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{args.eval_timesteps}")
     print(f"Eval resample-jumps                   : {args.resample_jumps}")
     print(f"Smart Init features enabled           : {args.smart_init_features}")
     print(f"SDF features enabled                  : {args.sdf_features}")
@@ -863,7 +867,7 @@ def main():
                 smart_init_offsets,
                 device,
                 n_samples=args.n_samples,
-                timesteps=args.sample_timesteps,
+                eval_timesteps=args.eval_timesteps,
                 resample_jumps=args.resample_jumps,
                 truncation_ratio=args.truncation_ratio,
             )

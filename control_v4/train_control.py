@@ -373,13 +373,13 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
     return resolved_offsets_dir
 
 
-def sample_eval_batch(diffusion, denoiser, control_net, batch, device, n_samples=4, timesteps=1000, resample_jumps=2,
+def sample_eval_batch(diffusion, denoiser, control_net, batch, device, n_samples=4, eval_timesteps=1000, resample_jumps=2,
                       show_tqdm=False, tqdm_desc="sampling", truncation_ratio=None):
     """Sample offset grids for intermediate eval with optional resampling.
 
     When ``truncation_ratio`` and ``smart_init_offsets`` are provided the
     function uses SDEdit-style truncated sampling: it adds noise at
-    ``t_start = int(timesteps * truncation_ratio)`` to ``smart_init_offsets``
+    ``t_start = int(eval_timesteps * truncation_ratio)`` to ``smart_init_offsets``
     and denoises only from there, matching the truncated training regime.
     """
     controlled = DynamicControlledDenoiser(denoiser, control_net)
@@ -405,7 +405,7 @@ def sample_eval_batch(diffusion, denoiser, control_net, batch, device, n_samples
 
     original_model = diffusion.model
     diffusion.model = controlled
-    diffusion.set_num_timesteps(timesteps)
+    diffusion.set_num_timesteps(eval_timesteps)
     diffusion.eval()
 
     h, w = target_density.shape[-2], target_density.shape[-1]
@@ -903,8 +903,7 @@ def run(args):
     diffusion.eval()
 
     denoiser = diffusion.model
-    num_timesteps = diffusion.num_timesteps
-    truncation_cutoff = max(1, int(num_timesteps * args.truncation_ratio))
+    truncation_cutoff = max(1, int(args.eval_timesteps * args.truncation_ratio))
 
     # ── build Dynamic ControlNet V4 ──────────────────────────────────
     # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
@@ -934,10 +933,11 @@ def run(args):
     else:
         trainable_total = control_params + sum(p.numel() for p in denoiser.parameters() if p.requires_grad)
         print(f"Trainable params (control + denoiser) : {trainable_total:,}")
+    print(f"Grid size                             : {args.grid_size}x{args.grid_size}")
     print(f"GECCO dynamic features enabled        : {args.enable_gecco}")
     print(f"Adaptive gate injection enabled       : {args.enable_adaptive_gate_injection}")
     print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
-    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{num_timesteps}")
+    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{args.eval_timesteps}")
     print(f"Eval resample-jumps                   : {args.resample_jumps}")
     print(f"Smart Init features enabled           : {args.smart_init_features}")
     print(f"SDF features enabled                  : {args.sdf_features}")
@@ -1203,7 +1203,7 @@ def run(args):
                 preview_batch,
                 device,
                 n_samples=preview_batch["high_res"].shape[0],
-                timesteps=args.eval_timesteps,
+                eval_timesteps=args.eval_timesteps,
                 resample_jumps=args.resample_jumps,
                 show_tqdm=True,
                 tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [train-predict]",
@@ -1321,7 +1321,7 @@ def run(args):
                     val_preview_batch,
                     device,
                     n_samples=val_preview_batch["high_res"].shape[0],
-                    timesteps=args.eval_timesteps,
+                    eval_timesteps=args.eval_timesteps,
                     resample_jumps=args.resample_jumps,
                     show_tqdm=True,
                     tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [predict]",
@@ -1362,7 +1362,7 @@ def run(args):
                         {key: value[:1] for key, value in val_preview_batch.items()},
                         device,
                         n_samples=1,
-                        timesteps=args.eval_timesteps,
+                        eval_timesteps=args.eval_timesteps,
                         resample_jumps=args.resample_jumps,
                         show_tqdm=True,
                         tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [geom]",

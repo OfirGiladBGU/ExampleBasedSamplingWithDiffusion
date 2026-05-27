@@ -36,7 +36,7 @@ from utils.Config import ParseSampleConfig
 # DEFUALTS
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
-TIMESTEPS = 1000
+EVAL_TIMESTEPS = 1000
 TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 2
 SMART_INIT_FEATURES = False
@@ -54,6 +54,10 @@ SDF_TRUNCATE_PX = 8.0
 # SMART_INIT_JITTER_PX = 0.5
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
+N_SAMPLES = 1
+DEVICE = "cuda"
+T_START_STEP = -1
+
 # ----
 
 # Editable defaults 
@@ -67,7 +71,7 @@ CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynam
 # # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/quadratic_V2/source/quadratic_density_gradient.png"
 # # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/plant2/source/plant2_400x400.png"
 # OUTPUT_DIR = "control_v4/sample_outputs"
-# TIMESTEPS = 1000
+# EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 0.30
 
 # Sizes Compare
@@ -81,10 +85,11 @@ CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynam
 # GRID_SIZE = 48
 # GRID_SIZE = 64
 # OUTPUT_DIR = f"control_v4/sample_outputs_{GRID_SIZE}"
-# TIMESTEPS = 1000
+# EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 0.30
 
 
+# Teaser
 INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig1.png"
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig2.png"
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig3.png"
@@ -93,17 +98,13 @@ SHOW_DENOISING = True
 SHOW_DENOISING_INTERVAL = 100
 
 # OUTPUT_DIR = "control_v4/sample_outputs"
-# TIMESTEPS = 1000
+# EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 1.0
 
 OUTPUT_DIR = "control_v4/sample_outputs_trunc"
-TIMESTEPS = 1000
+EVAL_TIMESTEPS = 1000
 TRUNCATION_RATIO = 0.3
 
-
-N_SAMPLES = 1
-DEVICE = "cuda"
-T_START_STEP = -1
 
 # ── Helper Functions ──────────────────────────────────────────────────────────
 
@@ -156,7 +157,7 @@ def _save_denoise_step(img_tensor, timestep_i, t_start, out_path):
 
 def _save_condition_debug_tensors(
     high_res, high_res_sdf, target_density, target_sdf, 
-    smart_init_grid_raw, smart_init_grid_model, out_dir
+    smart_init_grid_raw, smart_init_grid_model, out_dir, image_stem
 ):
     os.makedirs(out_dir, exist_ok=True)
     cond_map = {
@@ -170,7 +171,7 @@ def _save_condition_debug_tensors(
     for name, tensor in cond_map.items():
         if tensor is None: continue
         arr = tensor.detach().cpu().float().numpy().squeeze()
-        np.save(os.path.join(out_dir, f"{name}.npy"), arr)
+        np.save(os.path.join(out_dir, f"{image_stem}_{name}.npy"), arr)
 
     if HAS_MPL:
         ordered_names = ["high_res", "high_res_sdf", "target_density", "target_sdf", "smart_init_grid_raw", "smart_init_grid_model_input"]
@@ -191,7 +192,7 @@ def _save_condition_debug_tensors(
             ax.axis("off")
             ax.set_title(name)
         plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, "conditions_collage.png"), dpi=140, bbox_inches="tight")
+        plt.savefig(os.path.join(out_dir, f"{image_stem}_conditions_collage.png"), dpi=140, bbox_inches="tight")
         plt.close()
 
 
@@ -235,7 +236,7 @@ def load_condition(image_path, grid_size, device, sdf_features=True, sdf_truncat
 
 # ── Core Inference Pipeline ───────────────────────────────────────────────────
 
-def load_pipeline(config_path, base_ckpt, control_ckpt, grid_size, enable_gecco, smart_init_features, sdf_features, batch_coords_features, device):
+def load_pipeline(config_path, base_ckpt, control_ckpt, grid_size, enable_gecco, enable_adaptive_gate_injection, smart_init_features, sdf_features, batch_coords_features, device):
     """Loads the U-Net and ControlNet into VRAM once."""
     diffusion = ParseSampleConfig(config_path)
     diffusion.load_state_dict(torch.load(base_ckpt, map_location="cpu")["diffu"])
@@ -244,9 +245,10 @@ def load_pipeline(config_path, base_ckpt, control_ckpt, grid_size, enable_gecco,
     denoiser.eval()
 
     control_net = DynamicControlNet(
-        denoiser,
+        denoiser=denoiser,
         grid_size=grid_size,
         enable_gecco=enable_gecco,
+        enable_adaptive_gate_injection=enable_adaptive_gate_injection,
         smart_init_features=smart_init_features,
         sdf_features=sdf_features,
         batch_coords_features=batch_coords_features,
@@ -258,35 +260,44 @@ def load_pipeline(config_path, base_ckpt, control_ckpt, grid_size, enable_gecco,
     
     return diffusion, control_net
 
+# Defualts 
+CONDITIONS_SUBDIR = "conditions"
+PNG_SUBDIR = "png"
+NPY_SUBDIR = "npy"
+TIME_SUBDIR = "timestamps"
+DENOISING_SUBDIR = "denoising_steps"
 
 def process_single_image(
-    image_path, output_dir, timestamp_dir=None, diffusion=None, control_net=None,
-    grid_size=32, timesteps=1000, truncation_ratio=0.30, t_start_step=-1, resample_jumps=2,
+    image_path, diffusion=None, control_net=None,
+    grid_size=32, eval_timesteps=1000, truncation_ratio=0.30, t_start_step=-1, resample_jumps=2,
     smart_init_features=False, sdf_features=False, smart_init_seed=42, sdf_truncate_px=8.0,
     enable_smart_init_splat_sigma=False, smart_init_splat_sigma_px=0.5, no_ot=False,
-    export_png=True, export_npy=True, export_conditions=True, track_time=False,
-    device="cuda", n_samples=1, use_subdirs: bool = True, show_denoising: bool = False,
-    show_denoising_interval: int = 50
+    device="cuda", n_samples=1, show_denoising_interval=50,
+    # Exports
+    output_dir=None,
+    export_conditions=True, export_png=True, export_npy=True, track_time=True, show_denoising=False,
+    conditions_dir=None, png_dir=None, npy_dir=None, timestamps_dir=None, denoising_dir=None,
 ):
     """Runs the inference pipeline for a single image, with exact timing tracking.
     
     For dataset generation (e.g., via run_inference_on_directory), always uses OT.
     The no_ot flag is primarily for testing/debugging single-image inference.
     """
-    out_dir = Path(output_dir)
-    img_stem = Path(image_path).stem
+    out_dir = output_dir if output_dir else Path("./output")
+    img_stem = image_path.stem
 
-    # When `use_subdirs` is True (legacy/sample mode) create `png/` and `npy/`
-    # subfolders. For dataset generation we set `use_subdirs=False` so outputs
-    # are written directly under the `target/` folder to preserve hierarchy.
-    png_dir = out_dir / "png" if use_subdirs else out_dir
-    npy_dir = out_dir / "npy" if use_subdirs else out_dir
+    conditions_dir = conditions_dir if conditions_dir else out_dir / CONDITIONS_SUBDIR
+    png_dir = png_dir if png_dir else out_dir / PNG_SUBDIR
+    npy_dir = npy_dir if npy_dir else out_dir / NPY_SUBDIR
+    timestamps_dir = timestamps_dir if timestamps_dir else out_dir / TIME_SUBDIR
+    denoising_dir = denoising_dir if denoising_dir else out_dir / DENOISING_SUBDIR
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    if use_subdirs:
-        if export_npy: npy_dir.mkdir(parents=True, exist_ok=True)
-        if export_png: png_dir.mkdir(parents=True, exist_ok=True)
-    
+    if export_conditions: conditions_dir.mkdir(parents=True, exist_ok=True)
+    if export_png: png_dir.mkdir(parents=True, exist_ok=True)
+    if export_npy: npy_dir.mkdir(parents=True, exist_ok=True)
+    if track_time: timestamps_dir.mkdir(parents=True, exist_ok=True)
+    if show_denoising: denoising_dir.mkdir(parents=True, exist_ok=True)
+
     t_total_start = time.perf_counter()
     time_si, time_denoise, time_ot = 0.0, 0.0, 0.0
 
@@ -317,8 +328,7 @@ def process_single_image(
 
     # Condition Export
     if export_conditions:
-        cond_dir = out_dir / "conditions"
-        _save_condition_debug_tensors(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid_raw, smart_init_grid, cond_dir)
+        _save_condition_debug_tensors(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid_raw, smart_init_grid, conditions_dir, img_stem)
 
     # Setup Denoiser.
     # If diffusion.model is already wrapped from a previous image, unwrap to the base denoiser
@@ -327,16 +337,16 @@ def process_single_image(
     controlled = DynamicControlledDenoiser(base_denoiser, control_net)
     controlled.set_condition(high_res, high_res_sdf, target_density, target_sdf, smart_init_grid)
     diffusion.model = controlled
-    diffusion.set_num_timesteps(timesteps)
+    diffusion.set_num_timesteps(eval_timesteps)
     diffusion.eval()
 
     # Determine schedule start
-    t_start = t_start_step if t_start_step >= 0 else int(timesteps * truncation_ratio)
-    t_start = int(np.clip(t_start, 1, max(timesteps - 1, 1)))
+    t_start = t_start_step if t_start_step >= 0 else int(eval_timesteps * truncation_ratio)
+    t_start = int(np.clip(t_start, 1, max(eval_timesteps - 1, 1)))
 
     if truncation_ratio == 1.0 and t_start_step < 0:
         img = torch.randn((n_samples, 2, grid_size, grid_size), device=device)
-        t_start = timesteps - 1
+        t_start = eval_timesteps - 1
         time_si = 0.0 # Override because we aren't using the generated prior
     else:
         x_init = smart_init_offsets.expand(n_samples, -1, -1, -1).contiguous()
@@ -349,9 +359,8 @@ def process_single_image(
     if show_denoising:
         if show_denoising_interval <= 0:
             raise ValueError("show_denoising_interval must be > 0 when show_denoising is enabled")
-        steps_base_dir = out_dir / "denoising_steps"
-        steps_png_dir = steps_base_dir / "png"
-        steps_npy_dir = steps_base_dir / "npy"
+        steps_png_dir = denoising_dir / "png"
+        steps_npy_dir = denoising_dir / "npy"
         steps_png_dir.mkdir(parents=True, exist_ok=True)
         steps_npy_dir.mkdir(parents=True, exist_ok=True)
     
@@ -367,11 +376,11 @@ def process_single_image(
                 noise = torch.randn_like(img)
                 img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
             
-            if steps_png_dir is not None and steps_npy_dir is not None:
+            if show_denoising:
                 elapsed = t_start - 1 - i
                 if elapsed % show_denoising_interval == 0:
-                    step_png_path = steps_png_dir / f"step_{elapsed:04d}.png"
-                    step_npy_path = steps_npy_dir / f"step_{elapsed:04d}.npy"
+                    step_png_path = steps_png_dir / f"{img_stem}_step_{elapsed:04d}.png"
+                    step_npy_path = steps_npy_dir / f"{img_stem}_step_{elapsed:04d}.npy"
                     _save_denoise_step(img, i, t_start, str(step_png_path))
                     np.save(step_npy_path, img.detach().cpu().numpy())
     time_denoise = time.perf_counter() - t_denoise_start
@@ -391,17 +400,17 @@ def process_single_image(
         time_ot += (time.perf_counter() - t_ot_start)
 
         if export_npy:
-            np.save(npy_dir / f"{img_stem}{suffix}.npy", pts if not no_ot else s)
+            npy_filename = npy_dir / f"{img_stem}{suffix}.npy"
+            np.save(npy_filename, pts)
         if export_png and not no_ot:
-            save_sample_image(image_path, pts, png_dir / f"{img_stem}{suffix}.png")
+            png_filename = png_dir / f"{img_stem}{suffix}.png"
+            save_sample_image(image_path, pts, png_filename)
 
     time_total = time.perf_counter() - t_total_start
 
     # Time Tracking Export
     if track_time:
-        ts_dir = Path(timestamp_dir) if timestamp_dir else out_dir
-        ts_dir.mkdir(parents=True, exist_ok=True)
-        with open(ts_dir / f"{img_stem}_time.txt", "w") as f:
+        with open(timestamps_dir / f"{img_stem}.txt", "w") as f:
             f.write(f"Smart Init Time: {time_si:.4f} s\n")
             f.write(f"Denoising Time: {time_denoise:.4f} s\n")
             f.write(f"Optimal Transport Time: {time_ot:.4f} s\n")
@@ -413,16 +422,23 @@ def process_single_image(
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def run_inference_on_directory(
-    input_dir: str, config_path: str, base_ckpt: str, control_ckpt: str,
-    grid_size: int = 32, timesteps: int = 1000, enable_gecco: bool = True,
+    config_path: str, base_ckpt: str, control_ckpt: str,
+    grid_size: int = 32, eval_timesteps: int = 1000, enable_gecco: bool = True, enable_adaptive_gate_injection: bool = True,
     smart_init_features: bool = False, sdf_features: bool = False, batch_coords_features: bool = False,
     truncation_ratio: float = 0.30, t_start_step: int = -1, smart_init_seed: int = 42,
     sdf_truncate_px: float = 8.0, resample_jumps: int = 2,
     enable_smart_init_splat_sigma: bool = False, smart_init_splat_sigma_px: float = 0.5,
-    export_png: bool = True,
-    export_conditions: bool = True, track_time: bool = True, device: str = "cuda",
-    target_dir: str | None = None, timestamps_dir: str | None = None,
-    json_path: str | None = None, overwrite: bool = False
+    device: str = "cuda",
+    # Exports
+    export_png=True,
+    export_npy=True,
+    track_time=True,
+    source_path=None,
+    target_path=None,
+    target_npy_path=None,
+    timestamps_path=None,
+    json_path=None,
+    overwrite=True,
 ):
     """
     Dataset generation function for directory inference.
@@ -438,73 +454,42 @@ def run_inference_on_directory(
     
     Always uses Optimal Transport (no_ot=False internally).
     Exports PNGs only to target/ for dataset generation.
+    Extended exports to paths: target_npy_path for NPY, timestamps_path for timing.
     """
-    in_path = Path(input_dir)
-    target_root = Path(target_dir) if target_dir is not None else None
-    timestamps_root = Path(timestamps_dir) if timestamps_dir is not None else None
-    json_file = Path(json_path) if json_path is not None else None
+    source_path = Path(source_path) if source_path else Path("./source")
     
     print(f"Initializing models on {device}...")
     diffusion, control_net = load_pipeline(
-        config_path, base_ckpt, control_ckpt, grid_size, enable_gecco, 
+        config_path, base_ckpt, control_ckpt, 
+        grid_size, enable_gecco, enable_adaptive_gate_injection,
         smart_init_features, sdf_features, batch_coords_features, device
     )
 
     image_files = []
     for ext in ["*.png", "*.jpg", "*.jpeg"]:
-        image_files.extend(in_path.rglob(ext))
-        image_files.extend(in_path.rglob(ext.upper()))
+        image_files.extend(source_path.rglob(ext))
+        image_files.extend(source_path.rglob(ext.upper()))
 
     # Always process in deterministic sorted order.
     image_files = sorted(set(image_files), key=lambda p: str(p))
 
-    print(f"Found {len(image_files)} images in {input_dir}.")
-
-    if target_root is not None:
-        target_root.mkdir(parents=True, exist_ok=True)
-    if timestamps_root is not None:
-        timestamps_root.mkdir(parents=True, exist_ok=True)
+    print(f"Found {len(image_files)} images in {source_path}.")
 
     json_entries = []
-
     for i, img_path in enumerate(tqdm(image_files, total=len(image_files), desc="images"), 1):
-        if target_root is None:
-            if 'source' not in img_path.parts:
-                print(f"[{i}/{len(image_files)}] Skipping {img_path.name}: Not located inside a 'source' folder.")
-                continue
-
-            # Find exactly where 'source' is in the path
-            source_idx = img_path.parts.index('source')
-
-            # Base directory containing the 'source' folder
-            base_path = Path(*img_path.parts[:source_idx])
-
-            # Extract the subpath strictly AFTER the 'source' folder (excluding the filename)
-            # E.g., .../source/item_01/image.png -> subpath = "item_01"
-            rel_subpath = Path(*img_path.parts[source_idx + 1:]).parent
-
-            # Build sibling target and timestamps folders
-            target_out_dir = base_path / "target" / rel_subpath
-            timestamp_out_dir = base_path / "timestamps" / rel_subpath
-        else:
-            rel_subpath = img_path.relative_to(in_path).parent
-            target_out_dir = target_root / rel_subpath
-            timestamp_out_dir = timestamps_root / rel_subpath if timestamps_root is not None else None
-
         # Build JSON entry (always uses OT for dataset generation)
-        target_rel_path = img_path.relative_to(in_path).with_suffix('.png')
-        source_rel_path = img_path.relative_to(in_path)
+        source_rel_subpath = img_path.relative_to(source_path)
+        target_rel_subpath = source_rel_subpath.with_suffix('.png')
         json_entries.append(
             {
-                "source": f"source/{source_rel_path.as_posix()}",
-                "target": f"target/{target_rel_path.as_posix()}",
+                "source": f"source/{source_rel_subpath.as_posix()}",
+                "target": f"target/{target_rel_subpath.as_posix()}",
                 "prompt": "Stippling",
             }
         )
 
         # Check if output PNG already exists (dataset generation always exports PNG)
-        target_png_path = Path(target_out_dir) / f"{img_path.stem}.png"
-
+        target_png_path = target_path / f"{img_path.stem}.png"
         if not overwrite and target_png_path.exists():
             print(f"[{i}/{len(image_files)}] Skipping {img_path.name}: output PNG already exists")
             continue
@@ -512,47 +497,28 @@ def run_inference_on_directory(
         print(f"[{i}/{len(image_files)}] Processing: {img_path.name}")
         # For dataset generation, always use OT (no_ot=False)
         process_single_image(
-            image_path=str(img_path), 
-            output_dir=str(target_out_dir),
-            timestamp_dir=str(timestamp_out_dir) if timestamp_out_dir is not None else None,
+            image_path=img_path, 
             diffusion=diffusion, control_net=control_net,
-            grid_size=grid_size, timesteps=timesteps, truncation_ratio=truncation_ratio,
+            grid_size=grid_size, eval_timesteps=eval_timesteps, truncation_ratio=truncation_ratio,
             t_start_step=t_start_step, resample_jumps=resample_jumps,
             smart_init_features=smart_init_features, sdf_features=sdf_features,
             smart_init_seed=smart_init_seed, sdf_truncate_px=sdf_truncate_px,
             enable_smart_init_splat_sigma=enable_smart_init_splat_sigma,
             smart_init_splat_sigma_px=smart_init_splat_sigma_px,
-            no_ot=False, export_png=True, export_npy=False,
-            export_conditions=export_conditions, track_time=track_time,
-            device=device, n_samples=1, use_subdirs=False
+            no_ot=False, device=device, n_samples=1,
+            # Exports
+            output_dir=None,
+            export_conditions=False, export_png=export_png, export_npy=export_npy, track_time=track_time, show_denoising=False,
+            conditions_dir=None, png_dir=target_path, npy_dir=target_npy_path, timestamps_dir=timestamps_path, denoising_dir=None
         )
 
     # Write prompt.json at the root dataset level
-    if json_file is not None:
-        json_file.parent.mkdir(parents=True, exist_ok=True)
-        with json_file.open("w", encoding="utf-8") as f:
+    if json_path is not None:
+        with json_path.open("w", encoding="utf-8") as f:
             for entry in json_entries:
                 f.write(json.dumps(entry) + "\n")
     else:
-        # Default: write prompt.json at the dataset root
-        if target_root is None:
-            # Infer root from the base_path of the first image
-            if image_files:
-                first_img = image_files[0]
-                if 'source' in first_img.parts:
-                    source_idx = first_img.parts.index('source')
-                    dataset_root = Path(*first_img.parts[:source_idx])
-                    default_json_file = dataset_root / "prompt.json"
-                    with open(default_json_file, "w", encoding="utf-8") as f:
-                        for entry in json_entries:
-                            f.write(json.dumps(entry) + "\n")
-                    print(f"Wrote prompt.json to {default_json_file}")
-        else:
-            default_json_file = target_root.parent / "prompt.json"
-            with open(default_json_file, "w", encoding="utf-8") as f:
-                for entry in json_entries:
-                    f.write(json.dumps(entry) + "\n")
-            print(f"Wrote prompt.json to {default_json_file}")
+        print("Warning: json_path not provided, skipping prompt.json export.")
 
     print("Directory processing complete.")
 
@@ -567,10 +533,10 @@ def main():
     
     # Input routing (output path inferred dynamically)
     parser.add_argument("--input", default=INPUT_IMAGE_PATH, help="Path to the input image.")
-    parser.add_argument("--out-dir", default=OUTPUT_DIR, help="Base directory where single-image exports will be saved.")
+    parser.add_argument("--output-dir", default=OUTPUT_DIR, help="Base directory where single-image exports will be saved.")
     
     parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
-    parser.add_argument("--timesteps", type=int, default=TIMESTEPS)
+    parser.add_argument("--eval-timesteps", type=int, default= EVAL_TIMESTEPS)
     parser.add_argument("--grid_size", type=int, default=GRID_SIZE)
     parser.add_argument("--no_ot", action="store_true")
     
@@ -582,11 +548,12 @@ def main():
     
     # Model Flags
     parser.add_argument("--enable-gecco", default=ENABLE_GECCO, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--enable-adaptive-gate-injection", default=ENABLE_ADAPTIVE_GATE_INJECTION, action=argparse.BooleanOptionalAction)
     parser.add_argument("--smart-init-features", action=argparse.BooleanOptionalAction, default=SMART_INIT_FEATURES)
+    parser.add_argument("--sdf-features", action=argparse.BooleanOptionalAction, default=SDF_FEATURES)
     parser.add_argument("--batch-coords-features", action=argparse.BooleanOptionalAction, default=BATCH_COORDS_FEATURES)
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
     parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX)
-    parser.add_argument("--sdf-features", action=argparse.BooleanOptionalAction, default=SDF_FEATURES)
     parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO)
     parser.add_argument("--t-start-step", type=int, default=T_START_STEP)
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
@@ -598,7 +565,7 @@ def main():
     args = parser.parse_args()
 
     input_path = Path(args.input)
-    out_path = Path(args.out_dir)
+    output_path = Path(args.output_dir)
 
     if input_path.is_dir():
         raise ValueError(
@@ -607,28 +574,30 @@ def main():
         )
 
     diffusion, control_net = load_pipeline(
-        args.config, args.base_ckpt, args.control_ckpt, args.grid_size, args.enable_gecco,
+        args.config, args.base_ckpt, args.control_ckpt, args.grid_size, args.enable_gecco, args.enable_adaptive_gate_injection,
         args.smart_init_features, args.sdf_features, args.batch_coords_features, args.device
     )
 
     # Single-image behavior: write under sample_outputs/<image_stem>.
-    single_out_dir = out_path / input_path.stem
+    single_output_dir = output_path / input_path.stem
 
     process_single_image(
-        image_path=str(input_path), output_dir=str(single_out_dir), timestamp_dir=None,
+        image_path=Path(input_path),
         diffusion=diffusion, control_net=control_net,
-        grid_size=args.grid_size, timesteps=args.timesteps, truncation_ratio=args.truncation_ratio,
+        grid_size=args.grid_size, eval_timesteps=args.eval_timesteps, truncation_ratio=args.truncation_ratio,
         t_start_step=args.t_start_step, resample_jumps=args.resample_jumps,
         smart_init_features=args.smart_init_features, sdf_features=args.sdf_features,
         smart_init_seed=args.smart_init_seed, sdf_truncate_px=args.sdf_truncate_px,
         enable_smart_init_splat_sigma=args.enable_smart_init_splat_sigma,
         smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
-        no_ot=args.no_ot, export_png=args.export_png, export_npy=args.export_npy,
-        export_conditions=args.export_conditions, track_time=args.track_time,
-        device=args.device, n_samples=args.n_samples,
-        show_denoising=args.show_denoising, show_denoising_interval=args.show_denoising_interval
+        no_ot=args.no_ot, device=args.device, n_samples=args.n_samples,
+        show_denoising_interval=args.show_denoising_interval,
+        # Exports
+        output_dir=Path(single_output_dir),
+        export_conditions=args.export_conditions, export_png=args.export_png, export_npy=args.export_npy, track_time=args.track_time, show_denoising=args.show_denoising,
+        conditions_dir=None, png_dir=None, npy_dir=None, timestamps_dir=None, denoising_dir=None,
     )
-    print("Done single image processing.")
+    print("Done single image processing at:", single_output_dir)
 
 if __name__ == "__main__":
     main()

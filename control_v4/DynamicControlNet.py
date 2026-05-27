@@ -97,20 +97,20 @@ class DynamicControlNet(nn.Module):
         grid_size=32,
         enable_gecco=False,
         gecco_channels=16,
-        smart_init_features=True,
-        sdf_features=True,
-        batch_coords_features=True,
         enable_adaptive_gate_injection=True,
+        smart_init_features=False,
+        sdf_features=False,
+        batch_coords_features=False,
     ):
         super().__init__()
         self.ch = denoiser.ch
         self.grid_size = grid_size
         self.enable_gecco = enable_gecco
         self.gecco_channels = gecco_channels
+        self.enable_adaptive_gate_injection = bool(enable_adaptive_gate_injection)
         self.smart_init_features = bool(smart_init_features)
         self.sdf_features = bool(sdf_features)
         self.batch_coords_features = bool(batch_coords_features)
-        self.enable_adaptive_gate_injection = bool(enable_adaptive_gate_injection)
 
         # grid_centers and coord_grid are computed dynamically in forward() so that
         # the model can run inference on any grid size (e.g. train on 32x32, infer on

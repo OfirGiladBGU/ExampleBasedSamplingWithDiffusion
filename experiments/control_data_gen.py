@@ -45,24 +45,31 @@ DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/exp
 # GRID_SIZE = 32
 GRID_SIZE = 48
 
-# Inference parameters
-TIMESTEPS = 1000
-# GRID_SIZE = 32
+
+# Model parameters
+ENABLE_GECCO = True
+ENABLE_ADAPTIVE_GATE_INJECTION = True
+EVAL_TIMESTEPS = 1000
 TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 2
-
-# Feature flags
-ENABLE_GECCO = True
-ENABLE_SMART_INIT_FEATURES = False
+SMART_INIT_FEATURES = False
 SDF_FEATURES = False
 BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+FREEZE_DENOISER = True  # TODO: Add in the other scripts
+# GRID_SIZE = 32
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
+# SMART_INIT_JITTER_PX = 0.5
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 # I/O
 DEVICE = "cuda"
+OVERWRITE = True
+EXPORT_PNG = True
+EXPORT_NPY = True
 TRACK_TIME = True
 
 
@@ -79,13 +86,14 @@ def main() -> int:
                         help="Path to base diffusion model checkpoint")
     parser.add_argument("--control_ckpt", type=str, default=CONTROL_CKPT,
                         help="Path to ControlNet checkpoint")
-    parser.add_argument("--timesteps", type=int, default=TIMESTEPS)
+    parser.add_argument("--eval_timesteps", type=int, default=EVAL_TIMESTEPS)
     parser.add_argument("--grid_size", type=int, default=GRID_SIZE)
     parser.add_argument("--truncation_ratio", type=float, default=TRUNCATION_RATIO,
                         help="Fraction of full schedule to use (< 1.0 uses Smart Init)")
     parser.add_argument("--enable_gecco", action=argparse.BooleanOptionalAction, default=ENABLE_GECCO)
-    parser.add_argument("--enable_smart_init_features", action=argparse.BooleanOptionalAction,
-                        default=ENABLE_SMART_INIT_FEATURES)
+    parser.add_argument("--enable_adaptive_gate_injection", action=argparse.BooleanOptionalAction, default=ENABLE_ADAPTIVE_GATE_INJECTION)
+    parser.add_argument("--smart_init_features", action=argparse.BooleanOptionalAction,
+                        default=SMART_INIT_FEATURES)
     parser.add_argument("--sdf_features", action=argparse.BooleanOptionalAction, default=SDF_FEATURES)
     parser.add_argument("--batch_coords_features", action=argparse.BooleanOptionalAction,
                         default=BATCH_COORDS_FEATURES)
@@ -97,8 +105,12 @@ def main() -> int:
     parser.add_argument("--device", type=str, default=DEVICE)
     parser.add_argument("--resample_jumps", type=int, default=RESAMPLE_JUMPS,
                         help="Number of resample jumps to use during sampling")
-    parser.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=False,
+    parser.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=OVERWRITE,
                         help="Overwrite existing outputs; otherwise skip already processed images")
+    parser.add_argument("--export_png", action=argparse.BooleanOptionalAction, default=EXPORT_PNG,
+                        help="Export target stipple images as PNGs to target/ subfolder")
+    parser.add_argument("--export_npy", action=argparse.BooleanOptionalAction, default=EXPORT_NPY,
+                        help="Export target stipple coordinates as NPYs to target_npy/ subfolder")
     parser.add_argument("--track_time", action=argparse.BooleanOptionalAction, default=TRACK_TIME,
                         help="Enable time tracking; saves elapsed time per image to timestamps/ subfolder")
 
@@ -109,31 +121,50 @@ def main() -> int:
     SOURCE_PATH = os.path.join(args.data_path, "source")
     TARGET_PATH = os.path.join(args.data_path, "target")
     JSON_PATH = os.path.join(args.data_path, "prompt.json")
-    TIMESTAMPS_PATH = os.path.join(args.data_path, "timestamps") if args.track_time else None
+    TARGET_NPY_PATH = os.path.join(args.data_path, "target_npy")
+    TIMESTAMPS_PATH = os.path.join(args.data_path, "timestamps")
 
     print(f"Data path: {data_path}")
     print(f"Source path: {SOURCE_PATH}")
     print(f"Target path: {TARGET_PATH}")
     print(f"JSON path: {JSON_PATH}")
-    print(f"Timesteps: {args.timesteps}, Grid: {args.grid_size}x{args.grid_size}")
-    print(f"GECCO: {args.enable_gecco}, Smart Init: {args.enable_smart_init_features}")
-    print(f"Resample jumps: {args.resample_jumps}")
+    print(f"Target NPY path: {TARGET_NPY_PATH}")
+    print(f"Timesteps path: {TIMESTAMPS_PATH}")
+
+    # Model flags
+    truncation_cutoff = max(1, int(args.eval_timesteps * args.truncation_ratio))
+    print(f"Grid size (px)                        : {args.grid_size}")
+    print(f"GECCO dynamic features enabled        : {args.enable_gecco}")
+    print(f"Adaptive gate injection enabled       : {args.enable_adaptive_gate_injection}")
+    print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
+    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{args.eval_timesteps}")
+    print(f"Eval resample-jumps                   : {args.resample_jumps}")
+    print(f"Smart Init features enabled           : {args.smart_init_features}")
+    print(f"SDF features enabled                  : {args.sdf_features}")
+    print(f"Batch coords features enabled         : {args.batch_coords_features}")
+    # print(f"Min-SNR gamma                         : {args.min_snr_gamma}")
+    print(f"SDF truncation (px)                   : {args.sdf_truncate_px}")
+    # print(f"Smart Init micro-jitter (train, px)  : {args.smart_init_jitter_px}")
+    print(f"Smart Init soft-splat sigma (px)     : {args.smart_init_splat_sigma_px}")
+    # print(f"Smart Init jitter enabled            : {args.enable_smart_init_jitter}")
+    print(f"Smart Init splat-sigma enabled       : {args.enable_smart_init_splat_sigma}")
 
     os.makedirs(SOURCE_PATH, exist_ok=True)
-    os.makedirs(TARGET_PATH, exist_ok=True)
-    if TIMESTAMPS_PATH is not None:
-        os.makedirs(TIMESTAMPS_PATH, exist_ok=True)
+    if args.export_png: os.makedirs(TARGET_PATH, exist_ok=True)
+    if args.export_npy: os.makedirs(TARGET_NPY_PATH, exist_ok=True)
+    if args.track_time: os.makedirs(TIMESTAMPS_PATH, exist_ok=True)
 
     # Call the public API from sample_control
+    # Dataset generation uses OT and writes PNGs to target/ by default.
     run_inference_on_directory(
-        input_dir=SOURCE_PATH,
         config_path=args.config,
         base_ckpt=args.base_ckpt,
         control_ckpt=args.control_ckpt,
         grid_size=args.grid_size,
-        timesteps=args.timesteps,
+        eval_timesteps=args.eval_timesteps,
         enable_gecco=args.enable_gecco,
-        smart_init_features=args.enable_smart_init_features,
+        enable_adaptive_gate_injection=args.enable_adaptive_gate_injection,
+        smart_init_features=args.smart_init_features,
         sdf_features=args.sdf_features,
         batch_coords_features=args.batch_coords_features,
         truncation_ratio=args.truncation_ratio,
@@ -143,13 +174,16 @@ def main() -> int:
         resample_jumps=args.resample_jumps,
         enable_smart_init_splat_sigma=args.enable_smart_init_splat_sigma,
         smart_init_splat_sigma_px=args.smart_init_splat_sigma_px,
-        # Dataset generation uses OT and writes PNGs to target/ by default.
-        export_conditions=False,
-        track_time=args.track_time,
         device=args.device,
-        target_dir=TARGET_PATH,
-        timestamps_dir=TIMESTAMPS_PATH,
-        json_path=JSON_PATH,
+        # Paths
+        export_png=args.export_png,
+        export_npy=args.export_npy,
+        track_time=args.track_time,
+        source_path=Path(SOURCE_PATH),
+        target_path=Path(TARGET_PATH),
+        target_npy_path=Path(TARGET_NPY_PATH),
+        timestamps_path=Path(TIMESTAMPS_PATH),
+        json_path=Path(JSON_PATH),
         overwrite=args.overwrite,
     )
 
