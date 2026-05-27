@@ -61,6 +61,7 @@ EXPORT_CONDITIONS = True
 EXPORT_PNG = True
 EXPORT_NPY = True
 TRACK_TIME = True
+PROFILE_TRACE = True  # NOTE: works only if track_time is True, and will add overhead to execution time
 SHOW_DENOISING = False
 
 # ----
@@ -80,35 +81,34 @@ CONTROL_CKPT_PATH = "control_v4/train_outputs_icons50_512_no_random/checkpoints/
 # TRUNCATION_RATIO = 0.30
 
 # Sizes Compare
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
+INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/original/stress_test_density.png"
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/original/plant4h_V2.png"
 # GRID_SIZE = 8
 # GRID_SIZE = 16
 # GRID_SIZE = 24
 # GRID_SIZE = 32
-# GRID_SIZE = 48
-# GRID_SIZE = 64
-# OUTPUT_DIR = f"control_v4/sample_outputs_{GRID_SIZE}"
-# EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 0.30
+GRID_SIZE = 48
+OUTPUT_DIR = f"control_v4/sample_outputs_{GRID_SIZE}"
+EVAL_TIMESTEPS = 1000
+TRUNCATION_RATIO = 0.30
 
 
 # Teaser
-INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig1.png"
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig2.png"
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig3.png"
-# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig4.png"
-SHOW_DENOISING = True
-SHOW_DENOISING_INTERVAL = 100
+# INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig1.png"
+# # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig2.png"
+# # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig3.png"
+# # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/siggraph_icons/sig4.png"
+# SHOW_DENOISING = True
+# SHOW_DENOISING_INTERVAL = 100
 
-# OUTPUT_DIR = "control_v4/sample_outputs"
+# # OUTPUT_DIR = "control_v4/sample_outputs"
+# # EVAL_TIMESTEPS = 1000
+# # TRUNCATION_RATIO = 1.0
+
+# OUTPUT_DIR = "control_v4/sample_outputs_trunc"
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 1.0
-
-OUTPUT_DIR = "control_v4/sample_outputs_trunc"
-EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.3
+# TRUNCATION_RATIO = 0.3
 
 
 # ── Helper Functions ──────────────────────────────────────────────────────────
@@ -158,6 +158,49 @@ def _save_denoise_step(img_tensor, timestep_i, t_start, out_path):
     plt.tight_layout()
     plt.savefig(out_path, dpi=110, bbox_inches="tight")
     plt.close()
+
+
+def _measure_elapsed_seconds(start_event, end_event, fallback_start, fallback_end):
+    if start_event is not None and end_event is not None:
+        end_event.synchronize()
+        return start_event.elapsed_time(end_event) / 1000.0
+    return fallback_end - fallback_start
+
+
+def _format_timing_dict(timing_dict):
+    if not timing_dict:
+        return ""
+    keys = [
+        "p_mean_variance.model_forward",
+        "p_mean_variance.model_var_extract",
+        "p_mean_variance.model_logvar_build",
+        "p_mean_variance.model_logvar_extract",
+        "p_mean_variance.predict_xstart",
+        "p_mean_variance.posterior",
+        "p_sample.noise",
+        "p_sample.mask_reshape",
+        "p_sample.mask_apply",
+        "p_sample.sample_combine",
+    ]
+    parts = []
+    for key in keys:
+        if key in timing_dict:
+            parts.append(f"{key}={timing_dict[key]:.6f}s")
+    return ", ".join(parts)
+
+
+def _format_step_timing_line(step_index, timestep, step_total_s, sample_s, t_tensor_s, resample_noise_s, show_denoise_s, p_sample_breakdown=None):
+    p_sample_breakdown_text = _format_timing_dict(p_sample_breakdown)
+    p_sample_suffix = f", p_sample_ops=[{p_sample_breakdown_text}]" if p_sample_breakdown_text else ""
+    return (
+        f"step {step_index:04d} (t={timestep:04d}): "
+        f"total={step_total_s:.6f}s, "
+        f"p_sample={sample_s:.6f}s, "
+        f"t_tensor={t_tensor_s:.6f}s, "
+        f"resample_noise={resample_noise_s:.6f}s, "
+        f"show_denoise={show_denoise_s:.6f}s"
+        f"{p_sample_suffix}"
+    )
 
 
 def _save_condition_debug_tensors(
@@ -280,7 +323,7 @@ def process_single_image(
     device="cuda", n_samples=1, show_denoising_interval=50,
     # Exports
     output_dir: Path | None=None,
-    export_conditions=True, export_png=True, export_npy=True, track_time=True, show_denoising=False,
+    export_conditions=True, export_png=True, export_npy=True, track_time=True, profile_trace=False, show_denoising=False,
     conditions_dir=None, png_dir=None, npy_dir=None, timestamps_dir=None, denoising_dir=None,
 ):
     """Runs the inference pipeline for a single image, with exact timing tracking.
@@ -301,6 +344,10 @@ def process_single_image(
     if export_npy: npy_dir.mkdir(parents=True, exist_ok=True)
     if track_time: timestamps_dir.mkdir(parents=True, exist_ok=True)
     if show_denoising: denoising_dir.mkdir(parents=True, exist_ok=True)
+
+    use_cuda_events = torch.cuda.is_available() and str(device).startswith("cuda")
+    denoise_start_event = torch.cuda.Event(enable_timing=True) if use_cuda_events else None
+    denoise_end_event = torch.cuda.Event(enable_timing=True) if use_cuda_events else None
 
     t_total_start = time.perf_counter()
     time_si, time_denoise, time_ot = 0.0, 0.0, 0.0
@@ -367,27 +414,94 @@ def process_single_image(
         steps_npy_dir = denoising_dir / "npy"
         steps_png_dir.mkdir(parents=True, exist_ok=True)
         steps_npy_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    profiler = None
+    if profile_trace:
+        profiler = torch.profiler.profile(
+            activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA,
+            ] if torch.cuda.is_available() and str(device).startswith("cuda") else [torch.profiler.ProfilerActivity.CPU],
+            record_shapes=False,
+            profile_memory=False,
+            with_stack=False,
+        )
+        profiler.__enter__()
+
     t_denoise_start = time.perf_counter()
+    if denoise_start_event is not None:
+        denoise_start_event.record()
+    step_timing_lines = []
+    
     with torch.no_grad() if resample_jumps == 0 else torch.enable_grad():
         for i in tqdm(reversed(range(t_start)), total=t_start, desc=f"Denoising {img_stem}"):
+            step_wall_start = time.perf_counter()
+            t_tensor_start = time.perf_counter()
             t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
+            t_tensor_time = time.perf_counter() - t_tensor_start
+
+            p_sample_time = 0.0
+            resample_noise_time = 0.0
+            p_sample_breakdown = {}
             for u in range(resample_jumps + 1):
+                p_sample_start = time.perf_counter()
                 with torch.no_grad():
-                    img = diffusion.p_sample(img, cond=None, t=t_tensor, clip_denoised=diffusion.sample_clip, with_sampling=True)
+                    img = diffusion.p_sample(
+                        img,
+                        cond=None,
+                        t=t_tensor,
+                        clip_denoised=diffusion.sample_clip,
+                        with_sampling=True,
+                        timing_breakdown=p_sample_breakdown,
+                    )
+                p_sample_time += time.perf_counter() - p_sample_start
                 if u == resample_jumps or i == 0: break
+                resample_noise_start = time.perf_counter()
                 beta_i = diffusion.betas[i]
                 noise = torch.randn_like(img)
                 img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
-            
+                resample_noise_time += time.perf_counter() - resample_noise_start
+
+            show_denoise_time = 0.0
             if show_denoising:
                 elapsed = t_start - 1 - i
                 if elapsed % show_denoising_interval == 0:
+                    show_denoise_start = time.perf_counter()
                     step_png_path = steps_png_dir / f"{img_stem}_step_{elapsed:04d}.png"
                     step_npy_path = steps_npy_dir / f"{img_stem}_step_{elapsed:04d}.npy"
                     _save_denoise_step(img, i, t_start, str(step_png_path))
                     np.save(step_npy_path, img.detach().cpu().numpy())
-    time_denoise = time.perf_counter() - t_denoise_start
+                    show_denoise_time = time.perf_counter() - show_denoise_start
+
+            step_total_time = time.perf_counter() - step_wall_start
+            step_timing_lines.append(
+                _format_step_timing_line(
+                    step_index=t_start - 1 - i,
+                    timestep=i,
+                    step_total_s=step_total_time,
+                    sample_s=p_sample_time,
+                    t_tensor_s=t_tensor_time,
+                    resample_noise_s=resample_noise_time,
+                    show_denoise_s=show_denoise_time,
+                    p_sample_breakdown=p_sample_breakdown,
+                )
+            )
+
+    t_denoise_end = time.perf_counter()
+    if denoise_end_event is not None:
+        denoise_end_event.record()
+    time_denoise = _measure_elapsed_seconds(denoise_start_event, denoise_end_event, t_denoise_start, t_denoise_end)
+
+    if profiler is not None:
+        profiler.__exit__(None, None, None)
+        summary_sort_key = "self_cuda_time_total" if torch.cuda.is_available() else "self_cpu_time_total"
+        summary_path = timestamps_dir / f"{img_stem}_profiler.txt"
+        trace_path = timestamps_dir / f"{img_stem}_trace.json"
+        with open(summary_path, "w", encoding="utf-8") as f:
+            f.write(f"--- Profiler Summary for {img_stem} ---\n")
+            f.write(profiler.key_averages().table(sort_by=summary_sort_key, row_limit=25))
+        profiler.export_chrome_trace(str(trace_path))
+        print(f"Saved profiler trace to {trace_path}")
 
     samples_raw = img.detach().cpu().numpy()
 
@@ -416,6 +530,9 @@ def process_single_image(
             f.write(f"Denoising Time: {time_denoise:.4f} s\n")
             f.write(f"Optimal Transport Time: {time_ot:.4f} s\n")
             f.write(f"Total Inference Time: {time_total:.4f} s\n")
+            f.write("\n--- Denoising Step Timings ---\n")
+            for line in step_timing_lines:
+                f.write(line + "\n")
             
     return time_total
 
@@ -434,6 +551,7 @@ def run_inference_on_directory(
     export_png=True,
     export_npy=True,
     track_time=True,
+    profile_trace=False,  #NOTE: works only if track_time is True, and will add overhead to execution time
     source_path=None,
     target_path=None,
     target_npy_path=None,
@@ -507,7 +625,7 @@ def run_inference_on_directory(
             device=device, n_samples=1,
             # Exports
             output_dir=None,
-            export_conditions=False, export_png=export_png, export_npy=export_npy, track_time=track_time, show_denoising=False,
+            export_conditions=False, export_png=export_png, export_npy=export_npy, track_time=track_time, profile_trace=profile_trace, show_denoising=False,
             conditions_dir=None, png_dir=target_path, npy_dir=target_npy_path, timestamps_dir=timestamps_path, denoising_dir=None
         )
 
@@ -558,6 +676,7 @@ def main():
     parser.add_argument("--export_png", action=argparse.BooleanOptionalAction, default=EXPORT_PNG)
     parser.add_argument("--export_npy", action=argparse.BooleanOptionalAction, default=EXPORT_NPY)
     parser.add_argument("--track_time", action=argparse.BooleanOptionalAction, default=TRACK_TIME, help="Export a _time.txt file tracking stage speeds")
+    parser.add_argument("--profile_trace", action=argparse.BooleanOptionalAction, default=PROFILE_TRACE, help="Export a PyTorch profiler chrome trace alongside the timing files")
     parser.add_argument("--show_denoising", action=argparse.BooleanOptionalAction, default=SHOW_DENOISING, help="Export denoising steps to denoising_steps/png and denoising_steps/npy")
 
     parser.add_argument("--conditions_dir", default=None, help="Directory to save condition tensors (overrides default)")
@@ -601,7 +720,7 @@ def run(args):
         show_denoising_interval=args.show_denoising_interval,
         # Exports
         output_dir=Path(single_output_dir),
-        export_conditions=args.export_conditions, export_png=args.export_png, export_npy=args.export_npy, track_time=args.track_time, show_denoising=args.show_denoising,
+        export_conditions=args.export_conditions, export_png=args.export_png, export_npy=args.export_npy, track_time=args.track_time, profile_trace=args.profile_trace, show_denoising=args.show_denoising,
         conditions_dir=args.conditions_dir, png_dir=args.png_dir, npy_dir=args.npy_dir, timestamps_dir=args.timestamps_dir, denoising_dir=args.denoising_dir,
     )
     print("Done single image processing at:", single_output_dir)
