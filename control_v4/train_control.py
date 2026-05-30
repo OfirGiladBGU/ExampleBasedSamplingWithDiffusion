@@ -898,7 +898,7 @@ def run(args):
 
     # ── load pretrained diffusion model ──────────────────────────────
     diffusion = ParseSampleConfig(args.base_config_path)
-    diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"])
+    diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"], strict=False)
     diffusion.to(device)
     diffusion.eval()
 

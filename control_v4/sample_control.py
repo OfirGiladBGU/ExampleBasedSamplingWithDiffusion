@@ -61,7 +61,8 @@ EXPORT_CONDITIONS = True
 EXPORT_PNG = True
 EXPORT_NPY = True
 TRACK_TIME = True
-PROFILE_TRACE = True  # NOTE: works only if track_time is True, and will add overhead to execution time
+TRACK_TIME_FULL = False
+PROFILE_TRACE = False  # NOTE: works only if track_time is True, and will add overhead to execution time
 SHOW_DENOISING = False
 
 # ----
@@ -167,14 +168,44 @@ def _measure_elapsed_seconds(start_event, end_event, fallback_start, fallback_en
     return fallback_end - fallback_start
 
 
-def _format_timing_dict(timing_dict):
+def _summarize_timing_breakdown(timing_dict):
     if not timing_dict:
+        return {}
+
+    has_cuda_events = any(
+        isinstance(value, list) and value and isinstance(value[0], tuple)
+        for value in timing_dict.values()
+    )
+    if has_cuda_events and torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+    summary = {}
+    for key, value in timing_dict.items():
+        if isinstance(value, list):
+            total_s = 0.0
+            for start_event, end_event in value:
+                total_s += start_event.elapsed_time(end_event) / 1000.0
+            summary[key] = total_s
+        else:
+            summary[key] = float(value)
+    return summary
+
+
+def _format_timing_dict(timing_dict):
+    summary = _summarize_timing_breakdown(timing_dict)
+    if not summary:
         return ""
+
     keys = [
         "p_mean_variance.model_forward",
-        "p_mean_variance.model_var_extract",
-        "p_mean_variance.model_logvar_build",
-        "p_mean_variance.model_logvar_extract",
+        "controlnet_forward",
+        "unet_forward",
+        "unet.down_blocks",
+        "unet.mid_block",
+        "unet.up_blocks",
+        "grid_generation",
+        "hint_encoder",
+        "adaptive_gate_injection",
         "p_mean_variance.predict_xstart",
         "p_mean_variance.posterior",
         "p_sample.noise",
@@ -184,8 +215,13 @@ def _format_timing_dict(timing_dict):
     ]
     parts = []
     for key in keys:
-        if key in timing_dict:
-            parts.append(f"{key}={timing_dict[key]:.6f}s")
+        if key in summary:
+            parts.append(f"{key}={summary[key]:.6f}s")
+
+    for key in sorted(summary.keys()):
+        if key not in keys:
+            parts.append(f"{key}={summary[key]:.6f}s")
+
     return ", ".join(parts)
 
 
@@ -287,8 +323,10 @@ def load_condition(image_path, grid_size, device, sdf_features=True, sdf_truncat
 def load_pipeline(base_config_path, base_ckpt_path, control_ckpt_path, grid_size, enable_gecco, enable_adaptive_gate_injection, smart_init_features, sdf_features, batch_coords_features, device):
     """Loads the U-Net and ControlNet into VRAM once."""
     diffusion = ParseSampleConfig(base_config_path)
-    diffusion.load_state_dict(torch.load(base_ckpt_path, map_location="cpu")["diffu"])
+    diffusion.load_state_dict(torch.load(base_ckpt_path, map_location="cpu")["diffu"], strict=False)
     diffusion.to(device)
+    # NOTE: torch.compile was removed to avoid experimental overheads
+    # Keep the loaded model as-is to preserve stable behavior and memory layout
     denoiser = diffusion.model
     denoiser.eval()
 
@@ -323,7 +361,7 @@ def process_single_image(
     device="cuda", n_samples=1, show_denoising_interval=50,
     # Exports
     output_dir: Path | None=None,
-    export_conditions=True, export_png=True, export_npy=True, track_time=True, profile_trace=False, show_denoising=False,
+    export_conditions=True, export_png=True, export_npy=True, track_time=True, track_time_full=False, profile_trace=False, show_denoising=False,
     conditions_dir=None, png_dir=None, npy_dir=None, timestamps_dir=None, denoising_dir=None,
 ):
     """Runs the inference pipeline for a single image, with exact timing tracking.
@@ -332,6 +370,9 @@ def process_single_image(
     """
     out_dir = output_dir if output_dir else Path("./output")
     img_stem = image_path.stem
+
+    track_time_full = bool(track_time and track_time_full)
+    profile_trace = bool(track_time and profile_trace)
 
     conditions_dir = conditions_dir if conditions_dir else out_dir / CONDITIONS_SUBDIR
     png_dir = png_dir if png_dir else out_dir / PNG_SUBDIR
@@ -345,7 +386,7 @@ def process_single_image(
     if track_time: timestamps_dir.mkdir(parents=True, exist_ok=True)
     if show_denoising: denoising_dir.mkdir(parents=True, exist_ok=True)
 
-    use_cuda_events = torch.cuda.is_available() and str(device).startswith("cuda")
+    use_cuda_events = track_time and torch.cuda.is_available() and str(device).startswith("cuda")
     denoise_start_event = torch.cuda.Event(enable_timing=True) if use_cuda_events else None
     denoise_end_event = torch.cuda.Event(enable_timing=True) if use_cuda_events else None
 
@@ -431,20 +472,22 @@ def process_single_image(
     t_denoise_start = time.perf_counter()
     if denoise_start_event is not None:
         denoise_start_event.record()
-    step_timing_lines = []
+    step_timing_lines = [] if track_time else None
     
     with torch.no_grad() if resample_jumps == 0 else torch.enable_grad():
         for i in tqdm(reversed(range(t_start)), total=t_start, desc=f"Denoising {img_stem}"):
-            step_wall_start = time.perf_counter()
-            t_tensor_start = time.perf_counter()
+            if track_time:
+                step_wall_start = time.perf_counter()
+                t_tensor_start = time.perf_counter()
             t_tensor = torch.full((n_samples,), i, dtype=torch.int64, device=device)
-            t_tensor_time = time.perf_counter() - t_tensor_start
+            t_tensor_time = time.perf_counter() - t_tensor_start if track_time else 0.0
 
             p_sample_time = 0.0
             resample_noise_time = 0.0
-            p_sample_breakdown = {}
+            p_sample_breakdown = {} if track_time_full else None
             for u in range(resample_jumps + 1):
-                p_sample_start = time.perf_counter()
+                if track_time:
+                    p_sample_start = time.perf_counter()
                 with torch.no_grad():
                     img = diffusion.p_sample(
                         img,
@@ -454,13 +497,16 @@ def process_single_image(
                         with_sampling=True,
                         timing_breakdown=p_sample_breakdown,
                     )
-                p_sample_time += time.perf_counter() - p_sample_start
+                if track_time:
+                    p_sample_time += time.perf_counter() - p_sample_start
                 if u == resample_jumps or i == 0: break
-                resample_noise_start = time.perf_counter()
+                if track_time:
+                    resample_noise_start = time.perf_counter()
                 beta_i = diffusion.betas[i]
                 noise = torch.randn_like(img)
                 img = (1.0 - beta_i).sqrt() * img + beta_i.sqrt() * noise
-                resample_noise_time += time.perf_counter() - resample_noise_start
+                if track_time:
+                    resample_noise_time += time.perf_counter() - resample_noise_start
 
             show_denoise_time = 0.0
             if show_denoising:
@@ -473,24 +519,27 @@ def process_single_image(
                     np.save(step_npy_path, img.detach().cpu().numpy())
                     show_denoise_time = time.perf_counter() - show_denoise_start
 
-            step_total_time = time.perf_counter() - step_wall_start
-            step_timing_lines.append(
-                _format_step_timing_line(
-                    step_index=t_start - 1 - i,
-                    timestep=i,
-                    step_total_s=step_total_time,
-                    sample_s=p_sample_time,
-                    t_tensor_s=t_tensor_time,
-                    resample_noise_s=resample_noise_time,
-                    show_denoise_s=show_denoise_time,
-                    p_sample_breakdown=p_sample_breakdown,
+            if track_time:
+                step_total_time = time.perf_counter() - step_wall_start
+                step_timing_lines.append(
+                    _format_step_timing_line(
+                        step_index=t_start - 1 - i,
+                        timestep=i,
+                        step_total_s=step_total_time,
+                        sample_s=p_sample_time,
+                        t_tensor_s=t_tensor_time,
+                        resample_noise_s=resample_noise_time,
+                        show_denoise_s=show_denoise_time,
+                        p_sample_breakdown=p_sample_breakdown,
+                    )
                 )
-            )
 
     t_denoise_end = time.perf_counter()
     if denoise_end_event is not None:
         denoise_end_event.record()
     time_denoise = _measure_elapsed_seconds(denoise_start_event, denoise_end_event, t_denoise_start, t_denoise_end)
+
+    inference_time = time.perf_counter() - t_total_start
 
     if profiler is not None:
         profiler.__exit__(None, None, None)
@@ -528,8 +577,9 @@ def process_single_image(
         with open(timestamps_dir / f"{img_stem}.txt", "w") as f:
             f.write(f"Smart Init Time: {time_si:.4f} s\n")
             f.write(f"Denoising Time: {time_denoise:.4f} s\n")
-            f.write(f"Optimal Transport Time: {time_ot:.4f} s\n")
-            f.write(f"Total Inference Time: {time_total:.4f} s\n")
+            f.write(f"Total Inference Time: {inference_time:.4f} s\n")
+            f.write(f"Optimal Transport & Saving Time: {time_ot:.4f} s\n")
+            f.write(f"Total Execution Time: {time_total:.4f} s\n")
             f.write("\n--- Denoising Step Timings ---\n")
             for line in step_timing_lines:
                 f.write(line + "\n")
@@ -551,6 +601,7 @@ def run_inference_on_directory(
     export_png=True,
     export_npy=True,
     track_time=True,
+    track_time_full=False,
     profile_trace=False,  #NOTE: works only if track_time is True, and will add overhead to execution time
     source_path=None,
     target_path=None,
@@ -625,7 +676,7 @@ def run_inference_on_directory(
             device=device, n_samples=1,
             # Exports
             output_dir=None,
-            export_conditions=False, export_png=export_png, export_npy=export_npy, track_time=track_time, profile_trace=profile_trace, show_denoising=False,
+            export_conditions=False, export_png=export_png, export_npy=export_npy, track_time=track_time, track_time_full=track_time_full, profile_trace=profile_trace, show_denoising=False,
             conditions_dir=None, png_dir=target_path, npy_dir=target_npy_path, timestamps_dir=timestamps_path, denoising_dir=None
         )
 
@@ -676,6 +727,7 @@ def main():
     parser.add_argument("--export_png", action=argparse.BooleanOptionalAction, default=EXPORT_PNG)
     parser.add_argument("--export_npy", action=argparse.BooleanOptionalAction, default=EXPORT_NPY)
     parser.add_argument("--track_time", action=argparse.BooleanOptionalAction, default=TRACK_TIME, help="Export a _time.txt file tracking stage speeds")
+    parser.add_argument("--track_time_full", action=argparse.BooleanOptionalAction, default=TRACK_TIME_FULL, help="Enable deep CUDA-event profiling for subcomponents")
     parser.add_argument("--profile_trace", action=argparse.BooleanOptionalAction, default=PROFILE_TRACE, help="Export a PyTorch profiler chrome trace alongside the timing files")
     parser.add_argument("--show_denoising", action=argparse.BooleanOptionalAction, default=SHOW_DENOISING, help="Export denoising steps to denoising_steps/png and denoising_steps/npy")
 
@@ -720,7 +772,7 @@ def run(args):
         show_denoising_interval=args.show_denoising_interval,
         # Exports
         output_dir=Path(single_output_dir),
-        export_conditions=args.export_conditions, export_png=args.export_png, export_npy=args.export_npy, track_time=args.track_time, profile_trace=args.profile_trace, show_denoising=args.show_denoising,
+        export_conditions=args.export_conditions, export_png=args.export_png, export_npy=args.export_npy, track_time=args.track_time, track_time_full=args.track_time_full, profile_trace=args.profile_trace, show_denoising=args.show_denoising,
         conditions_dir=args.conditions_dir, png_dir=args.png_dir, npy_dir=args.npy_dir, timestamps_dir=args.timestamps_dir, denoising_dir=args.denoising_dir,
     )
     print("Done single image processing at:", single_output_dir)

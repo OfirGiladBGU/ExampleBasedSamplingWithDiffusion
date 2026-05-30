@@ -829,7 +829,7 @@ def main():
     device = torch.device(args.device)
 
     diffusion = ParseSampleConfig(args.config)
-    diffusion.load_state_dict(torch.load(args.base_ckpt, map_location="cpu")["diffu"])
+    diffusion.load_state_dict(torch.load(args.base_ckpt, map_location="cpu")["diffu"], strict=False)
     diffusion.to(device)
     denoiser = diffusion.model
     denoiser.eval()

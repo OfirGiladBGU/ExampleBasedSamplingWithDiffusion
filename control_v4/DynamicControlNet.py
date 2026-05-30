@@ -8,6 +8,7 @@ smart_init_grid(1) + coord_grid(2) = 7 (plus optional GECCO channels).
 """
 
 import copy
+import time
 
 import torch
 import torch.nn as nn
@@ -170,6 +171,18 @@ class DynamicControlNet(nn.Module):
         middle_ch = middle_first_resblock.conv2.net[1].weight.shape[0]
         self.inject_middle = InjectionClass(middle_ch)
 
+    def _time_block(self, timing_breakdown, key, fn, enabled):
+        if timing_breakdown is None or not enabled:
+            return fn()
+
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        start_event.record()
+        result = fn()
+        end_event.record()
+        timing_breakdown.setdefault(key, []).append((start_event, end_event))
+        return result
+
     def forward(
         self,
         offsets_t,
@@ -179,6 +192,7 @@ class DynamicControlNet(nn.Module):
         high_res_sdf=None,
         target_sdf_map=None,
         target_smart_init_map=None,
+        timing_breakdown=None,
     ):
         """Run control encoder and return injection-ready control signals.
 
@@ -198,6 +212,11 @@ class DynamicControlNet(nn.Module):
         tuple (encoder_controls, middle_control)
         """
         B, _, H, W = offsets_t.shape
+        cuda_timing_enabled = (
+            timing_breakdown is not None
+            and torch.cuda.is_available()
+            and offsets_t.is_cuda
+        )
 
         # Keep the original legacy ordering so checkpoints trained before the
         # feature-flag split still receive the same channel semantics.
@@ -212,18 +231,25 @@ class DynamicControlNet(nn.Module):
             hint_parts.append(target_smart_init_map)
         if self.batch_coords_features:
             # Recompute coord_grid for the actual (possibly different) spatial size.
-            lin_y = torch.linspace(-1, 1, H, device=offsets_t.device)
-            lin_x = torch.linspace(-1, 1, W, device=offsets_t.device)
-            gy2d, gx2d = torch.meshgrid(lin_y, lin_x, indexing="ij")
-            coord_grid = torch.stack([gx2d, gy2d], dim=0).unsqueeze(0)  # (1, 2, H, W)
+            coord_grid = self._time_block(
+                timing_breakdown,
+                "grid_generation",
+                lambda: self._build_coord_grid(H, W, offsets_t.device),
+                cuda_timing_enabled,
+            )
             hint_parts.append(coord_grid.expand(B, -1, -1, -1))
 
         if self.enable_gecco:
-            gecco_dynamic = self.compute_gecco_features(offsets_t, high_res_image, high_res_sdf)
+            gecco_dynamic = self.compute_gecco_features(offsets_t, high_res_image, high_res_sdf, timing_breakdown=timing_breakdown)
             hint_parts.append(gecco_dynamic)
 
         hint_input = torch.cat(hint_parts, dim=1)
-        hint = self.input_hint_block(hint_input)  # -> 128ch
+        hint = self._time_block(
+            timing_breakdown,
+            "hint_encoder",
+            lambda: self.input_hint_block(hint_input),
+            cuda_timing_enabled,
+        )  # -> 128ch
 
         # Pass offsets through conv1 first, THEN add the hint
         x = self.ctrl_conv1(offsets_t)
@@ -242,16 +268,34 @@ class DynamicControlNet(nn.Module):
             current_enc = []
             for layer, inj in zip(enc_layer, level_inj):
                 x = layer(x, temb, None)
-                current_enc.append(inj(x))
+                current_enc.append(
+                    self._time_block(
+                        timing_breakdown,
+                        "adaptive_gate_injection",
+                        lambda inj=inj, x=x: inj(x),
+                        cuda_timing_enabled,
+                    )
+                )
             encoder_controls.append(current_enc[::-1])
             x = dns(x, temb, None)
 
         x = self.ctrl_middle(x, temb, None)
-        middle_control = self.inject_middle(x)
+        middle_control = self._time_block(
+            timing_breakdown,
+            "adaptive_gate_injection",
+            lambda: self.inject_middle(x),
+            cuda_timing_enabled,
+        )
 
         return (encoder_controls, middle_control)
 
-    def compute_gecco_features(self, offsets_t, high_res_image, high_res_sdf):
+    def _build_coord_grid(self, H, W, device):
+        lin_y = torch.linspace(-1, 1, H, device=device)
+        lin_x = torch.linspace(-1, 1, W, device=device)
+        gy2d, gx2d = torch.meshgrid(lin_y, lin_x, indexing="ij")
+        return torch.stack([gx2d, gy2d], dim=0).unsqueeze(0)  # (1, 2, H, W)
+
+    def compute_gecco_features(self, offsets_t, high_res_image, high_res_sdf, timing_breakdown=None):
         """Sample SDF-aware high-res GECCO features at current noisy positions."""
         if high_res_image is None:
             raise ValueError("high_res_image is required when enable_gecco=True")
@@ -261,10 +305,17 @@ class DynamicControlNet(nn.Module):
         # Recompute grid_centers for the actual spatial size (supports grid sizes
         # different from the one used at training time).
         _, _, H, W = offsets_t.shape
-        cx = torch.arange(W, dtype=torch.float32, device=offsets_t.device) / W + 0.5 / W
-        cy = torch.arange(H, dtype=torch.float32, device=offsets_t.device) / H + 0.5 / H
-        gx, gy = torch.meshgrid(cx, cy, indexing="xy")
-        grid_centers = torch.stack([gx, gy], dim=0).unsqueeze(0)  # (1, 2, H, W)
+        cuda_timing_enabled = (
+            timing_breakdown is not None
+            and torch.cuda.is_available()
+            and offsets_t.is_cuda
+        )
+        grid_centers = self._time_block(
+            timing_breakdown,
+            "grid_generation",
+            lambda: self._build_grid_centers(H, W, offsets_t.device),
+            cuda_timing_enabled,
+        )
 
         positions = grid_centers + offsets_t / H  # H == W for square grids
         sample_coords = positions.permute(0, 2, 3, 1) * 2.0 - 1.0
@@ -278,6 +329,12 @@ class DynamicControlNet(nn.Module):
             padding_mode="border",
             align_corners=False,
         )
+
+    def _build_grid_centers(self, H, W, device):
+        cx = torch.arange(W, dtype=torch.float32, device=device) / W + 0.5 / W
+        cy = torch.arange(H, dtype=torch.float32, device=device) / H + 0.5 / H
+        gx, gy = torch.meshgrid(cx, cy, indexing="xy")
+        return torch.stack([gx, gy], dim=0).unsqueeze(0)  # (1, 2, H, W)
 
     ### MODEL LOADING ###
 
@@ -368,7 +425,19 @@ class DynamicControlledDenoiser(nn.Module):
         self._target_sdf = target_sdf_map
         self._smart_init_grid = smart_init_grid
 
-    def forward(self, x, t, cond=None):
+    def _time_block(self, timing_breakdown, key, fn, enabled):
+        if timing_breakdown is None or not enabled:
+            return fn()
+
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        start_event.record()
+        result = fn()
+        end_event.record()
+        timing_breakdown.setdefault(key, []).append((start_event, end_event))
+        return result
+
+    def forward(self, x, t, cond=None, timing_breakdown=None):
         assert self._high_res_image is not None, (
             "Call set_condition(high_res_image, high_res_sdf, target_density_map, target_sdf_map, smart_init_grid) first"
         )
@@ -389,13 +458,30 @@ class DynamicControlledDenoiser(nn.Module):
         if smart is not None and smart.shape[0] != x.shape[0]:
             smart = smart.expand(x.shape[0], -1, -1, -1)
 
-        controls = self.control(
-            x,
-            t,
-            hrs,
-            tgt,
-            high_res_sdf=hrs_sdf if self.control.sdf_features else None,
-            target_sdf_map=tgt_sdf if self.control.sdf_features else None,
-            target_smart_init_map=smart if self.control.smart_init_features else None,
+        cuda_timing_enabled = (
+            timing_breakdown is not None
+            and torch.cuda.is_available()
+            and x.is_cuda
         )
-        return self.locked(x, t, cond=cond, controls=controls)
+
+        controls = self._time_block(
+            timing_breakdown,
+            "controlnet_forward",
+            lambda: self.control(
+                x,
+                t,
+                hrs,
+                tgt,
+                high_res_sdf=hrs_sdf if self.control.sdf_features else None,
+                target_sdf_map=tgt_sdf if self.control.sdf_features else None,
+                target_smart_init_map=smart if self.control.smart_init_features else None,
+                timing_breakdown=timing_breakdown,
+            ),
+            cuda_timing_enabled,
+        )
+        return self._time_block(
+            timing_breakdown,
+            "unet_forward",
+            lambda: self.locked(x, t, cond=cond, controls=controls, timing_breakdown=timing_breakdown),
+            cuda_timing_enabled,
+        )

@@ -20,17 +20,21 @@ class DiffusionModel(torch.nn.Module):
         self.register_buffer("trained_betas", torch.tensor(betas, dtype=torch.float32))
         self.set_variances(np.arange(0, betas.shape[0]), True)
 
-    def _sync_if_cuda(self):
-        if torch.cuda.is_available() and str(self.device).startswith("cuda"):
-            torch.cuda.synchronize()
-
     def _time_block(self, timing_breakdown, key, fn):
         if timing_breakdown is None:
             return fn()
-        self._sync_if_cuda()
+
+        if torch.cuda.is_available() and str(self.device).startswith("cuda"):
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
+            result = fn()
+            end_event.record()
+            timing_breakdown.setdefault(key, []).append((start_event, end_event))
+            return result
+
         start = time.perf_counter()
         result = fn()
-        self._sync_if_cuda()
         timing_breakdown[key] = timing_breakdown.get(key, 0.0) + (time.perf_counter() - start)
         return result
 
@@ -143,48 +147,49 @@ class DiffusionModel(torch.nn.Module):
         )
 
     def p_mean_variance(self, x, cond, t, clip_denoised: bool, return_pred_xstart: bool, timing_breakdown=None):
-        def _run():
-            predictions = self._time_block(timing_breakdown, "p_mean_variance.model_forward", lambda: self.model(x, t, cond))
+        predictions = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.model_forward",
+            lambda: self.model(x, t, cond, timing_breakdown=timing_breakdown),
+        )
 
-            model_var = self._time_block(
-                timing_breakdown,
-                "p_mean_variance.model_var_extract",
-                lambda: self.extract(self.betas, t, x.shape) * torch.ones_like(x),
-            )
+        model_var = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.model_var_extract",
+            lambda: self.extract(self.betas, t, x.shape) * torch.ones_like(x),
+        )
 
-            model_logvar = self._time_block(
-                timing_breakdown,
-                "p_mean_variance.model_logvar_build",
-                lambda: torch.log(
-                    torch.cat([
-                        torch.Tensor([self.posterior_variance[1]]).to(self.device),
-                        self.betas[1:]
-                    ])
-                ),
-            )
-            model_logvar = self._time_block(
-                timing_breakdown,
-                "p_mean_variance.model_logvar_extract",
-                lambda: self.extract(model_logvar, t, x.shape) * torch.ones_like(x),
-            )
+        model_logvar = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.model_logvar_build",
+            lambda: torch.log(
+                torch.cat([
+                    torch.Tensor([self.posterior_variance[1]]).to(self.device),
+                    self.betas[1:]
+                ])
+            ),
+        )
+        model_logvar = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.model_logvar_extract",
+            lambda: self.extract(model_logvar, t, x.shape) * torch.ones_like(x),
+        )
 
-            clip = (lambda x_: torch.clip(x_, -1, 1)) if clip_denoised else (lambda x_: x_)
-            pred_xstart = self._time_block(
-                timing_breakdown,
-                "p_mean_variance.predict_xstart",
-                lambda: clip(self.predict_xstart_from_noise(x, t, predictions)),
-            )
-            model_mean, _, _ = self._time_block(
-                timing_breakdown,
-                "p_mean_variance.posterior",
-                lambda: self.q_posterior_mean_variance(pred_xstart, x, t),
-            )
+        clip = (lambda x_: torch.clip(x_, -1, 1)) if clip_denoised else (lambda x_: x_)
+        pred_xstart = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.predict_xstart",
+            lambda: clip(self.predict_xstart_from_noise(x, t, predictions)),
+        )
+        model_mean, _, _ = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.posterior",
+            lambda: self.q_posterior_mean_variance(pred_xstart, x, t),
+        )
 
-            if return_pred_xstart:
-                return model_mean, model_var, model_logvar, pred_xstart
-            return model_mean, model_var, model_logvar
-
-        return _run()
+        if return_pred_xstart:
+            return model_mean, model_var, model_logvar, pred_xstart
+        return model_mean, model_var, model_logvar
     
     # Sampling
     def p_sample(self, x, cond, t, clip_denoised: bool = True, return_pred_xstart: bool = False, with_sampling: bool = True, timing_breakdown=None):

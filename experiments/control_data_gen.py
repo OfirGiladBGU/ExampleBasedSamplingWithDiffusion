@@ -71,6 +71,8 @@ OVERWRITE = True
 EXPORT_PNG = True
 EXPORT_NPY = True
 TRACK_TIME = True
+TRACK_TIME_FULL = False
+PROFILE_TRACE = False
 
 
 def main() -> int:
@@ -113,6 +115,10 @@ def main() -> int:
                         help="Export target stipple coordinates as NPYs to target_npy/ subfolder")
     parser.add_argument("--track_time", action=argparse.BooleanOptionalAction, default=TRACK_TIME,
                         help="Enable time tracking; saves elapsed time per image to timestamps/ subfolder")
+    parser.add_argument("--track_time_full", action=argparse.BooleanOptionalAction, default=TRACK_TIME_FULL,
+                        help="Track full time including data loading and saving (adds overhead); otherwise tracks only inference time")
+    parser.add_argument("--profile_trace", action=argparse.BooleanOptionalAction, default=PROFILE_TRACE,
+                        help="Export a PyTorch profiler chrome trace into the timestamps/ subfolder")
 
     args = parser.parse_args()
 
@@ -179,6 +185,8 @@ def main() -> int:
         export_png=args.export_png,
         export_npy=args.export_npy,
         track_time=args.track_time,
+        track_time_full=args.track_time_full,
+        profile_trace=args.profile_trace,
         source_path=Path(SOURCE_PATH),
         target_path=Path(TARGET_PATH),
         target_npy_path=Path(TARGET_NPY_PATH),

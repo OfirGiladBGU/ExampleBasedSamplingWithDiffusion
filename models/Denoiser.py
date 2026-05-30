@@ -1,5 +1,6 @@
 import torch
 import math
+import time
 
 import torch.nn as nn
 from models.Layers import (
@@ -147,9 +148,21 @@ class DenoiserModel(nn.Module):
 
         # Initial convolution
         self.conv1 = Conv2dSame(num_channels, ch_mult[0])
+
+    def _time_block(self, timing_breakdown, key, fn, enabled):
+        if timing_breakdown is None or not enabled:
+            return fn()
+
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        start_event.record()
+        result = fn()
+        end_event.record()
+        timing_breakdown.setdefault(key, []).append((start_event, end_event))
+        return result
     
         
-    def forward(self, x, t, cond=None, controls=None):
+    def forward(self, x, t, cond=None, controls=None, timing_breakdown=None):
         temb = get_timestep_embedding(t, self.ch * 4)
         temb = self.dense1(temb)
         temb = self.dense2(temb)
@@ -164,17 +177,33 @@ class DenoiserModel(nn.Module):
         x = self.cat_cond(x, cond)
         x = self.conv1(x)
 
-        encoders = []
-        for enc_layer, dns in zip(self.encoder_layers, self.downsamp_layers):
-            current_enc = []
-            for i, layer in enumerate(enc_layer):
-                x = layer(self.cat_cond(x, cond), temb, self.exp_cond(x, cond))
-                current_enc.append(x)
+        cuda_timing_enabled = (
+            timing_breakdown is not None
+            and torch.cuda.is_available()
+            and x.is_cuda
+        )
 
-            encoders.append(current_enc[::-1])
-            x = dns(x, temb, self.exp_cond(x, cond))
-        
-        x = self.middle(x, temb, self.exp_cond(x, cond))
+        def run_down_blocks():
+            nonlocal x
+            encoders = []
+            for enc_layer, dns in zip(self.encoder_layers, self.downsamp_layers):
+                current_enc = []
+                for layer in enc_layer:
+                    x = layer(self.cat_cond(x, cond), temb, self.exp_cond(x, cond))
+                    current_enc.append(x)
+
+                encoders.append(current_enc[::-1])
+                x = dns(x, temb, self.exp_cond(x, cond))
+            return encoders
+
+        encoders = self._time_block(timing_breakdown, "unet.down_blocks", run_down_blocks, cuda_timing_enabled)
+
+        def run_mid_block():
+            nonlocal x
+            x = self.middle(x, temb, self.exp_cond(x, cond))
+            return x
+
+        x = self._time_block(timing_breakdown, "unet.mid_block", run_mid_block, cuda_timing_enabled)
 
         if controls is not None:
             encoder_controls, middle_control = controls
@@ -182,15 +211,20 @@ class DenoiserModel(nn.Module):
             for i in range(len(encoders)):
                 for j in range(len(encoders[i])):
                     encoders[i][j] = encoders[i][j] + encoder_controls[i][j]
-        
-        for layer, ups, tensors in zip(self.decoder_layers, self.upsamp_layers, reversed(encoders)):
-            for sub_layers, enc in zip(layer, tensors):
-                x = self.cat_cond(x, cond)
-                x = sub_layers(torch.cat((x, enc), 1), temb, self.exp_cond(x, cond))
 
-            x = ups(x, temb, self.exp_cond(x, cond))
+        def run_up_blocks():
+            nonlocal x
+            for layer, ups, tensors in zip(self.decoder_layers, self.upsamp_layers, reversed(encoders)):
+                for sub_layers, enc in zip(layer, tensors):
+                    x = self.cat_cond(x, cond)
+                    x = sub_layers(torch.cat((x, enc), 1), temb, self.exp_cond(x, cond))
 
-        x = nonlinearity(self.out_norm(x))
-        x = self.out_conv(x)
+                x = ups(x, temb, self.exp_cond(x, cond))
+
+            x = nonlinearity(self.out_norm(x))
+            x = self.out_conv(x)
+            return x
+
+        x = self._time_block(timing_breakdown, "unet.up_blocks", run_up_blocks, cuda_timing_enabled)
 
         return x
