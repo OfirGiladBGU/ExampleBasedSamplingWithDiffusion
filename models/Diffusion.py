@@ -147,18 +147,14 @@ class DiffusionModel(torch.nn.Module):
         )
 
     def p_mean_variance(self, x, cond, t, clip_denoised: bool, return_pred_xstart: bool, timing_breakdown=None):
+        # B, H, W, C = x.shape
         predictions = self._time_block(
             timing_breakdown,
             "p_mean_variance.model_forward",
             lambda: self.model(x, t, cond, timing_breakdown=timing_breakdown),
         )
-
-        model_var = self._time_block(
-            timing_breakdown,
-            "p_mean_variance.model_var_extract",
-            lambda: self.extract(self.betas, t, x.shape) * torch.ones_like(x),
-        )
-
+        model_mean = predictions
+        model_var = self.betas
         model_logvar = self._time_block(
             timing_breakdown,
             "p_mean_variance.model_logvar_build",
@@ -169,12 +165,19 @@ class DiffusionModel(torch.nn.Module):
                 ])
             ),
         )
+        model_var = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.model_var_extract",
+            lambda: self.extract(model_var, t, x.shape) * torch.ones_like(x)
+        )
         model_logvar = self._time_block(
             timing_breakdown,
             "p_mean_variance.model_logvar_extract",
             lambda: self.extract(model_logvar, t, x.shape) * torch.ones_like(x),
         )
 
+        # Clip only when asked to
+        clip_denoised = False
         clip = (lambda x_: torch.clip(x_, -1, 1)) if clip_denoised else (lambda x_: x_)
         pred_xstart = self._time_block(
             timing_breakdown,
@@ -189,6 +192,7 @@ class DiffusionModel(torch.nn.Module):
 
         if return_pred_xstart:
             return model_mean, model_var, model_logvar, pred_xstart
+        
         return model_mean, model_var, model_logvar
     
     # Sampling

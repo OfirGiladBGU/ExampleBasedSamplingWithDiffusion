@@ -233,7 +233,7 @@ class DynamicControlNet(nn.Module):
             # Recompute coord_grid for the actual (possibly different) spatial size.
             coord_grid = self._time_block(
                 timing_breakdown,
-                "grid_generation",
+                "ctrl.grid_gen",
                 lambda: self._build_coord_grid(H, W, offsets_t.device),
                 cuda_timing_enabled,
             )
@@ -246,18 +246,32 @@ class DynamicControlNet(nn.Module):
         hint_input = torch.cat(hint_parts, dim=1)
         hint = self._time_block(
             timing_breakdown,
-            "hint_encoder",
+            "ctrl.hint_encode",
             lambda: self.input_hint_block(hint_input),
             cuda_timing_enabled,
-        )  # -> 128ch
+        )
 
-        # Pass offsets through conv1 first, THEN add the hint
-        x = self.ctrl_conv1(offsets_t)
+        # Time conv1
+        x = self._time_block(
+            timing_breakdown,
+            "ctrl.conv1",
+            lambda: self.ctrl_conv1(offsets_t),
+            cuda_timing_enabled
+        )
         x = x + hint
 
-        temb = get_timestep_embedding(t, self.ch * 4)
-        temb = self.ctrl_dense1(temb)
-        temb = self.ctrl_dense2(temb)
+        # Time timestep embedding
+        def build_temb():
+            t_emb = get_timestep_embedding(t, self.ch * 4)
+            t_emb = self.ctrl_dense1(t_emb)
+            return self.ctrl_dense2(t_emb)
+        
+        temb = self._time_block(
+            timing_breakdown,
+            "ctrl.temb",
+            build_temb,
+            cuda_timing_enabled
+        )
 
         encoder_controls = []
         for enc_layer, dns, level_inj in zip(
@@ -267,22 +281,42 @@ class DynamicControlNet(nn.Module):
         ):
             current_enc = []
             for layer, inj in zip(enc_layer, level_inj):
-                x = layer(x, temb, None)
+                # Time the block math
+                x = self._time_block(
+                    timing_breakdown,
+                    "ctrl.down_blocks",
+                    lambda layer=layer, x=x: layer(x, temb, None),
+                    cuda_timing_enabled
+                )
+                # Time the injection projection separately
                 current_enc.append(
                     self._time_block(
                         timing_breakdown,
-                        "adaptive_gate_injection",
+                        "ctrl.injections",
                         lambda inj=inj, x=x: inj(x),
                         cuda_timing_enabled,
                     )
                 )
             encoder_controls.append(current_enc[::-1])
-            x = dns(x, temb, None)
+            
+            # Time the downsample
+            x = self._time_block(
+                timing_breakdown,
+                "ctrl.down_blocks",
+                lambda dns=dns, x=x: dns(x, temb, None),
+                cuda_timing_enabled
+            )
 
-        x = self.ctrl_middle(x, temb, None)
+        x = self._time_block(
+            timing_breakdown,
+            "ctrl.mid_block",
+            lambda: self.ctrl_middle(x, temb, None),
+            cuda_timing_enabled
+        )
+        
         middle_control = self._time_block(
             timing_breakdown,
-            "adaptive_gate_injection",
+            "ctrl.injections",
             lambda: self.inject_middle(x),
             cuda_timing_enabled,
         )
@@ -293,7 +327,13 @@ class DynamicControlNet(nn.Module):
         lin_y = torch.linspace(-1, 1, H, device=device)
         lin_x = torch.linspace(-1, 1, W, device=device)
         gy2d, gx2d = torch.meshgrid(lin_y, lin_x, indexing="ij")
-        return torch.stack([gx2d, gy2d], dim=0).unsqueeze(0)  # (1, 2, H, W)
+        return torch.stack([gx2d, gy2d], dim=0).unsqueeze(0)
+    
+    def _build_grid_centers(self, H, W, device):
+        cx = torch.arange(W, dtype=torch.float32, device=device) / W + 0.5 / W
+        cy = torch.arange(H, dtype=torch.float32, device=device) / H + 0.5 / H
+        gx, gy = torch.meshgrid(cx, cy, indexing="xy")
+        return torch.stack([gx, gy], dim=0).unsqueeze(0)
 
     def compute_gecco_features(self, offsets_t, high_res_image, high_res_sdf, timing_breakdown=None):
         """Sample SDF-aware high-res GECCO features at current noisy positions."""
@@ -312,31 +352,34 @@ class DynamicControlNet(nn.Module):
         )
         grid_centers = self._time_block(
             timing_breakdown,
-            "grid_generation",
+            "ctrl.gecco_grid",
             lambda: self._build_grid_centers(H, W, offsets_t.device),
             cuda_timing_enabled,
         )
 
-        positions = grid_centers + offsets_t / H  # H == W for square grids
+        positions = grid_centers + offsets_t / H
         sample_coords = positions.permute(0, 2, 3, 1) * 2.0 - 1.0
 
         gecco_input = high_res_image if not self.sdf_features else torch.cat([high_res_image, high_res_sdf], dim=1)
-        gecco_feats_hr = self.gecco_extractor(gecco_input)
-        return F.grid_sample(
-            gecco_feats_hr,
-            sample_coords,
-            mode="bilinear",
-            padding_mode="border",
-            align_corners=False,
+        gecco_feats_hr = self._time_block(
+            timing_breakdown,
+            "ctrl.gecco_extract",
+            lambda: self.gecco_extractor(gecco_input),
+            cuda_timing_enabled,
         )
-
-    def _build_grid_centers(self, H, W, device):
-        cx = torch.arange(W, dtype=torch.float32, device=device) / W + 0.5 / W
-        cy = torch.arange(H, dtype=torch.float32, device=device) / H + 0.5 / H
-        gx, gy = torch.meshgrid(cx, cy, indexing="xy")
-        return torch.stack([gx, gy], dim=0).unsqueeze(0)  # (1, 2, H, W)
-
-    ### MODEL LOADING ###
+        grid_sampled = self._time_block(
+            timing_breakdown,
+            "ctrl.gecco_sample",
+            lambda: F.grid_sample(
+                gecco_feats_hr,
+                sample_coords,
+                mode="bilinear",
+                padding_mode="border",
+                align_corners=False,
+            ),
+            cuda_timing_enabled,
+        )
+        return grid_sampled
 
     @staticmethod
     def _extract_control_state_dict(ctrl_state):
@@ -468,10 +511,7 @@ class DynamicControlledDenoiser(nn.Module):
             timing_breakdown,
             "controlnet_forward",
             lambda: self.control(
-                x,
-                t,
-                hrs,
-                tgt,
+                x, t, hrs, tgt,
                 high_res_sdf=hrs_sdf if self.control.sdf_features else None,
                 target_sdf_map=tgt_sdf if self.control.sdf_features else None,
                 target_smart_init_map=smart if self.control.smart_init_features else None,

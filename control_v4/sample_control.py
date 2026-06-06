@@ -196,45 +196,43 @@ def _format_timing_dict(timing_dict):
     if not summary:
         return ""
 
-    keys = [
-        "p_mean_variance.model_forward",
-        "controlnet_forward",
-        "unet_forward",
-        "unet.down_blocks",
-        "unet.mid_block",
-        "unet.up_blocks",
-        "grid_generation",
-        "hint_encoder",
-        "adaptive_gate_injection",
-        "p_mean_variance.predict_xstart",
-        "p_mean_variance.posterior",
-        "p_sample.noise",
-        "p_sample.mask_reshape",
-        "p_sample.mask_apply",
-        "p_sample.sample_combine",
-    ]
-    parts = []
-    for key in keys:
-        if key in summary:
-            parts.append(f"{key}={summary[key]:.6f}s")
+    # Categorize keys dynamically
+    unet_keys = {k: v for k, v in summary.items() if k.startswith("unet")}
+    ctrl_keys = {k: v for k, v in summary.items() if k.startswith("ctrl") or k == "controlnet_forward"}
+    diff_keys = {k: v for k, v in summary.items() if k.startswith("p_mean_variance") or k.startswith("p_sample")}
+    other_keys = {k: v for k, v in summary.items() if k not in unet_keys and k not in ctrl_keys and k not in diff_keys and k != "p_mean_variance.model_forward"}
 
-    for key in sorted(summary.keys()):
-        if key not in keys:
-            parts.append(f"{key}={summary[key]:.6f}s")
+    parts = []
+    
+    # 1. Pull out the master total first so it stands alone at the front
+    if "p_mean_variance.model_forward" in diff_keys:
+        parts.append(f"model_forward={diff_keys.pop('p_mean_variance.model_forward'):.6f}s")
+        
+    def fmt_group(name, d):
+        if not d: return ""
+        # Sort alphabetically, but force macro "forward" keys to the front of their group
+        sorted_items = sorted(d.items(), key=lambda x: (not x[0].endswith("forward"), x[0]))
+        inner = ", ".join(f"{k}={v:.6f}s" for k, v in sorted_items)
+        return f"{name}({inner})"
+
+    # 2. Append the wrapped groups
+    if unet_keys: parts.append(fmt_group("Baseline", unet_keys))
+    if ctrl_keys: parts.append(fmt_group("ControlNet", ctrl_keys))
+    if diff_keys: parts.append(fmt_group("DiffusionOps", diff_keys))
+    if other_keys: parts.append(fmt_group("Misc", other_keys))
 
     return ", ".join(parts)
 
 
-def _format_step_timing_line(step_index, timestep, step_total_s, sample_s, t_tensor_s, resample_noise_s, show_denoise_s, p_sample_breakdown=None):
+def _format_step_timing_line(step_index, timestep, step_total_s, sample_s, t_tensor_s, resample_noise_s, p_sample_breakdown=None):
     p_sample_breakdown_text = _format_timing_dict(p_sample_breakdown)
-    p_sample_suffix = f", p_sample_ops=[{p_sample_breakdown_text}]" if p_sample_breakdown_text else ""
+    p_sample_suffix = f"p_sample_ops=[{p_sample_breakdown_text}]" if p_sample_breakdown_text else ""
     return (
         f"step {step_index:04d} (t={timestep:04d}): "
         f"total={step_total_s:.6f}s, "
         f"p_sample={sample_s:.6f}s, "
         f"t_tensor={t_tensor_s:.6f}s, "
         f"resample_noise={resample_noise_s:.6f}s, "
-        f"show_denoise={show_denoise_s:.6f}s"
         f"{p_sample_suffix}"
     )
 
@@ -510,16 +508,13 @@ def process_single_image(
                 if track_time:
                     resample_noise_time += time.perf_counter() - resample_noise_start
 
-            show_denoise_time = 0.0
             if show_denoising:
                 elapsed = t_start - 1 - i
                 if elapsed % show_denoising_interval == 0:
-                    show_denoise_start = time.perf_counter()
                     step_png_path = steps_png_dir / f"{img_stem}_step_{elapsed:04d}.png"
                     step_npy_path = steps_npy_dir / f"{img_stem}_step_{elapsed:04d}.npy"
                     _save_denoise_step(img, i, t_start, str(step_png_path))
                     np.save(step_npy_path, img.detach().cpu().numpy())
-                    show_denoise_time = time.perf_counter() - show_denoise_start
 
             if track_time:
                 step_total_time = time.perf_counter() - step_wall_start
@@ -531,7 +526,6 @@ def process_single_image(
                         sample_s=p_sample_time,
                         t_tensor_s=t_tensor_time,
                         resample_noise_s=resample_noise_time,
-                        show_denoise_s=show_denoise_time,
                         p_sample_breakdown=p_sample_breakdown,
                     )
                 )
