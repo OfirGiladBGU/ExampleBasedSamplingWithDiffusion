@@ -322,9 +322,11 @@ def load_condition(image_path, grid_size, device, sdf_features=True, sdf_truncat
 
 def load_pipeline(base_config_path, base_ckpt_path, control_ckpt_path, grid_size, enable_gecco, enable_adaptive_gate_injection, smart_init_features, sdf_features, batch_coords_features, device):
     """Loads the U-Net and ControlNet into VRAM once."""
-    diffusion = ParseSampleConfig(base_config_path)
+    # ── load pretrained diffusion + build Dynamic ControlNet V4 ──────
+    diffusion = ParseSampleConfig(base_config_path, device=device)
     diffusion.load_state_dict(torch.load(base_ckpt_path, map_location="cpu")["diffu"], strict=False)
     diffusion.to(device)
+
     # NOTE: torch.compile was removed to avoid experimental overheads
     # Keep the loaded model as-is to preserve stable behavior and memory layout
     denoiser = diffusion.model

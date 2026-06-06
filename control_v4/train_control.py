@@ -896,8 +896,8 @@ def run(args):
             print("wandb not installed, logging disabled")
             use_wandb = False
 
-    # ── load pretrained diffusion model ──────────────────────────────
-    diffusion = ParseSampleConfig(args.base_config_path)
+    # ── load pretrained diffusion + build Dynamic ControlNet V4 ──────
+    diffusion = ParseSampleConfig(args.base_config_path, device=device)
     diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"], strict=False)
     diffusion.to(device)
     diffusion.eval()
@@ -905,7 +905,6 @@ def run(args):
     denoiser = diffusion.model
     truncation_cutoff = max(1, int(args.eval_timesteps * args.truncation_ratio))
 
-    # ── build Dynamic ControlNet V4 ──────────────────────────────────
     # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
     control_net = DynamicControlNet(
         denoiser,

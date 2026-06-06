@@ -412,6 +412,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # Paths and I/O
+    parser.add_argument("--base_config_path", default=BASE_CONFIG_PATH)
+    parser.add_argument("--base_ckpt_path", default=BASE_CKPT_PATH)
+    parser.add_argument("--output_dir", default=OUTPUT_DIR)
     parser.add_argument(
         "--export-gt-offset",
         type=bool,
@@ -628,7 +631,7 @@ def main():
     if not os.path.exists(target_path):
         sys.exit(f"Target not found: {target_path}")
 
-    out_dir = os.path.join(OUTPUT_DIR, stem)
+    out_dir = os.path.join(args.output_dir, stem)
     os.makedirs(out_dir, exist_ok=True)
     vis_dir = os.path.join(out_dir, "vis")
     points_dir = os.path.join(out_dir, "points")
@@ -693,9 +696,8 @@ def main():
         }, step=0)
 
     # ── load pretrained diffusion + build Dynamic ControlNet V4 ──────
-    diffusion = ParseSampleConfig(BASE_CONFIG_PATH)
-    diffusion.load_state_dict(
-        torch.load(BASE_CKPT_PATH, map_location="cpu")["diffu"])
+    diffusion = ParseSampleConfig(args.base_config_path, device=device)
+    diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"], strict=False)
     diffusion.to(device)
 
     denoiser = diffusion.model
