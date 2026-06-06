@@ -87,9 +87,11 @@ INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffus
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/original/plant4h_V2.png"
 # GRID_SIZE = 8
 # GRID_SIZE = 16
-# GRID_SIZE = 24
-# GRID_SIZE = 32
-GRID_SIZE = 48
+# GRID_SIZE = 24  # NOTE
+GRID_SIZE = 32  # NOTE
+# GRID_SIZE = 48  # NOTE
+# GRID_SIZE = 96  
+# GRID_SIZE = 112
 OUTPUT_DIR = f"control_v4/sample_outputs_{GRID_SIZE}"
 EVAL_TIMESTEPS = 1000
 TRUNCATION_RATIO = 0.30
@@ -364,10 +366,7 @@ def process_single_image(
     export_conditions=True, export_png=True, export_npy=True, track_time=True, track_time_full=False, profile_trace=False, show_denoising=False,
     conditions_dir=None, png_dir=None, npy_dir=None, timestamps_dir=None, denoising_dir=None,
 ):
-    """Runs the inference pipeline for a single image, with exact timing tracking.
-    
-    For dataset generation (e.g., via run_inference_on_directory).
-    """
+    """Runs the inference pipeline for a single image, with exact timing tracking."""
     out_dir = output_dir if output_dir else Path("./output")
     img_stem = image_path.stem
 
@@ -472,7 +471,9 @@ def process_single_image(
     t_denoise_start = time.perf_counter()
     if denoise_start_event is not None:
         denoise_start_event.record()
+    
     step_timing_lines = [] if track_time else None
+    global_timing_summary = {}  # To accumulate total time for the JSON dump
     
     with torch.no_grad() if resample_jumps == 0 else torch.enable_grad():
         for i in tqdm(reversed(range(t_start)), total=t_start, desc=f"Denoising {img_stem}"):
@@ -529,6 +530,12 @@ def process_single_image(
                         p_sample_breakdown=p_sample_breakdown,
                     )
                 )
+                
+                # Accumulate the micro-layer breakdown for the JSON export
+                if track_time_full and p_sample_breakdown:
+                    step_summary = _summarize_timing_breakdown(p_sample_breakdown)
+                    for k, v in step_summary.items():
+                        global_timing_summary[k] = global_timing_summary.get(k, 0.0) + v
 
     t_denoise_end = time.perf_counter()
     if denoise_end_event is not None:
@@ -579,6 +586,31 @@ def process_single_image(
             f.write("\n--- Denoising Step Timings ---\n")
             for line in step_timing_lines:
                 f.write(line + "\n")
+        
+        # Export the expressive JSON breakdown
+        if track_time_full:
+            # Build the hierarchical structure
+            unet_keys = {k: v for k, v in global_timing_summary.items() if k.startswith("unet")}
+            ctrl_keys = {k: v for k, v in global_timing_summary.items() if k.startswith("ctrl")}
+            diff_keys = {k: v for k, v in global_timing_summary.items() if k.startswith("p_mean_variance") or k.startswith("p_sample")}
+            other_keys = {k: v for k, v in global_timing_summary.items() if k not in unet_keys and k not in ctrl_keys and k not in diff_keys}
+            
+            hierarchical_components = {}
+
+            if unet_keys: hierarchical_components["Baseline"] = unet_keys
+            if ctrl_keys: hierarchical_components["ControlNet"] = ctrl_keys
+            if diff_keys: hierarchical_components["DiffusionOps"] = diff_keys
+            if other_keys: hierarchical_components["Misc"] = other_keys
+
+            json_data = {
+                "image": img_stem,
+                "grid_size": grid_size,
+                "n_steps": t_start,
+                "total_inference_time": inference_time,
+                "components": hierarchical_components
+            }
+            with open(timestamps_dir / f"{img_stem}_full.json", "w") as f:
+                json.dump(json_data, f, indent=4)
             
     return time_total
 

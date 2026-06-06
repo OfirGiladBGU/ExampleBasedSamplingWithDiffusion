@@ -509,7 +509,7 @@ class DynamicControlledDenoiser(nn.Module):
 
         controls = self._time_block(
             timing_breakdown,
-            "controlnet_forward",
+            "ctrl.forward_total",
             lambda: self.control(
                 x, t, hrs, tgt,
                 high_res_sdf=hrs_sdf if self.control.sdf_features else None,
@@ -521,7 +521,7 @@ class DynamicControlledDenoiser(nn.Module):
         )
         return self._time_block(
             timing_breakdown,
-            "unet_forward",
+            "unet.forward_total",
             lambda: self.locked(x, t, cond=cond, controls=controls, timing_breakdown=timing_breakdown),
             cuda_timing_enabled,
         )
