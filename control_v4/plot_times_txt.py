@@ -18,9 +18,9 @@ TXT_FILES = [
 ]
 #sym:DEFAULT_X_AXIS_MODE
 DEFAULT_X_AXIS_MODE = "grid"
-PLOT_NAME = "control_v4/z_runtime_output_plots/cpu_denoising_time_grid.png"
+PLOT_NAME = "control_v4/z_runtime_outputs_plots/cpu_denoising_time_grid.png"
 # DEFAULT_X_AXIS_MODE = "points"
-# PLOT_NAME = "control_v4/z_runtime_output_plots/cpu_denoising_time_points.png"
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/cpu_denoising_time_points.png"
 
 
 # GPU 6000 mode: List of profiler summary txt files
@@ -35,9 +35,9 @@ PLOT_NAME = "control_v4/z_runtime_output_plots/cpu_denoising_time_grid.png"
 #     "control_v4/sample_outputs_112_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
 # ]
 # DEFAULT_X_AXIS_MODE = "grid"
-# PLOT_NAME = "control_v4/z_runtime_output_plots/gpu_6000_profiler_times_grid.png"
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_6000_profiler_times_grid.png"
 # DEFAULT_X_AXIS_MODE = "points"
-# PLOT_NAME = "control_v4/z_runtime_output_plots/gpu_6000_profiler_times_points.png"
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_6000_profiler_times_points.png"
 
 
 # GPU 3090 mode: List of profiler summary txt files
@@ -52,9 +52,9 @@ PLOT_NAME = "control_v4/z_runtime_output_plots/cpu_denoising_time_grid.png"
 #     "control_v4/sample_outputs_112_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
 # ]
 # DEFAULT_X_AXIS_MODE = "grid"
-# PLOT_NAME = "control_v4/z_runtime_output_plots/gpu_3090_profiler_times_grid.png"
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_3090_profiler_times_grid.png"
 # DEFAULT_X_AXIS_MODE = "points"
-# PLOT_NAME = "control_v4/z_runtime_output_plots/gpu_3090_profiler_times_points.png"
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_3090_profiler_times_points.png"
 
 
 # --- 2. Parsing Functions ---

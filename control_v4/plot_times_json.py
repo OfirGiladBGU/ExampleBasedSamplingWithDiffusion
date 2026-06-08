@@ -15,10 +15,10 @@ JSON_FILES = [
 ]
 # Toggle this between "grid" and "points"
 DEFAULT_X_AXIS_MODE = "grid" 
-PLOT_NAME = "control_v4/z_runtime_output_plots/scaling_by_grid.png"  # Output plot filename
+PLOT_NAME = "control_v4/z_runtime_outputs_plots/scaling_by_grid.png"  # Output plot filename
 
 # DEFAULT_X_AXIS_MODE = "points" 
-# PLOT_NAME = "control_v4/z_runtime_output_plots/scaling_by_points.png"  # Output plot filename
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/scaling_by_points.png"  # Output plot filename
 
 def normalize_key(key):
     """Harmonizes variations in key names across different run versions."""
