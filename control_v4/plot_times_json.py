@@ -13,9 +13,12 @@ JSON_FILES = [
     "control_v4/sample_outputs_96/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
     "control_v4/sample_outputs_112/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json"
 ]
-
 # Toggle this between "grid" and "points"
 DEFAULT_X_AXIS_MODE = "grid" 
+PLOT_NAME = "control_v4/z_runtime_output_plots/scaling_by_grid.png"  # Output plot filename
+
+# DEFAULT_X_AXIS_MODE = "points" 
+# PLOT_NAME = "control_v4/z_runtime_output_plots/scaling_by_points.png"  # Output plot filename
 
 def normalize_key(key):
     """Harmonizes variations in key names across different run versions."""
@@ -26,7 +29,7 @@ def normalize_key(key):
         return "unet.forward_total"
     return key
 
-def generate_scaling_plot(json_paths, x_mode="grid"):
+def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
     grid_sizes = []
     labels = []
     
@@ -70,7 +73,6 @@ def generate_scaling_plot(json_paths, x_mode="grid"):
         x = grid_sizes  
         ax.set_xlabel('Grid Size Resolution', fontsize=12, fontweight='bold')
         ax.set_title('Component Scaling by Grid Size', fontsize=15, fontweight='bold')
-        out_name = "control_v4/scaling_by_grid.png"
         rotation = 0
         ha = 'center'
         
@@ -82,7 +84,6 @@ def generate_scaling_plot(json_paths, x_mode="grid"):
         x = [g**2 for g in grid_sizes]  
         ax.set_xlabel('Number of Points (Grid Size × Grid Size)', fontsize=12, fontweight='bold')
         ax.set_title('Component Scaling by Point Count', fontsize=15, fontweight='bold')
-        out_name = "control_v4/scaling_by_points.png"
         rotation = 15  # Angle the text to prevent bounding box collision
         ha = 'right'   # Align to the tick mark
         
@@ -121,8 +122,8 @@ def generate_scaling_plot(json_paths, x_mode="grid"):
     ax.grid(True, which="minor", ls=":", alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(out_name, dpi=300)
-    print(f"Saved plot to {out_name}")
+    plt.savefig(plot_name, dpi=300)
+    print(f"Saved plot to {plot_name}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate component scaling plots from JSON logs.")
@@ -135,4 +136,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     
-    generate_scaling_plot(JSON_FILES, x_mode=args.x_axis)
+    generate_scaling_plot(JSON_FILES, PLOT_NAME, x_mode=args.x_axis)

@@ -63,6 +63,7 @@ EXPORT_NPY = True
 TRACK_TIME = True
 TRACK_TIME_FULL = False
 PROFILE_TRACE = False  # NOTE: works only if track_time is True, and will add overhead to execution time
+PROFILE_TRACE_CHROME = False  # NOTE: works only if profile_trace is True, and will add overhead to execution time
 SHOW_DENOISING = False
 
 # ----
@@ -90,6 +91,8 @@ INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffus
 # GRID_SIZE = 24  # NOTE
 GRID_SIZE = 32  # NOTE
 # GRID_SIZE = 48  # NOTE
+# GRID_SIZE = 64
+# GRID_SIZE = 80
 # GRID_SIZE = 96  
 # GRID_SIZE = 112
 OUTPUT_DIR = f"control_v4/sample_outputs_{GRID_SIZE}"
@@ -363,7 +366,9 @@ def process_single_image(
     device="cuda", n_samples=1, show_denoising_interval=50,
     # Exports
     output_dir: Path | None=None,
-    export_conditions=True, export_png=True, export_npy=True, track_time=True, track_time_full=False, profile_trace=False, show_denoising=False,
+    export_conditions=True, export_png=True, export_npy=True, 
+    track_time=True, track_time_full=False, profile_trace=False, profile_trace_chrome=False, 
+    show_denoising=False,
     conditions_dir=None, png_dir=None, npy_dir=None, timestamps_dir=None, denoising_dir=None,
 ):
     """Runs the inference pipeline for a single image, with exact timing tracking."""
@@ -372,6 +377,7 @@ def process_single_image(
 
     track_time_full = bool(track_time and track_time_full)
     profile_trace = bool(track_time and profile_trace)
+    profile_trace_chrome = bool(track_time and profile_trace_chrome)
 
     conditions_dir = conditions_dir if conditions_dir else out_dir / CONDITIONS_SUBDIR
     png_dir = png_dir if png_dir else out_dir / PNG_SUBDIR
@@ -547,13 +553,16 @@ def process_single_image(
     if profiler is not None:
         profiler.__exit__(None, None, None)
         summary_sort_key = "self_cuda_time_total" if torch.cuda.is_available() else "self_cpu_time_total"
-        summary_path = timestamps_dir / f"{img_stem}_profiler.txt"
-        trace_path = timestamps_dir / f"{img_stem}_trace.json"
+        summary_path = timestamps_dir / f"{img_stem}_profiler_summary.txt"
         with open(summary_path, "w", encoding="utf-8") as f:
             f.write(f"--- Profiler Summary for {img_stem} ---\n")
             f.write(profiler.key_averages().table(sort_by=summary_sort_key, row_limit=25))
-        profiler.export_chrome_trace(str(trace_path))
-        print(f"Saved profiler trace to {trace_path}")
+        print(f"Saved profiler summary to {summary_path}")
+
+        if profile_trace_chrome:
+            trace_path = timestamps_dir / f"{img_stem}_profiler_trace.json"
+            profiler.export_chrome_trace(str(trace_path))
+            print(f"Saved profiler chrome trace to {trace_path}")
 
     samples_raw = img.detach().cpu().numpy()
 
@@ -629,8 +638,6 @@ def run_inference_on_directory(
     export_png=True,
     export_npy=True,
     track_time=True,
-    track_time_full=False,
-    profile_trace=False,  #NOTE: works only if track_time is True, and will add overhead to execution time
     source_path=None,
     target_path=None,
     target_npy_path=None,
@@ -704,7 +711,9 @@ def run_inference_on_directory(
             device=device, n_samples=1,
             # Exports
             output_dir=None,
-            export_conditions=False, export_png=export_png, export_npy=export_npy, track_time=track_time, track_time_full=track_time_full, profile_trace=profile_trace, show_denoising=False,
+            export_conditions=False, export_png=export_png, export_npy=export_npy, 
+            track_time=track_time, track_time_full=False, profile_trace=False, profile_trace_chrome=False, 
+            show_denoising=False,
             conditions_dir=None, png_dir=target_path, npy_dir=target_npy_path, timestamps_dir=timestamps_path, denoising_dir=None
         )
 
@@ -757,6 +766,7 @@ def main():
     parser.add_argument("--track_time", action=argparse.BooleanOptionalAction, default=TRACK_TIME, help="Export a _time.txt file tracking stage speeds")
     parser.add_argument("--track_time_full", action=argparse.BooleanOptionalAction, default=TRACK_TIME_FULL, help="Enable deep CUDA-event profiling for subcomponents")
     parser.add_argument("--profile_trace", action=argparse.BooleanOptionalAction, default=PROFILE_TRACE, help="Export a PyTorch profiler chrome trace alongside the timing files")
+    parser.add_argument("--profile_trace_chrome", action=argparse.BooleanOptionalAction, default=PROFILE_TRACE_CHROME, help="Export PyTorch profiler trace in Chrome format (requires --profile_trace)")
     parser.add_argument("--show_denoising", action=argparse.BooleanOptionalAction, default=SHOW_DENOISING, help="Export denoising steps to denoising_steps/png and denoising_steps/npy")
 
     parser.add_argument("--conditions_dir", default=None, help="Directory to save condition tensors (overrides default)")
@@ -800,7 +810,8 @@ def run(args):
         show_denoising_interval=args.show_denoising_interval,
         # Exports
         output_dir=Path(single_output_dir),
-        export_conditions=args.export_conditions, export_png=args.export_png, export_npy=args.export_npy, track_time=args.track_time, track_time_full=args.track_time_full, profile_trace=args.profile_trace, show_denoising=args.show_denoising,
+        export_conditions=args.export_conditions, export_png=args.export_png, export_npy=args.export_npy, track_time=args.track_time, track_time_full=args.track_time_full, profile_trace=args.profile_trace, profile_trace_chrome=args.profile_trace_chrome, 
+        show_denoising=args.show_denoising,
         conditions_dir=args.conditions_dir, png_dir=args.png_dir, npy_dir=args.npy_dir, timestamps_dir=args.timestamps_dir, denoising_dir=args.denoising_dir,
     )
     print("Done single image processing at:", single_output_dir)
