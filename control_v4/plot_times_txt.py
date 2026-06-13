@@ -3,10 +3,15 @@ import argparse
 import matplotlib.pyplot as plt
 from pathlib import Path
 
+
+# Toggle this between "grid" and "points"
+DEFAULT_X_AXIS_MODE = "grid" 
+
 # --- 1. Configuration ---
 
 # CPU mode: List of timing txt files
 DEVICE_MODE = "CPU"  # Set to "CPU" or "GPU"
+SOURCE_TXT_LIST = None
 TXT_FILES = [
     "control_v4/sample_outputs_16_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
     "control_v4/sample_outputs_32_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
@@ -16,7 +21,6 @@ TXT_FILES = [
     "control_v4/sample_outputs_96_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
     "control_v4/sample_outputs_112_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
 ]
-#sym:DEFAULT_X_AXIS_MODE
 DEFAULT_X_AXIS_MODE = "grid"
 PLOT_NAME = "control_v4/z_runtime_outputs_plots/cpu_denoising_time_grid.png"
 # DEFAULT_X_AXIS_MODE = "points"
@@ -25,6 +29,15 @@ PLOT_NAME = "control_v4/z_runtime_outputs_plots/cpu_denoising_time_grid.png"
 
 # GPU 6000 mode: List of profiler summary txt files
 # DEVICE_MODE = "GPU"  # Set to "CPU" or "GPU"
+# SOURCE_TXT_LIST = [
+#     "control_v4/sample_outputs_16_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_32_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_48_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_64_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_80_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_96_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_112_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+# ]
 # TXT_FILES = [
 #     "control_v4/sample_outputs_16_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
 #     "control_v4/sample_outputs_32_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
@@ -42,6 +55,15 @@ PLOT_NAME = "control_v4/z_runtime_outputs_plots/cpu_denoising_time_grid.png"
 
 # GPU 3090 mode: List of profiler summary txt files
 # DEVICE_MODE = "GPU"  # Set to "CPU" or "GPU"
+# SOURCE_TXT_LIST = [
+#     "control_v4/sample_outputs_16_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_32_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_48_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_64_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_80_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_96_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "control_v4/sample_outputs_112_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+# ]
 # TXT_FILES = [
 #     "control_v4/sample_outputs_16_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
 #     "control_v4/sample_outputs_32_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
@@ -97,6 +119,25 @@ def parse_gpu_profiler(txt_path):
             raise ValueError(f"Could not find 'Self CUDA time total' in {txt_path}")
 
         return float(cpu_match.group(1)), float(cuda_match.group(1))
+    except Exception as e:
+        raise RuntimeError(f"Error reading {txt_path}: {e}")
+
+
+def parse_wall_time(txt_path):
+    """Extract Total Inference Time from timing txt file."""
+    txt_path = Path(txt_path)
+    if not txt_path.exists():
+        raise FileNotFoundError(f"File not found: {txt_path}")
+
+    try:
+        with open(txt_path, 'r') as f:
+            content = f.read()
+
+        match = re.search(r"Total Inference Time:\s*([\d.]+)\s*s", content)
+        if match:
+            return float(match.group(1))
+        else:
+            raise ValueError(f"Could not find 'Total Inference Time' in {txt_path}")
     except Exception as e:
         raise RuntimeError(f"Error reading {txt_path}: {e}")
 
@@ -173,14 +214,15 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
     print(f"Saved plot to {plot_name}")
 
 
-def generate_gpu_plot(txt_paths, plot_name, x_mode="grid"):
+def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"):
     """Generate plot for GPU mode."""
     grid_sizes = []
     labels = []
     cpu_times = []
     cuda_times = []
+    wall_times = []
 
-    for path in txt_paths:
+    for i, path in enumerate(txt_paths):
         grid_size = extract_grid_size(path)
         if grid_size is None:
             continue
@@ -190,6 +232,11 @@ def generate_gpu_plot(txt_paths, plot_name, x_mode="grid"):
         labels.append(f"{grid_size}x{grid_size}\n({grid_size**2} pts)")
         cpu_times.append(cpu_time)
         cuda_times.append(cuda_time)
+
+        # Read wall time if source_txt_paths provided
+        if source_txt_paths and i < len(source_txt_paths):
+            wall_time = parse_wall_time(source_txt_paths[i])
+            wall_times.append(wall_time)
 
     if not grid_sizes:
         print("Error: No valid data found for GPU mode")
@@ -226,6 +273,11 @@ def generate_gpu_plot(txt_paths, plot_name, x_mode="grid"):
             linestyle='-', alpha=1.0, label='CPU Time', color='#1f77b4')
     ax.plot(x, cuda_times, marker='s', markersize=8, linewidth=3,
             linestyle='-', alpha=1.0, label='CUDA Time', color='#ff7f0e')
+
+    # Plot wall time if available
+    if wall_times and len(wall_times) == len(grid_sizes):
+        ax.plot(x, wall_times, marker='^', markersize=8, linewidth=3,
+                linestyle='-', alpha=1.0, label='Wall Time', color='#2ca02c')
 
     # Formatting
     ax.set_xticks(x)
@@ -264,4 +316,4 @@ if __name__ == "__main__":
         generate_cpu_plot(TXT_FILES, PLOT_NAME, x_mode=args.x_axis)
     elif args.mode == "GPU":
         print(f"Generating GPU plots (x_axis={args.x_axis})...")
-        generate_gpu_plot(TXT_FILES, PLOT_NAME, x_mode=args.x_axis)
+        generate_gpu_plot(TXT_FILES, PLOT_NAME, source_txt_paths=SOURCE_TXT_LIST, x_mode=args.x_axis)

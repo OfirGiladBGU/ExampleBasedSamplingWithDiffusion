@@ -29,6 +29,7 @@ from control_v4.smart_init import (
     add_noise_at_t,
     generate_smart_init_points_from_density,
     smart_init_points_to_offsets,
+    render_smart_init_grid
 )
 from data.Transforms import to_pointset_optimal_transport
 from utils.Config import ParseSampleConfig
@@ -410,7 +411,6 @@ def process_single_image(
     smart_init_offsets = torch.from_numpy(smart_offsets_np).unsqueeze(0).to(device)
 
     if smart_init_features:
-        from control_v4.smart_init import render_smart_init_grid
         smart_grid_np = render_smart_init_grid(smart_points, grid_size=grid_size)
         smart_init_grid_raw = torch.from_numpy(smart_grid_np).unsqueeze(0).to(device)
         if enable_smart_init_splat_sigma:

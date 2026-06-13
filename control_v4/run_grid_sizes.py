@@ -16,15 +16,34 @@ SCRIPT_PATH = Path(__file__).parent / "sample_control.py"
 
 
 # CPU tracking
-# ADDITIONAL_ARGS = [
-#     "--device", "cpu",
-#     "--track_time",
-#     "--no-track_time_full",
-#     "--no-profile_trace",
-# ]
-# OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_cpu"
+ADDITIONAL_ARGS = [
+    "--device", "cpu",
+    "--track_time",
+    "--no-track_time_full",
+    "--no-profile_trace",
+]
+OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_cpu"
 
-# # GPU 6000 tracking
+
+# # GPU 6000 tracking (no profiler trace)
+# ADDITIONAL_ARGS = [
+#     "--device", "cuda",
+#     "--track_time",
+#     "--track_time_full",
+# ]
+# OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_gpu_6000_reg"
+
+
+# # GPU 3090 tracking (no profiler trace)
+# ADDITIONAL_ARGS = [
+#     "--device", "cuda",
+#     "--track_time",
+#     "--track_time_full",
+# ]
+# OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_gpu_3090_reg"
+
+
+# # GPU 6000 tracking (with profiler trace)
 # ADDITIONAL_ARGS = [
 #     "--device", "cuda",
 #     "--track_time",
@@ -33,14 +52,15 @@ SCRIPT_PATH = Path(__file__).parent / "sample_control.py"
 # ]
 # OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_gpu_6000"
 
-# GPU 3090 tracking
-ADDITIONAL_ARGS = [
-    "--device", "cuda",
-    "--track_time",
-    "--track_time_full",
-    "--profile_trace",
-]
-OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_gpu_3090"
+
+# # GPU 3090 tracking (with profiler trace)
+# ADDITIONAL_ARGS = [
+#     "--device", "cuda",
+#     "--track_time",
+#     "--track_time_full",
+#     "--profile_trace",
+# ]
+# OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_gpu_3090"
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────

@@ -3,22 +3,75 @@ import argparse
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-# --- 1. Define your JSON files here (Ensure order matches: 16 -> 32 -> 48 -> 64 -> 80 -> 96 -> 112) ---
-JSON_FILES = [
-    "control_v4/sample_outputs_16/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
-    "control_v4/sample_outputs_32/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
-    "control_v4/sample_outputs_48/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
-    "control_v4/sample_outputs_64/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
-    "control_v4/sample_outputs_80/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
-    "control_v4/sample_outputs_96/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
-    "control_v4/sample_outputs_112/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json"
-]
+
 # Toggle this between "grid" and "points"
 DEFAULT_X_AXIS_MODE = "grid" 
-PLOT_NAME = "control_v4/z_runtime_outputs_plots/scaling_by_grid.png"  # Output plot filename
 
+# --- 1. Define your JSON files here (Ensure order matches: 16 -> 32 -> 48 -> 64 -> 80 -> 96 -> 112) ---
+
+# GPU 6000 mode (no profiler trace)
+JSON_FILES = [
+    "control_v4/sample_outputs_16_gpu_6000_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+    "control_v4/sample_outputs_32_gpu_6000_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+    "control_v4/sample_outputs_48_gpu_6000_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+    "control_v4/sample_outputs_64_gpu_6000_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+    "control_v4/sample_outputs_80_gpu_6000_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+    "control_v4/sample_outputs_96_gpu_6000_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+    "control_v4/sample_outputs_112_gpu_6000_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json"
+]
+DEFAULT_X_AXIS_MODE = "grid" 
+PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_6000_reg_scaling_by_grid.png"  # Output plot filename
 # DEFAULT_X_AXIS_MODE = "points" 
-# PLOT_NAME = "control_v4/z_runtime_outputs_plots/scaling_by_points.png"  # Output plot filename
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_6000_reg_scaling_by_points.png"  # Output plot filename
+
+
+# GPU 3090 mode (no profiler trace)
+# JSON_FILES = [
+#     "control_v4/sample_outputs_16_gpu_3090_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_32_gpu_3090_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_48_gpu_3090_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_64_gpu_3090_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_80_gpu_3090_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_96_gpu_3090_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_112_gpu_3090_reg/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json"
+# ]
+# DEFAULT_X_AXIS_MODE = "grid" 
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_3090_reg_scaling_by_grid.png"  # Output plot filename
+# DEFAULT_X_AXIS_MODE = "points" 
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_3090_reg_scaling_by_points.png"  # Output plot filename
+
+
+# GPU 6000 mode (with profiler trace)
+# JSON_FILES = [
+#     "control_v4/sample_outputs_16_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_32_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_48_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_64_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_80_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_96_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_112_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json"
+# ]
+# DEFAULT_X_AXIS_MODE = "grid" 
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_6000_scaling_by_grid.png"  # Output plot filename
+# DEFAULT_X_AXIS_MODE = "points" 
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_6000_scaling_by_points.png"  # Output plot filename
+
+
+# GPU 3090 mode (with profiler trace)
+# JSON_FILES = [
+#     "control_v4/sample_outputs_16_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_32_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_48_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_64_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_80_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_96_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json",
+#     "control_v4/sample_outputs_112_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_full.json"
+# ]
+# DEFAULT_X_AXIS_MODE = "grid" 
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_3090_scaling_by_grid.png"  # Output plot filename
+# DEFAULT_X_AXIS_MODE = "points" 
+# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_3090_scaling_by_points.png"  # Output plot filename
+
 
 def normalize_key(key):
     """Harmonizes variations in key names across different run versions."""
