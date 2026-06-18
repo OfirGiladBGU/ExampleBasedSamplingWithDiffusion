@@ -23,7 +23,6 @@ from control_v4.conditioning import build_condition_tensors_from_image
 from control_v4.smart_init import (
     add_noise_at_t,
     generate_smart_init_points_from_density,
-    render_smart_init_grid,
     smart_init_points_to_offsets,
 )
 from data.Transforms import to_pointset_optimal_transport
@@ -40,8 +39,8 @@ BASELINE_CKPT_PATH = "config_trained/GBN_stress1/model.ckpt"
 # Control V4 configuration
 CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data_stress1_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-
+# CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data_stress1_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
 # Stress 2 - SKIP:
 # DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2"
@@ -64,8 +63,8 @@ CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data
 # # Control V4 configuration
 # CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-# CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data_stress2_V2_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-
+# # CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data_stress2_V2_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2_V2_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
 # Common settings
 DEVICE = "cuda"
@@ -82,9 +81,9 @@ ENABLE_ADAPTIVE_GATE_INJECTION = True
 EVAL_TIMESTEPS = 1000
 TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 2
-SMART_INIT_FEATURES = True    # NOTE
-SDF_FEATURES = True           # NOTE
-BATCH_COORDS_FEATURES = True  # NOTE
+SMART_INIT_FEATURES = False    # NOTE
+SDF_FEATURES = False           # NOTE
+BATCH_COORDS_FEATURES = False  # NOTE
 # ENABLE_SMART_INIT_JITTER = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 

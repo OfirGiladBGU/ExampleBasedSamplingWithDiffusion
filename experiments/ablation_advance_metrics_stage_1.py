@@ -125,7 +125,7 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e40_b50"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e400_b50_1024"
 
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
@@ -137,8 +137,8 @@ VAL_SPLIT = 0.1
 # NUM_SAMPLES = -1  # Use all validation samples by default
 NUM_SAMPLES = 50
 # NUM_EPOCHS = -1  # Use all checkpoints by default
-NUM_EPOCHS = 40
-
+NUM_EPOCHS = 400
+# NOTE: 40 is epoch 1K
 
 def parse_args():
     p = argparse.ArgumentParser(description="Export ablation predictions to .npy per epoch")

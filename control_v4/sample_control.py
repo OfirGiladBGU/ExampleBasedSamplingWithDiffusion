@@ -638,6 +638,8 @@ def run_inference_on_directory(
     export_png=True,
     export_npy=True,
     track_time=True,
+    track_time_full=False,
+    profile_trace=False,
     source_path=None,
     target_path=None,
     target_npy_path=None,
@@ -712,7 +714,7 @@ def run_inference_on_directory(
             # Exports
             output_dir=None,
             export_conditions=False, export_png=export_png, export_npy=export_npy, 
-            track_time=track_time, track_time_full=False, profile_trace=False, profile_trace_chrome=False, 
+            track_time=track_time, track_time_full=track_time_full, profile_trace=profile_trace, profile_trace_chrome=False, 
             show_denoising=False,
             conditions_dir=None, png_dir=target_path, npy_dir=target_npy_path, timestamps_dir=timestamps_path, denoising_dir=None
         )

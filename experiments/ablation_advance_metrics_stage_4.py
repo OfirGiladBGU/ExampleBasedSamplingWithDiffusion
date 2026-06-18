@@ -44,7 +44,7 @@ RESULT_DIR_LIST = [
 
 # Default folders
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e40_b50"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e400_b50_1024"
 
 # Default metrics file name
 METRICS_FILE = "metrics_avg.json"
