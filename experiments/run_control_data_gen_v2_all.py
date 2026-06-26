@@ -50,7 +50,21 @@ TRACK_TIME_FULL = False  # NOTE
 TRACK_PROFILE_TRACE = False  # NOTE
 
 # ICONS - TIMES - V2  (interpreted as grid_size^2 internally)
-GRID_SIZES = [16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112]
+GRID_SIZES = [
+    16,   # 256 
+    24,   # 576
+    32,   # 1024
+    40,   # 1600
+    48,   # 2304
+    56,   # 3136
+    64,   # 4096
+    72,   # 5184
+    80,   # 6400
+    88,   # 7744
+    96,   # 9216
+    104,  # 10816
+    112   # 12544
+]
 
 # Subfolders produced by each run that should be renamed after completion
 OUTPUT_SUBDIRS = ["target", "target_npy", "timestamps"]
