@@ -30,7 +30,7 @@ RESULTS_DIR_LIST = [
     r"experiments/outputs/quantitative_advance_metrics/target_CN_1024_json",
 ]
 
-RESULTS_SUMMERY_FILE = "avg_metrics.json"
+RESULTS_SUMMERY_FILE = "metrics_avg.json"
 OUTPUT_DIR = "experiments/outputs/quantitative_advance_metrics"
 
 NUM_SAMPLES = -1

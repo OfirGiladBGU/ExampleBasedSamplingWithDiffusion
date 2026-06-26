@@ -37,7 +37,7 @@ import matplotlib.image as mpimg
 IMAGE_PATHS = [
     # ---- row 1: monkey ----
     [
-        {"Target": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"},
+        {"Target": "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source/Icons-50/monkey/emoji-one_4_monkey.png"},
         {"256":    "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_16/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"},
         {"576":    "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_24/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"},
         {"1024":   "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_32/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"},

@@ -84,7 +84,7 @@ CONTROL_CKPT_PATH = "control_v4/train_outputs_icons50_512_no_random/checkpoints/
 # TRUNCATION_RATIO = 0.30
 
 # Sizes Compare
-INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
+INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source/Icons-50/monkey/emoji-one_4_monkey.png"
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/original/stress_test_density.png"
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/original/plant4h_V2.png"
 # GRID_SIZE = 8
