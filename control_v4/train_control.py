@@ -126,15 +126,15 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # GRID_SIZE = 32
 # VAL_SPLIT = 0.0
 # EPOCHS = 10000
-# SAVE_EVERY = 10
+# SAVE_EVERY = 50
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 0.30
 # RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = True    # NOTE
-# SDF_FEATURES = True           # NOTE
-# BATCH_COORDS_FEATURES = True  # NOTE
+# SMART_INIT_FEATURES = False    # NOTE
+# SDF_FEATURES = False           # NOTE
+# BATCH_COORDS_FEATURES = False  # NOTE
 # ENABLE_SMART_INIT_JITTER = False
 # ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
@@ -148,15 +148,15 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # GRID_SIZE = 32
 # VAL_SPLIT = 0.0
 # EPOCHS = 10000
-# SAVE_EVERY = 10
+# SAVE_EVERY = 50
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 0.30
 # RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = True    # NOTE
-# SDF_FEATURES = True           # NOTE
-# BATCH_COORDS_FEATURES = True  # NOTE
+# SMART_INIT_FEATURES = False    # NOTE
+# SDF_FEATURES = False           # NOTE
+# BATCH_COORDS_FEATURES = False  # NOTE
 # ENABLE_SMART_INIT_JITTER = False
 # ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
@@ -896,16 +896,15 @@ def run(args):
             print("wandb not installed, logging disabled")
             use_wandb = False
 
-    # ── load pretrained diffusion model ──────────────────────────────
-    diffusion = ParseSampleConfig(args.base_config_path)
-    diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"])
+    # ── load pretrained diffusion + build Dynamic ControlNet V4 ──────
+    diffusion = ParseSampleConfig(args.base_config_path, device=device)
+    diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"], strict=False)
     diffusion.to(device)
     diffusion.eval()
 
     denoiser = diffusion.model
     truncation_cutoff = max(1, int(args.eval_timesteps * args.truncation_ratio))
 
-    # ── build Dynamic ControlNet V4 ──────────────────────────────────
     # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
     control_net = DynamicControlNet(
         denoiser,

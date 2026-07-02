@@ -55,6 +55,15 @@ def _format_advanced_text(metrics):
     )
 
 
+def _polygon_area(vertices):
+    """Shoelace area of a polygon given as an (M, 2) array of (x, y) vertices."""
+    v = np.asarray(vertices, dtype=np.float64)
+    if v.shape[0] < 3:
+        return 0.0
+    x, y = v[:, 0], v[:, 1]
+    return 0.5 * abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+
+
 def _polygon_sample_points(vertices_clip, image_shape, mc_approx=True, rng=None):
     """Return points and pixel indices inside a polygon.
 
@@ -132,6 +141,19 @@ def _render_advanced_metrics_row(axes_row, points_list, labels, image_01, metric
 
 # ── Advanced Metrics M1-M5 ──────────────────────────────────────────
 
+def _to_density(image_01):
+    """Convert a raw grayscale image (white=1, dark=0) into a target density
+    rho(x) where dark regions carry HIGH mass (more stipples).
+
+    All numeric metric functions weight by rho, so this single inversion keeps
+    them consistent with the target density used by the visual functions
+    (which compute ``1.0 - image_01`` inline). Returns float64 in [0, 1].
+    """
+    rho = 1.0 - np.asarray(image_01, dtype=np.float64)
+    # Guard against tiny negative values from float round-off.
+    return np.clip(rho, 0.0, 1.0)
+
+
 def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
     try:
         from scipy.spatial import Voronoi
@@ -141,65 +163,84 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
         if rng is None:
             rng = np.random.default_rng(42)
 
+        zero = {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
+
         N = len(points)
         if N < 3:
-            return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
+            return dict(zero)
+
+        rho = _to_density(image_01)
 
         pts_clip = np.clip(points, 1e-6, 1 - 1e-6)
         try:
             vor = Voronoi(pts_clip)
         except Exception:
-            return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
+            return dict(zero)
 
-        masses = np.zeros(N)
-        H_img, W_img = image_01.shape
+        # Clip every Voronoi cell (including unbounded boundary cells) to the
+        # unit square so the cells form a true partition of Omega. This is
+        # required for the c* = mean(c(s_i)) identity in the document to hold.
+        clipped_regions = _voronoi_regions_clipped(vor, bbox=(0.0, 1.0, 0.0, 1.0))
 
-        for region_idx, point_idx in enumerate(vor.point_region):
+        H_img, W_img = rho.shape
+        capacities = np.full(N, np.nan)
+
+        for pt_idx, (poly, _is_finite) in enumerate(clipped_regions):
             try:
-                region = vor.regions[point_idx]
-                if len(region) < 3 or -1 in region:
-                    masses[region_idx] = 0.0
+                if poly.shape[0] < 3:
                     continue
-                vertices = vor.vertices[region]
-                vertices_clip = np.clip(vertices, 0, 1)
-                sample = _polygon_sample_points(vertices_clip, (H_img, W_img), mc_approx=mc_approx, rng=rng)
+                sample = _polygon_sample_points(poly, (H_img, W_img), mc_approx=mc_approx, rng=rng)
                 if sample is None:
-                    masses[region_idx] = 0.0
                     continue
                 _, px, py = sample
-                masses[region_idx] = float(image_01[py, px].sum())
+                # capacity c(s_i) = integral of rho over the cell.
+                # mean(rho over cell) * cell_area is an unbiased MC estimate of
+                # that integral; using the mean (not sum) makes capacity
+                # independent of how many sample pixels happen to fall in the cell.
+                mean_rho = float(rho[py, px].mean())
+                area = _polygon_area(poly)
+                capacities[pt_idx] = mean_rho * area
             except Exception:
-                masses[region_idx] = 0.0
+                continue
 
-        masses = np.maximum(masses, 0.0)
-        if masses.sum() < 1e-8:
-            return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
+        valid = np.isfinite(capacities)
+        if valid.sum() < 2:
+            return dict(zero)
 
-        mass_mean = masses.mean()
-        mass_std = masses.std()
-        mass_cv = mass_std / (mass_mean + 1e-8)
+        c = capacities[valid]
+        c = np.maximum(c, 0.0)
+        c_star = c.mean()  # c* = (1/n) sum c(s_i) over the partition
+        if c_star < 1e-12:
+            return dict(zero)
+
+        # delta_c = (1/n) sum (c(s_i)/c* - 1)^2  == squared coefficient of variation
+        delta_c = float(np.mean((c / c_star - 1.0) ** 2))
+
         return {
-            "voronoi_mass_cv": float(np.clip(mass_cv, 0, 10)),
-            "voronoi_mass_std": float(mass_std),
-            "voronoi_mass_mean": float(mass_mean),
+            "voronoi_mass_cv": float(np.clip(delta_c, 0, 10)),  # squared CV (delta_c)
+            "voronoi_mass_std": float(c.std()),
+            "voronoi_mass_mean": float(c_star),
         }
     except Exception:
         return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
 
 
-def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None):
+def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.01):
     try:
         import ot
         if rng is None:
             rng = np.random.default_rng(42)
+        # Use the same target density convention as every other metric: dark = high mass.
         if target_density is None:
-            target_density = image_01
+            target_density = _to_density(image_01)
+        else:
+            target_density = np.asarray(target_density, dtype=np.float64)
         N = len(points)
         H, W = image_01.shape
         if N == 0:
-            return {"sinkhorn_ot_cost": 0.0}
+            return {"sinkhorn_ot_cost": 0.0, "sinkhorn_transport_cost": 0.0}
         yy, xx = np.mgrid[0:H, 0:W]
-        grid_points = np.column_stack([xx.ravel() / W, yy.ravel() / H])
+        grid_points = np.column_stack([(xx.ravel() + 0.5) / W, (yy.ravel() + 0.5) / H])
         density_weights = target_density.ravel() / (target_density.sum() + 1e-8)
         density_weights = np.maximum(density_weights, 1e-10)
         density_weights /= density_weights.sum()
@@ -211,15 +252,30 @@ def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None):
             target_pts = grid_points
             target_w = density_weights
         source_w = np.ones(N) / N
-        M = ot.dist(points, target_pts, metric="euclidean")
+        # W_2-consistent ground cost: squared Euclidean.
+        M = ot.dist(points, target_pts, metric="sqeuclidean")
         try:
-            P = ot.sinkhorn(source_w, target_w, M, reg=0.01, numItermax=100)
-            ot_cost = np.sum(P * M)
+            P = ot.sinkhorn(source_w, target_w, M, reg=reg, numItermax=200)
+            transport_cost = float(np.sum(P * M))
+            # d_lambda = <P, M> - lambda * H(P), with H(P) = -sum P log P
+            # (Cuturi 2013). lambda is the regularization weight `reg`.
+            nz = P > 1e-300
+            entropy = float(-np.sum(P[nz] * np.log(P[nz])))
+            d_lambda = transport_cost - reg * entropy
+            # Report sqrt of the (non-negative) transport cost as the W_2-style
+            # distance for interpretability; keep raw d_lambda too.
+            sinkhorn_distance = float(np.sqrt(max(transport_cost, 0.0)))
         except Exception:
-            ot_cost = 0.0
-        return {"sinkhorn_ot_cost": float(np.clip(ot_cost, 0, 100))}
+            transport_cost = 0.0
+            d_lambda = 0.0
+            sinkhorn_distance = 0.0
+        return {
+            "sinkhorn_ot_cost": float(np.clip(sinkhorn_distance, 0, 100)),
+            "sinkhorn_transport_cost": float(np.clip(transport_cost, 0, 100)),
+            "sinkhorn_d_lambda": float(np.clip(d_lambda, -100, 100)),
+        }
     except Exception:
-        return {"sinkhorn_ot_cost": 0.0}
+        return {"sinkhorn_ot_cost": 0.0, "sinkhorn_transport_cost": 0.0}
 
 
 def compute_m5_spatial_measure(points, image_01):
@@ -231,34 +287,43 @@ def compute_m5_spatial_measure(points, image_01):
                 "spatial_measure_rho_mean": 0.0,
                 "spatial_measure_rho_cv": 0.0
             }
-        
-        # Compute nearest-neighbor distances (r_min)
-        tree = cKDTree(points)
-        nn_dists, _ = tree.query(points, k=2)
-        r_min = nn_dists[:, 1]
-        
-        # Get local image density at each point
-        H, W = image_01.shape
-        local_img_density = np.zeros(N)
-        for i, (px, py) in enumerate(points):
-            grid_x = int(np.clip(px * (W - 1), 0, W - 1))
-            grid_y = int(np.clip(py * (H - 1), 0, H - 1))
-            local_img_density[i] = image_01[grid_y, grid_x]
-        
-        # Compute local point density: D_x = N * (local_density / mean(local_density))
-        mean_density = local_img_density.mean()
+
+        points = np.asarray(points, dtype=np.float64)
+        rho_img = _to_density(image_01)  # dark = high target density
+        H, W = rho_img.shape
+
+        # Local target density at each sample (vectorized).
+        gx = np.clip((points[:, 0] * (W - 1)).astype(int), 0, W - 1)
+        gy = np.clip((points[:, 1] * (H - 1)).astype(int), 0, H - 1)
+        local_density = rho_img[gy, gx]
+
+        mean_density = local_density.mean()
         if mean_density < 1e-10:
             mean_density = 1.0
-        D_x = N * (local_img_density / (mean_density + 1e-10))
-        
+        # Expected number of points per unit area at each location.
+        D_x = N * (local_density / (mean_density + 1e-10))
         D_x_safe = np.maximum(D_x, 1e-8)
-        r_max = np.sqrt(2.0 / (np.sqrt(3.0) * D_x_safe))
-        
+
+        # Density-transformed differential-domain spacing (Wei & Wang 2011):
+        # the raw Euclidean NN distance is scaled by the local distance field,
+        # which is inversely proportional to sqrt(local density). This makes the
+        # measure scale-invariant under non-uniform target densities.
+        tree = cKDTree(points)
+        nn_dists, _ = tree.query(points, k=2)
+        raw_rmin = nn_dists[:, 1]
+        # local distance field ~ 1 / sqrt(D_x); warp by dividing raw distance by it
+        # => warped r_min = raw_rmin * sqrt(D_x).
+        r_min = raw_rmin * np.sqrt(D_x_safe)
+
+        # Maximal hexagonal packing distance for unit-density domain (D normalized out
+        # by the warp above, so r_max is the constant packing distance at density 1).
+        r_max = np.sqrt(2.0 / np.sqrt(3.0))
+
         rho_values = np.clip(r_min / (r_max + 1e-10), 0.0, 2.0)
         rho_mean = float(rho_values.mean())
         rho_std = float(rho_values.std())
         rho_cv = rho_std / (rho_mean + 1e-8)
-        
+
         return {
             "spatial_measure_rho_mean": rho_mean,
             "spatial_measure_rho_cv": float(np.clip(rho_cv, 0, 10))
@@ -278,33 +343,37 @@ def compute_m1_cvt_energy(points, image_01, rng=None, mc_approx=True):
         N = len(points)
         if N < 3:
             return {"cvt_energy": 0.0}
+        rho = _to_density(image_01)
         pts_clip = np.clip(points, 1e-6, 1 - 1e-6)
         try:
             vor = Voronoi(pts_clip)
         except Exception:
             return {"cvt_energy": 0.0}
-        H, W = image_01.shape
+        H, W = rho.shape
+        # Clip cells to the unit square so boundary cells contribute their true
+        # (bounded) energy instead of being silently dropped.
+        clipped_regions = _voronoi_regions_clipped(vor, bbox=(0.0, 1.0, 0.0, 1.0))
         total_energy = 0.0
-        for region_idx, point_idx in enumerate(vor.point_region):
+        for pt_idx, (poly, _is_finite) in enumerate(clipped_regions):
             try:
-                region = vor.regions[point_idx]
-                if len(region) < 3 or -1 in region:
+                if poly.shape[0] < 3:
                     continue
-                vertices = vor.vertices[region]
-                vertices_clip = np.clip(vertices, 0, 1)
-                point = points[region_idx]
-                sample = _polygon_sample_points(vertices_clip, (H, W), mc_approx=mc_approx, rng=rng)
+                point = points[pt_idx]
+                sample = _polygon_sample_points(poly, (H, W), mc_approx=mc_approx, rng=rng)
                 if sample is None:
                     continue
                 points_inside, px, py = sample
+                area = _polygon_area(poly)
+                n_in = len(points_inside)
+                dist_sq = (points_inside[:, 0] - point[0]) ** 2 + (points_inside[:, 1] - point[1]) ** 2
                 if mc_approx:
-                    for x, y, ix, iy in zip(points_inside[:, 0], points_inside[:, 1], px, py):
-                        density = image_01[iy, ix]
-                        dist_sq = (x - point[0]) ** 2 + (y - point[1]) ** 2
-                        total_energy += density * dist_sq
+                    # MC estimate of  integral_cell rho * ||x - s||^2 dx
+                    # = area * mean( rho(x) * ||x - s||^2 ) over uniform samples.
+                    contrib = area * float(np.mean(rho[py, px] * dist_sq)) if n_in > 0 else 0.0
                 else:
-                    dist_sq = (points_inside[:, 0] - point[0]) ** 2 + (points_inside[:, 1] - point[1]) ** 2
-                    total_energy += float(np.sum(image_01[py, px] * dist_sq))
+                    # Pixel-grid quadrature: each pixel has area (1/(W*H)).
+                    contrib = float(np.sum(rho[py, px] * dist_sq)) / float(W * H)
+                total_energy += contrib
             except Exception:
                 continue
         return {"cvt_energy": float(np.clip(total_energy, 0, 1000))}
@@ -322,10 +391,11 @@ def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_appro
             if image_01 is None:
                 target_points = points.copy()
             else:
-                H, W = image_01.shape
+                rho = _to_density(image_01)
+                H, W = rho.shape
                 yy, xx = np.mgrid[0:H, 0:W]
                 grid_points = np.column_stack([(xx.ravel() + 0.5) / W, (yy.ravel() + 0.5) / H])
-                density_weights = image_01.ravel().astype(np.float64)
+                density_weights = rho.ravel().astype(np.float64)
                 density_sum = density_weights.sum()
                 if density_sum <= 1e-12:
                     return {"emd_distance": 0.0}
@@ -342,11 +412,14 @@ def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_appro
                     target_points = grid_points
         if len(target_points) == 0:
             return {"emd_distance": 0.0}
-        M = ot.dist(points, target_points, metric="euclidean")
+        # W_2 uses squared-Euclidean ground cost; the distance is the sqrt of
+        # the optimal transport cost.  (metric="euclidean" would give W_1.)
+        M = ot.dist(points, target_points, metric="sqeuclidean")
         source_w = np.ones(len(points)) / len(points)
         target_w = np.ones(len(target_points)) / len(target_points)
         try:
-            emd = ot.emd2(source_w, target_w, M)
+            cost = ot.emd2(source_w, target_w, M)
+            emd = float(np.sqrt(max(cost, 0.0)))
         except Exception:
             emd = 0.0
         return {"emd_distance": float(np.clip(emd, 0, 100))}
@@ -1128,7 +1201,7 @@ def plot_visual_m5_spatial_measure(points, image_01, ax, show_colorbar=True):
 
     tree = cKDTree(points)
     nn_dists, _ = tree.query(points, k=2)
-    r_min = nn_dists[:, 1]
+    raw_rmin = nn_dists[:, 1]
 
     H, W = image_01.shape
     gx = np.clip((points[:, 0] * (W - 1)).astype(int), 0, W - 1)
@@ -1141,7 +1214,9 @@ def plot_visual_m5_spatial_measure(points, image_01, ax, show_colorbar=True):
     D_x = N * (local_img_density / (mean_density + 1e-10))
     
     D_x_safe = np.maximum(D_x, 1e-8)
-    r_max = np.sqrt(2.0 / (np.sqrt(3.0) * D_x_safe))
+    # Density-warped spacing, consistent with compute_m5_spatial_measure.
+    r_min = raw_rmin * np.sqrt(D_x_safe)
+    r_max = np.sqrt(2.0 / np.sqrt(3.0))
     
     rho_values = np.clip(r_min / (r_max + 1e-10), 0.0, 2.0)
 

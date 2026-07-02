@@ -5,7 +5,7 @@ import shutil
 import torchvision
 import numpy as np
 
-DEFAULT_DEVICE = "cuda:0"
+DEFAULT_DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 def parse_indices(lst):
     indices = []
@@ -63,7 +63,7 @@ def parse_eval(path, eval_params):
     from utils.Eval import EvalPointset
     return EvalPointset(path, eval_params["freq"], eval_params["ts"])
 
-def parse_diffusion(diffu_params, model):
+def parse_diffusion(diffu_params, model, device=DEFAULT_DEVICE):
     from models.Diffusion import  DiffusionModel
     betas = np.linspace(
         diffu_params["betas"]["min"],
@@ -71,7 +71,7 @@ def parse_diffusion(diffu_params, model):
         diffu_params["betas"]["count"]
     )
     loss = diffu_params["loss"]
-    return DiffusionModel(model, betas=betas, loss=loss, device=DEFAULT_DEVICE)
+    return DiffusionModel(model, betas=betas, loss=loss, device=device)
 
 def ParseTrainConfig(path):
     from utils.Trainer import Trainer
@@ -102,7 +102,7 @@ def ParseTrainConfig(path):
         device=DEFAULT_DEVICE
     )
 
-def ParseSampleConfig(path):
+def ParseSampleConfig(path, device=DEFAULT_DEVICE):
     with open(path) as config_file:
         config = json.load(config_file)
         
@@ -110,6 +110,6 @@ def ParseSampleConfig(path):
         assert "diffusion" in config
         
         model, s, m = parse_model(config["model"])
-        diffu = parse_diffusion(config["diffusion"], model)
+        diffu = parse_diffusion(config["diffusion"], model, device=device)
 
         return diffu

@@ -17,7 +17,10 @@ import sys
 from pathlib import Path
 
 # Global default parameters (edit here)
-SRC_FOLDER = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_agi"
+# SRC_FOLDER = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_agi"
+# SRC_FOLDER = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full"
+# SRC_FOLDER = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_gecco"
+SRC_FOLDER = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_vanilla"
 CHECKPOINTS_SUBDIR = "checkpoints"
 OUT_SUBDIR = "checkpoints_lighten"
 PATTERN = "*.pt"

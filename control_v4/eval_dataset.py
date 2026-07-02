@@ -107,7 +107,7 @@ SHOW_LABELS = False
 #####################
 
 # ICONS
-CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
 CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
@@ -185,7 +185,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # SHOW_SELECTED_GT_OFFSETS = False
 
 # Vanilla (1.1)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_vanilla/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_vanilla/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 # RESULTS_DIR = "vanilla"
 # GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
@@ -201,7 +201,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 # GECCO (1.2)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_gecco/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_gecco/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 # RESULTS_DIR = "gecco"
 # GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
@@ -217,7 +217,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 # Adaptive gate injection (1.3)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_agi/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_agi/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 # RESULTS_DIR = "agi"
 # GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
@@ -233,7 +233,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 # Full (1.4)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 # RESULTS_DIR = "full"
 # GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
@@ -249,7 +249,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 # Full + SDEdit (1.5)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 # RESULTS_DIR = "sdedit"
 # GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
@@ -265,7 +265,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 # Full + SDEdit + resample jumps (1.6)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep1000.pt"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 # RESULTS_DIR = "sdedit_resample"
 # GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
@@ -689,7 +689,7 @@ def main():
         batch,
         device,
         n_samples=batch["high_res"].shape[0],
-        timesteps=args.eval_timesteps,
+        eval_timesteps=args.eval_timesteps,
         resample_jumps=args.resample_jumps,
         show_tqdm=True,
         tqdm_desc="eval_dataset sampling",

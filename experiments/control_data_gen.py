@@ -23,57 +23,83 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from control_v4.sample_control import run_inference_on_directory
 
-# ── Editable Defaults ───────────────────────────────────────────────────
-
-BASE_CONFIG_PATH = "config/GBN/config.json"
-BASE_CKPT_PATH = "config/GBN/model.ckpt"
-
-# ICONS
-# CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-# DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/quantitative_advance_metrics"
-# GRID_SIZE = 32
-
-# Faces Set Sample
-# CONTROL_CKPT = "control_v4/train_outputs_data_celeba_5K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-# DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/faces_results_compare"
-# GRID_SIZE = 32
-
-# ICONS - TIMES
-CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/icons_results_runtimes"
-# GRID_SIZE = 24
-# GRID_SIZE = 32
-GRID_SIZE = 48
-
-
-# Model parameters
-ENABLE_GECCO = True
-ENABLE_ADAPTIVE_GATE_INJECTION = True
-EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.30
-RESAMPLE_JUMPS = 2
-SMART_INIT_FEATURES = False
-SDF_FEATURES = False
-BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-FREEZE_DENOISER = True  # TODO: Add in the other scripts
-# GRID_SIZE = 32
-SMART_INIT_SEED = 42
-SDF_TRUNCATE_PX = 8.0
-# SMART_INIT_JITTER_PX = 0.5
-SMART_INIT_SPLAT_SIGMA_PX = 0.5
-
-# I/O
-DEVICE = "cuda"
-OVERWRITE = True
-EXPORT_PNG = True
-EXPORT_NPY = True
-TRACK_TIME = True
-
 
 def main() -> int:
+    # Defaults #
+    BASE_CONFIG_PATH = "config/GBN/config.json"
+    BASE_CKPT_PATH = "config/GBN/model.ckpt"
+
+    # Model parameters
+    ENABLE_GECCO = True
+    ENABLE_ADAPTIVE_GATE_INJECTION = True
+    EVAL_TIMESTEPS = 1000
+    TRUNCATION_RATIO = 0.30
+    RESAMPLE_JUMPS = 2
+    SMART_INIT_FEATURES = False
+    SDF_FEATURES = False
+    BATCH_COORDS_FEATURES = False
+    # ENABLE_SMART_INIT_JITTER = False
+    ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+    FREEZE_DENOISER = True  # TODO: Add in the other scripts
+    # GRID_SIZE = 32
+    SMART_INIT_SEED = 42
+    SDF_TRUNCATE_PX = 8.0
+    # SMART_INIT_JITTER_PX = 0.5
+    SMART_INIT_SPLAT_SIGMA_PX = 0.5
+
+    # I/O
+    DEVICE = "cuda"
+    OVERWRITE = True
+    EXPORT_PNG = True
+    EXPORT_NPY = True
+
+    TRACK_TIME = False
+    TRACK_TIME_FULL = False
+    TRACK_PROFILE_TRACE = False
+
+    ############################
+    # CONFIGURATION PARAMETERS #
+    ############################
+    
+    # ICONS
+    # CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+    # DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/quantitative_advance_metrics"
+    # GRID_SIZE = 32
+
+    # Faces Set Sample
+    # CONTROL_CKPT = "control_v4/train_outputs_data_celeba_5K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+    # DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/faces_results_compare"
+    # GRID_SIZE = 32
+
+    # ICONS - TIMES - V1
+    # CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+    # DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/icons_results_runtimes"
+    # GRID_SIZE = 24
+    # GRID_SIZE = 32
+    # GRID_SIZE = 48
+
+
+    # ICONS - TIMES - V2
+    CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+    DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/icons_results_runtimes"
+    GRID_SIZE = 16
+    # GRID_SIZE = 24 
+    # GRID_SIZE = 32
+    # GRID_SIZE = 40
+    # GRID_SIZE = 48
+    # GRID_SIZE = 56
+    # GRID_SIZE = 64
+    # GRID_SIZE = 72
+    # GRID_SIZE = 80
+    # GRID_SIZE = 88
+    # GRID_SIZE = 96
+    # GRID_SIZE = 104
+    # GRID_SIZE = 112
+    TRACK_TIME = True
+    # TRACK_TIME_FULL = True
+    # TRACK_PROFILE_TRACE = True
+
     parser = argparse.ArgumentParser(
         description="Generate stipple targets using ControlNet V4 inference",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -113,7 +139,10 @@ def main() -> int:
                         help="Export target stipple coordinates as NPYs to target_npy/ subfolder")
     parser.add_argument("--track_time", action=argparse.BooleanOptionalAction, default=TRACK_TIME,
                         help="Enable time tracking; saves elapsed time per image to timestamps/ subfolder")
-
+    parser.add_argument("--track_time_full", action=argparse.BooleanOptionalAction, default=TRACK_TIME_FULL,
+                        help="Enable full time tracking; saves detailed timing info per image to timestamps/ subfolder")
+    parser.add_argument("--profile_trace", action=argparse.BooleanOptionalAction, default=TRACK_PROFILE_TRACE,
+                        help="Enable profiling trace; saves Chrome trace JSON to timestamps/ subfolder")
     args = parser.parse_args()
 
     # NOTE: Build paths
@@ -179,6 +208,8 @@ def main() -> int:
         export_png=args.export_png,
         export_npy=args.export_npy,
         track_time=args.track_time,
+        track_time_full=args.track_time_full,
+        profile_trace=args.profile_trace,
         source_path=Path(SOURCE_PATH),
         target_path=Path(TARGET_PATH),
         target_npy_path=Path(TARGET_NPY_PATH),

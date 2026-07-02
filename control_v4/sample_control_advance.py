@@ -42,10 +42,7 @@ from utils.stippling_metrics import (
 from utils.stippling_metrics_advance import (
     compute_all_advanced_metrics,
     visualize_adaptive_sampling_density_map,
-    visualize_overfit_metrics as visualize_overfit_metrics_advance,
     _render_advanced_metrics_row,
-    _ADV_ROW_FONTSIZE,
-    _ADV_ROW_TITLE_FONTSIZE,
     _ADV_ROW_HEIGHT_RATIO,
     _ADV_ROW_EXTRA_HEIGHT,
     plot_visual_m1_cvt_vectors,
@@ -59,7 +56,7 @@ CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT = "config/GBN/model.ckpt"
 
 # CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep1900.pt"
-CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep6250.pt"
+CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
 INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_WVS/source/emoji-one_4_monkey.png"
 COMPARE_IMAGE_LIST = [
@@ -282,8 +279,6 @@ def visualize_sample_metrics_no_gt(
         return None
     if len(pred_pointsets) == 0:
         return None
-
-    from utils.stippling_metrics_advance import compute_all_advanced_metrics, _format_advanced_text
 
     n_preds = min(len(pred_pointsets), 4)
     n_cols = 1 + n_preds  # INPUT + predictions
@@ -829,7 +824,7 @@ def main():
     device = torch.device(args.device)
 
     diffusion = ParseSampleConfig(args.config)
-    diffusion.load_state_dict(torch.load(args.base_ckpt, map_location="cpu")["diffu"])
+    diffusion.load_state_dict(torch.load(args.base_ckpt, map_location="cpu")["diffu"], strict=False)
     diffusion.to(device)
     denoiser = diffusion.model
     denoiser.eval()

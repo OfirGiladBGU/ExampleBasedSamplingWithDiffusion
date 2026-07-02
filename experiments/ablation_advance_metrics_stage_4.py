@@ -44,7 +44,7 @@ RESULT_DIR_LIST = [
 
 # Default folders
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e40_b50"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e400_b50_1024"
 
 # Default metrics file name
 METRICS_FILE = "metrics_avg.json"
@@ -106,6 +106,16 @@ def load_metrics_for_model(model_dir: Path, metrics_file: str):
     return converted
 
 
+def write_combined_metrics(out_base: Path, model_metrics: dict):
+    combined_path = out_base / METRICS_FILE
+    combined = {
+        model_name: metrics
+        for model_name, metrics in model_metrics.items()
+    }
+    combined_path.write_text(json.dumps(combined, indent=2, sort_keys=True))
+    print(f"Wrote combined metrics to {combined_path}")
+
+
 def make_plots(out_base: Path, model_names, metrics_file, fig_width_px: int, fig_height_px: int, dpi: int):
     model_metrics = {}
     for m in model_names:
@@ -118,6 +128,9 @@ def make_plots(out_base: Path, model_names, metrics_file, fig_width_px: int, fig
 
     if len(model_metrics) == 0:
         raise RuntimeError("No model metrics found to plot")
+
+    write_combined_metrics(out_base, model_metrics)
+
     # Create consistent color mapping across runs (keep mapping stable)
     colors = plt.cm.tab10.colors
     color_map = {}

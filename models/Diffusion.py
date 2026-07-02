@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import time
 
 class DiffusionModel(torch.nn.Module):
     def __init__(self, model, betas, loss, device, clip: bool = False) -> None:
@@ -18,6 +19,24 @@ class DiffusionModel(torch.nn.Module):
 
         self.register_buffer("trained_betas", torch.tensor(betas, dtype=torch.float32))
         self.set_variances(np.arange(0, betas.shape[0]), True)
+
+    def _time_block(self, timing_breakdown, key, fn):
+        if timing_breakdown is None:
+            return fn()
+
+        if torch.cuda.is_available() and str(self.device).startswith("cuda"):
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
+            result = fn()
+            end_event.record()
+            timing_breakdown.setdefault(key, []).append((start_event, end_event))
+            return result
+
+        start = time.perf_counter()
+        result = fn()
+        timing_breakdown[key] = timing_breakdown.get(key, 0.0) + (time.perf_counter() - start)
+        return result
 
     def reset_timesteps(self):
         self.set_num_timesteps(self.trained_betas.shape[0])
@@ -127,42 +146,81 @@ class DiffusionModel(torch.nn.Module):
             self.extract(self.posterior_mean_coef2 / self.posterior_mean_coef1, t, x_t.shape) * x_t
         )
 
-    def p_mean_variance(self, x, cond, t, clip_denoised: bool, return_pred_xstart: bool):
+    def p_mean_variance(self, x, cond, t, clip_denoised: bool, return_pred_xstart: bool, timing_breakdown=None):
         # B, H, W, C = x.shape
-        predictions = self.model(x, t, cond)
-
+        predictions = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.model_forward",
+            lambda: self.model(x, t, cond, timing_breakdown=timing_breakdown),
+        )
         model_mean = predictions
         model_var = self.betas
-        model_logvar = torch.log(
-            torch.cat([
-                torch.Tensor([self.posterior_variance[1]]).to(self.device), 
-                self.betas[1:]
-            ])
+        model_logvar = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.model_logvar_build",
+            lambda: torch.log(
+                torch.cat([
+                    torch.Tensor([self.posterior_variance[1]]).to(self.device),
+                    self.betas[1:]
+                ])
+            ),
         )
-        model_var = self.extract(model_var, t, x.shape) * torch.ones_like(x)
-        model_logvar = self.extract(model_logvar, t, x.shape) * torch.ones_like(x)
-        
+        model_var = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.model_var_extract",
+            lambda: self.extract(model_var, t, x.shape) * torch.ones_like(x)
+        )
+        model_logvar = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.model_logvar_extract",
+            lambda: self.extract(model_logvar, t, x.shape) * torch.ones_like(x),
+        )
+
         # Clip only when asked to
         clip_denoised = False
         clip = (lambda x_: torch.clip(x_, -1, 1)) if clip_denoised else (lambda x_: x_)
-        pred_xstart = clip(self.predict_xstart_from_noise(x, t, predictions))
-        model_mean, _, _, = self.q_posterior_mean_variance(pred_xstart, x, t)
-    
+        pred_xstart = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.predict_xstart",
+            lambda: clip(self.predict_xstart_from_noise(x, t, predictions)),
+        )
+        model_mean, _, _ = self._time_block(
+            timing_breakdown,
+            "p_mean_variance.posterior",
+            lambda: self.q_posterior_mean_variance(pred_xstart, x, t),
+        )
+
         if return_pred_xstart:
             return model_mean, model_var, model_logvar, pred_xstart
         
         return model_mean, model_var, model_logvar
     
     # Sampling
-    def p_sample(self, x, cond, t, clip_denoised: bool = True, return_pred_xstart: bool = False, with_sampling: bool = True):
+    def p_sample(self, x, cond, t, clip_denoised: bool = True, return_pred_xstart: bool = False, with_sampling: bool = True, timing_breakdown=None):
         model_mean, _, model_logvar, pred_xstart = self.p_mean_variance(
-            x, cond, t, clip_denoised, True
+            x, cond, t, clip_denoised, True, timing_breakdown=timing_breakdown
         )
         if with_sampling:
-            noise = self.noise_fn(x.shape).to(x.dtype)
-            t = t.view(t.shape[0], *[1] * (noise.ndim - 1))
-            noise = torch.where(t == 0, 0, noise)
-            sample = model_mean + torch.exp(0.5 * model_logvar) * noise
+            noise = self._time_block(
+                timing_breakdown,
+                "p_sample.noise",
+                lambda: self.noise_fn(x.shape).to(x.dtype),
+            )
+            t = self._time_block(
+                timing_breakdown,
+                "p_sample.mask_reshape",
+                lambda: t.view(t.shape[0], *[1] * (noise.ndim - 1)),
+            )
+            noise = self._time_block(
+                timing_breakdown,
+                "p_sample.mask_apply",
+                lambda: torch.where(t == 0, 0, noise),
+            )
+            sample = self._time_block(
+                timing_breakdown,
+                "p_sample.sample_combine",
+                lambda: model_mean + torch.exp(0.5 * model_logvar) * noise,
+            )
         else:
             sample = model_mean
 
