@@ -37,10 +37,11 @@ except Exception:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.Transforms import to_pointset_optimal_transport
-from control_fm.flow_matching import FlowMatching, build_velocity_network
+from control_fm_v2.flow_matching import MODEL_CONFIG, FlowMatching, build_velocity_network
+from control_fm_v2.arch import resolve_arch
 from control_fm.DynamicControlNet import DynamicControlNet
 from control_fm.DynamicStippleDataset import DynamicStippleDataset
-from control_fm.train_control import (
+from control_fm_v2.train_control import (
     _grid_centers_flat,
     dynamic_collate,
     ensure_offsets_dir,
@@ -74,7 +75,10 @@ PANEL_NAME = "eval_panel.png"
 META_NAME = "eval_selection.json"
 
 # Editable defaults (copied locally so this script is self-contained)
-CONFIG_PATH = "config/GBN/config_fm.json"
+# control_fm_v2 has NO config file (see flow_matching.MODEL_CONFIG).
+ATTN_MIDDLE = MODEL_CONFIG["attn_middle"]
+ATTN_HEADS = MODEL_CONFIG["attn_heads"]
+USE_EMA = True
 # NOTE: no pretrained baseline in control_fm -- all weights come from the control_fm checkpoint.
 
 # [Default] Model Component
@@ -105,7 +109,7 @@ CONDITIONING = "controlnet"    # "controlnet", "concat", or "spade"
 CONCAT_SMART_INIT_GRID = False
 FM_SOURCE_JITTER_PX = 0.0      # jitter the ckpt was TRAINED with (needed for eta>0 + smartinit)
 ODE_STEPS = 50
-ODE_METHOD = "euler"
+ODE_METHOD = "euler"  # keep in step with train_control.py
 ETA = 0.0                      # 0 = deterministic ODE; > 0 = stochastic reverse SDE (1.0 canonical)
 
 
@@ -431,17 +435,31 @@ def _load_models(args, device):
         source_jitter_px=args.fm_source_jitter_px,
     )
     state = torch.load(args.control_ckpt, map_location="cpu")
+    # The checkpoint stamp is authoritative about which weights exist.
+    eff = resolve_arch(state, args, prefer_checkpoint=args.arch_from_ckpt,
+                       strict=args.strict_arch, ckpt_path=args.control_ckpt)
+    args.conditioning = eff["conditioning"]
+    args.fm_coupling = eff["fm_coupling"]
+    args.attn_middle, args.attn_heads = eff["attn_middle"], eff["attn_heads"]
+    args.enable_gecco = eff["enable_gecco"]
+    args.enable_adaptive_gate_injection = eff["enable_adaptive_gate_injection"]
+    args.smart_init_features = eff["smart_init_features"]
+    args.sdf_features = eff["sdf_features"]
+    args.batch_coords_features = eff["batch_coords_features"]
+    args.concat_smart_init_grid = eff["concat_smart_init_grid"]
 
     # ── single-stage (attention-free) conditioners: the net lives inside the conditioner ──
     if args.conditioning in ("concat", "spade"):
         n_cond = 1 + (1 if args.concat_smart_init_grid else 0)
         if args.conditioning == "spade":
-            from control_fm.single_stage import SPADEConditioner, build_spade_velocity_network
-            denoiser = build_spade_velocity_network(args.config, cond_channels=n_cond, device=device)
+            from control_fm_v2.single_stage import SPADEConditioner, build_spade_velocity_network
+            denoiser = build_spade_velocity_network(cond_channels=n_cond, device=device,
+                                                    attn_middle=args.attn_middle, attn_heads=args.attn_heads)
             conditioner = SPADEConditioner(denoiser, use_smart_init_grid=args.concat_smart_init_grid).to(device)
         else:
-            from control_fm.single_stage import SingleStageConditioner, build_conditional_velocity_network
-            denoiser = build_conditional_velocity_network(args.config, extra_in_channels=n_cond, device=device)
+            from control_fm_v2.single_stage import SingleStageConditioner, build_conditional_velocity_network
+            denoiser = build_conditional_velocity_network(extra_in_channels=n_cond, device=device,
+                                                          attn_middle=args.attn_middle, attn_heads=args.attn_heads)
             conditioner = SingleStageConditioner(denoiser, use_smart_init_grid=args.concat_smart_init_grid).to(device)
 
         sd = state
@@ -456,7 +474,8 @@ def _load_models(args, device):
         return fm, denoiser, None, conditioner
 
     # ── dual-branch ControlNet ────────────────────────────────────────────────────────
-    denoiser = build_velocity_network(args.config, device=device)
+    # Attach attention BEFORE DynamicControlNet deep-copies denoiser.middle.
+    denoiser = build_velocity_network(device=device, attn_middle=args.attn_middle, attn_heads=args.attn_heads)
     control_net = DynamicControlNet(
         denoiser,
         grid_size=args.grid_size,
@@ -492,7 +511,14 @@ def _load_models(args, device):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
 
-    parser.add_argument("--config", default=CONFIG_PATH)
+    parser.add_argument("--attn-middle", action=argparse.BooleanOptionalAction, default=ATTN_MIDDLE)
+    parser.add_argument("--strict-arch", action=argparse.BooleanOptionalAction, default=True,
+                        help="(when --no-arch-from-ckpt) refuse a checkpoint whose stamped architecture differs")
+    parser.add_argument("--arch-from-ckpt", action=argparse.BooleanOptionalAction, default=True,
+                        help="Build the network from the checkpoint's architecture stamp (authoritative)")
+    parser.add_argument("--attn-heads", type=int, default=ATTN_HEADS)
+    parser.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=USE_EMA,
+                        help="Load the EMA weights from the checkpoint when present")
     parser.add_argument("--control-ckpt", default=CONTROL_CKPT, help="Trained control_fm checkpoint path")
 
     parser.add_argument("--source", default=SOURCE_DIR)

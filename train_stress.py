@@ -3,9 +3,12 @@ import argparse
 
 
 if __name__ == "__main__":
-    CONFIG_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/config/GBN_stress/config1.json"
+    # CONFIG_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/config/GBN_stress/config1.json"
     # CONFIG_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/config/GBN_stress/config2.json"
     # CONFIG_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/config/GBN_stress/config2_V2.json"
+
+    # FM training
+    CONFIG_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/config/GBN/config_fm.json"
     ITS = int(1e10)
     TRAINING_TIME = 180  # in minutes
     # TRAINING_TIME = 360  # in minutes

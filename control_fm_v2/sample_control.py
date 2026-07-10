@@ -32,14 +32,16 @@ from control_fm.smart_init import (
     render_smart_init_grid
 )
 from data.Transforms import to_pointset_optimal_transport
-from control_fm.flow_matching import FlowMatching, build_velocity_network
+from control_fm_v2.flow_matching import MODEL_CONFIG, FlowMatching, build_velocity_network
+from control_fm_v2.arch import assert_arch_matches, resolve_arch
+from control_fm_v2.flow_matching import resolve_attention
 
 # DEFUALTS
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 TRUNCATION_RATIO = 0.30
 ODE_STEPS = 50
-ODE_METHOD = "euler"
+ODE_METHOD = "euler"  # keep in step with the active block in train_control.py
 ETA = 0.0                  # 0 = deterministic ODE; > 0 = stochastic reverse SDE (1.0 = canonical)
 FM_SOURCE_JITTER_PX = 0.0  # jitter the model was TRAINED with; required for SDE + smartinit
 SMART_INIT_FEATURES = False
@@ -71,20 +73,25 @@ SHOW_DENOISING = False
 # ----
 
 # Editable defaults 
-BASE_CONFIG_PATH = "config/GBN/config_fm.json"
+# control_fm_v2 has NO config file: the architecture lives in
+# control_fm_v2/flow_matching.py::MODEL_CONFIG.
+# Tier 2 -- must match the checkpoint. Single source of truth: flow_matching.MODEL_CONFIG
+ATTN_MIDDLE = MODEL_CONFIG["attn_middle"]
+ATTN_HEADS = MODEL_CONFIG["attn_heads"]
+USE_EMA = True        # sample from the EMA weights when the ckpt has them
 # NOTE: control_fm has NO pretrained baseline. build_velocity_network() / the single-stage
 # builders read the model config only -- they never call torch.load. Both the base U-Net and
 # the control branch are Flow-Matching weights trained from scratch and stored together in
 # the control_fm checkpoint. There is deliberately no "model.ckpt" path here.
 
 # CONTROL_CKPT_PATH = "control_fm/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_fm_ep8120.pt"
-CONTROL_CKPT_PATH = "control_fm/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_fm_ep10000.pt"
+CONTROL_CKPT_PATH = "control_fm_v2/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_fm_ep10000.pt"
 
 # Samples Compare
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
 # # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/quadratic_V2/source/quadratic_density_gradient.png"
 # # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/plant2/source/plant2_400x400.png"
-# OUTPUT_DIR = "control_fm/sample_outputs"
+# OUTPUT_DIR = "control_fm_v2/sample_outputs"
 # TRUNCATION_RATIO = 0.30
 
 # Sizes Compare
@@ -100,7 +107,7 @@ GRID_SIZE = 8
 # GRID_SIZE = 80
 # GRID_SIZE = 96  
 # GRID_SIZE = 112
-OUTPUT_DIR = f"control_fm/sample_outputs_{GRID_SIZE}_cpu"
+OUTPUT_DIR = f"control_fm_v2/sample_outputs_{GRID_SIZE}_cpu"
 TRUNCATION_RATIO = 0.30
 
 
@@ -325,38 +332,81 @@ def load_condition(image_path, grid_size, device, sdf_features=True, sdf_truncat
 
 # ── Core Inference Pipeline ───────────────────────────────────────────────────
 
-def load_pipeline(base_config_path, control_ckpt_path, grid_size, enable_gecco, enable_adaptive_gate_injection, smart_init_features, sdf_features, batch_coords_features, device, coupling="gaussian", conditioning="spade", concat_smart_init_grid=False):
+def load_pipeline(control_ckpt_path, grid_size, enable_gecco, enable_adaptive_gate_injection,
+                  smart_init_features, sdf_features, batch_coords_features, device,
+                  coupling="gaussian", conditioning="controlnet", concat_smart_init_grid=False,
+                  attn_middle=None, attn_heads=None, use_ema=True, strict_arch=True,
+                  arch_from_ckpt=True):
     """Build the velocity network for the trained conditioning architecture and load its weights.
 
     Flow Matching: the network is instantiated from the model config only. There is no
     diffusion baseline and no pretrained ``model.ckpt`` -- every weight (base U-Net and,
     for the controlnet path, the control branch) comes from ``control_ckpt_path``.
     """
-    fm = FlowMatching(device=device, coupling=coupling)
     conditioner = None
+    attn_middle, attn_heads = resolve_attention(None, attn_middle, attn_heads)
+
+    # Load the checkpoint FIRST and let its architecture stamp decide what to build. The
+    # stamp describes the weights that exist, so it is authoritative; rebuilding from stale
+    # CLI defaults + load_state_dict(strict=False) would silently sample a random network.
+    state = torch.load(control_ckpt_path, map_location="cpu")
+    eff = resolve_arch(
+        state,
+        {
+            "conditioning": conditioning, "fm_coupling": coupling,
+            "attn_middle": attn_middle, "attn_heads": attn_heads,
+            "enable_gecco": enable_gecco,
+            "enable_adaptive_gate_injection": enable_adaptive_gate_injection,
+            "smart_init_features": smart_init_features, "sdf_features": sdf_features,
+            "batch_coords_features": batch_coords_features,
+            "concat_smart_init_grid": concat_smart_init_grid,
+        },
+        prefer_checkpoint=arch_from_ckpt, strict=strict_arch, ckpt_path=control_ckpt_path,
+    )
+    conditioning = eff["conditioning"]
+    coupling = eff["fm_coupling"]
+    attn_middle, attn_heads = eff["attn_middle"], eff["attn_heads"]
+    enable_gecco = eff["enable_gecco"]
+    enable_adaptive_gate_injection = eff["enable_adaptive_gate_injection"]
+    smart_init_features = eff["smart_init_features"]
+    sdf_features = eff["sdf_features"]
+    batch_coords_features = eff["batch_coords_features"]
+    concat_smart_init_grid = eff["concat_smart_init_grid"]
+    model_config = eff.get("model_config")
+
+    fm = FlowMatching(device=device, coupling=coupling)
 
     if conditioning in ("concat", "spade"):
         n_cond = 1 + (1 if concat_smart_init_grid else 0)
         if conditioning == "spade":
-            from control_fm.single_stage import build_spade_velocity_network, SPADEConditioner
-            denoiser = build_spade_velocity_network(base_config_path, cond_channels=n_cond, device=device)
+            from control_fm_v2.single_stage import build_spade_velocity_network, SPADEConditioner
+            denoiser = build_spade_velocity_network(cond_channels=n_cond, device=device,
+                                                    model_config=model_config,
+                                                    attn_middle=attn_middle, attn_heads=attn_heads)
             conditioner = SPADEConditioner(denoiser, use_smart_init_grid=concat_smart_init_grid).to(device)
         else:
-            from control_fm.single_stage import build_conditional_velocity_network, SingleStageConditioner
-            denoiser = build_conditional_velocity_network(base_config_path, extra_in_channels=n_cond, device=device)
+            from control_fm_v2.single_stage import build_conditional_velocity_network, SingleStageConditioner
+            denoiser = build_conditional_velocity_network(extra_in_channels=n_cond, device=device,
+                                                          model_config=model_config,
+                                                          attn_middle=attn_middle, attn_heads=attn_heads)
             conditioner = SingleStageConditioner(denoiser, use_smart_init_grid=concat_smart_init_grid).to(device)
-        state = torch.load(control_ckpt_path, map_location="cpu")
-        sd = state
+        sd = None
         if isinstance(state, dict):
-            for k in ("control_net", "model_state_dict", "state_dict"):
-                if k in state and isinstance(state[k], dict):
-                    sd = state[k]
-                    break
+            sd = _pick_weights(state, "control_net", "control_net_ema", use_ema, "conditioner")
+            if sd is None:
+                for k in ("model_state_dict", "state_dict"):
+                    if isinstance(state.get(k), dict):
+                        sd = state[k]
+                        break
+        if sd is None:
+            sd = state
         conditioner.load_state_dict(sd, strict=False)
         conditioner.eval()
         return fm, denoiser, None, conditioner
 
-    denoiser = build_velocity_network(base_config_path, device=device)
+    # Attention must be attached BEFORE DynamicControlNet deep-copies denoiser.middle.
+    denoiser = build_velocity_network(device=device, model_config=model_config,
+                                      attn_middle=attn_middle, attn_heads=attn_heads)
     denoiser.eval()
 
     control_net = DynamicControlNet(
@@ -369,13 +419,13 @@ def load_pipeline(base_config_path, control_ckpt_path, grid_size, enable_gecco, 
         batch_coords_features=batch_coords_features,
     ).to(device)
 
-    state = torch.load(control_ckpt_path, map_location="cpu")
-    control_net.safe_load_state_dict(state, strict=False)
+    ctrl_sd = _pick_weights(state, "control_net", "control_net_ema", use_ema, "control_net")
+    control_net.safe_load_state_dict(ctrl_sd if ctrl_sd is not None else state, strict=False)
 
     # The controlnet path trains the base U-Net jointly (FREEZE_DENOISER=False) but keeps it
     # OUTSIDE control_net, so its weights live under a separate "denoiser" key. Without this
     # the base network stays at its random init and every sample is meaningless.
-    denoiser_sd = state.get("denoiser") if isinstance(state, dict) else None
+    denoiser_sd = _pick_weights(state, "denoiser", "denoiser_ema", use_ema, "denoiser")
     if denoiser_sd is None:
         raise RuntimeError(
             f"Checkpoint '{control_ckpt_path}' has no 'denoiser' weights.\n"
@@ -391,6 +441,23 @@ def load_pipeline(base_config_path, control_ckpt_path, grid_size, enable_gecco, 
     control_net.eval()
 
     return fm, denoiser, control_net, conditioner
+
+
+
+def _pick_weights(state, raw_key, ema_key, use_ema, label):
+    """Return the state dict to load: EMA shadow when requested and present, else raw.
+
+    The point of Tier 1.1 is to SAMPLE from the EMA weights. Silently loading the raw
+    weights would discard the benefit, so the fallback is explicit and loud.
+    """
+    if use_ema:
+        ema_sd = state.get(ema_key) if isinstance(state, dict) else None
+        if ema_sd:
+            print("  [%s] using EMA weights (%s)" % (label, ema_key))
+            return ema_sd
+        print("  [%s] WARNING: --use-ema requested but %r is absent "
+              "(checkpoint predates the EMA fix). Falling back to raw weights." % (label, ema_key))
+    return state.get(raw_key) if isinstance(state, dict) else state
 
 # Defualts 
 CONDITIONS_SUBDIR = "conditions"
@@ -690,7 +757,7 @@ def process_single_image(
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def run_inference_on_directory(
-    base_config_path: str, control_ckpt_path: str,
+    control_ckpt_path: str,
     grid_size: int = 32, enable_gecco: bool = True, enable_adaptive_gate_injection: bool = True,
     smart_init_features: bool = False, sdf_features: bool = False, batch_coords_features: bool = False,
     truncation_ratio: float = 0.30, smart_init_seed: int = 42,
@@ -730,7 +797,7 @@ def run_inference_on_directory(
     
     print(f"Initializing models on {device}...")
     fm, denoiser, control_net, conditioner = load_pipeline(
-        base_config_path, control_ckpt_path, 
+        control_ckpt_path, 
         grid_size, enable_gecco, enable_adaptive_gate_injection,
         smart_init_features, sdf_features, batch_coords_features, device
     )
@@ -798,7 +865,11 @@ def run_inference_on_directory(
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base_config_path", default=BASE_CONFIG_PATH)
+    parser.add_argument("--attn-middle", dest="attn_middle", action=argparse.BooleanOptionalAction, default=ATTN_MIDDLE,
+                        help="Must match the checkpoint: zero-init bottleneck attention")
+    parser.add_argument("--attn-heads", dest="attn_heads", type=int, default=ATTN_HEADS)
+    parser.add_argument("--use-ema", dest="use_ema", action=argparse.BooleanOptionalAction, default=USE_EMA,
+                        help="Load the EMA weights from the checkpoint when present")
     parser.add_argument("--control_ckpt_path", default=CONTROL_CKPT_PATH)
 
     # Input routing (output path inferred dynamically)
@@ -811,9 +882,9 @@ def main():
     parser.add_argument("--enable_gecco", default=ENABLE_GECCO, action=argparse.BooleanOptionalAction)
     parser.add_argument("--enable_adaptive_gate_injection", default=ENABLE_ADAPTIVE_GATE_INJECTION, action=argparse.BooleanOptionalAction)
     parser.add_argument("--truncation_ratio", type=float, default=TRUNCATION_RATIO)
-    parser.add_argument("--fm-coupling", dest="fm_coupling", choices=["gaussian", "smartinit"], default="smartinit",
+    parser.add_argument("--fm-coupling", dest="fm_coupling", choices=["gaussian", "smartinit"], default="gaussian",
                         help="FM source: gaussian (noise->data; SDEdit uses truncation_ratio) or smartinit (start ODE exactly at smart-init, t=1->0)")
-    parser.add_argument("--conditioning", choices=["controlnet", "concat", "spade"], default="spade",
+    parser.add_argument("--conditioning", choices=["controlnet", "concat", "spade"], default="controlnet",
                         help="Conditioning architecture: 'controlnet' (dual-branch), 'concat' or 'spade' (single-stage, attention-free)")
     parser.add_argument("--concat-smart-init-grid", dest="concat_smart_init_grid", action=argparse.BooleanOptionalAction, default=False,
                         help="(concat/spade) also feed the smart-init occupancy grid as a condition channel")
@@ -822,6 +893,11 @@ def main():
     parser.add_argument("--batch_coords_features", action=argparse.BooleanOptionalAction, default=BATCH_COORDS_FEATURES)
     parser.add_argument("--ode_steps", type=int, default=ODE_STEPS)
     parser.add_argument("--ode_method", choices=["euler", "heun"], default=ODE_METHOD)
+    parser.add_argument("--strict-arch", dest="strict_arch", action=argparse.BooleanOptionalAction, default=True,
+                        help="(when --no-arch-from-ckpt) refuse a checkpoint whose stamped architecture differs")
+    parser.add_argument("--arch-from-ckpt", dest="arch_from_ckpt", action=argparse.BooleanOptionalAction, default=True,
+                        help="Build the network from the checkpoint's architecture stamp (authoritative). "
+                             "Use --no-arch-from-ckpt to build from CLI flags instead.")
     parser.add_argument("--eta", type=float, default=ETA,
                         help="Stochasticity: 0 = deterministic ODE (default), 1.0 = canonical reverse SDE. "
                              "Inference-time only; requires no retraining.")
@@ -866,9 +942,11 @@ def run(args):
         )
 
     fm, denoiser, control_net, conditioner = load_pipeline(
-        args.base_config_path, args.control_ckpt_path, args.grid_size, args.enable_gecco, args.enable_adaptive_gate_injection,
+        args.control_ckpt_path, args.grid_size, args.enable_gecco, args.enable_adaptive_gate_injection,
         args.smart_init_features, args.sdf_features, args.batch_coords_features, args.device, args.fm_coupling,
         conditioning=args.conditioning, concat_smart_init_grid=args.concat_smart_init_grid,
+        attn_middle=args.attn_middle, attn_heads=args.attn_heads, use_ema=args.use_ema,
+        strict_arch=args.strict_arch, arch_from_ckpt=args.arch_from_ckpt,
     )
 
     # Single-image behavior: write under sample_outputs/<image_stem>.

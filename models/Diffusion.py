@@ -105,6 +105,16 @@ class DiffusionModel(torch.nn.Module):
         # Reshape for broadcasting purposes
         return out.view([bs] + (len(shape) - 1) * [1])
 
+    def sample_timesteps(self, batch_size):
+        """Integer timesteps, exactly as utils/Trainer used to draw them inline.
+
+        Kept identical (0 .. trained_T) so DDPM behaviour is bit-for-bit unchanged. Trainer
+        now asks the *process* for its timesteps, which is what lets a Flow-Matching process
+        return continuous t instead.
+        """
+        trained_T = int(self.trained_betas.shape[0])
+        return torch.randint(0, trained_T, (batch_size,), device=self.device)
+
     def noise_fn(self, shape):
         return torch.randn(shape, dtype=torch.float32).to(self.device)
 

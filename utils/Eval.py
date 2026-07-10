@@ -83,15 +83,20 @@ class EvalPointset:
         self.plot = PlotPointset()
         self.write = WriteSamples(os.path.join(self.dir, "eval", "samples"), format="{it}.txt")
 
-    def compute(self, it: int, writer: SummaryWriter, model: torch.nn.Module, data: torch.tensor, force: bool =False):
+    def compute(self, it: int, writer: SummaryWriter, model: torch.nn.Module, data: torch.tensor, force: bool =False, raw_model: torch.nn.Module =None):
         if it == 0:
             return 
         
         if it % self.freq == 0 or force:
-            # Save only parameters 
-            torch.save({
-                "diffu": model.state_dict()
-            }, os.path.join(writer.logdir, "model.ckpt"))
+            # Save only parameters.
+            # 'model' is whatever the Trainer decided to evaluate -- EMA weights on the
+            # flow path, raw weights on the diffusion path. 'diffu' stays the key every
+            # loader in this repo reads. When they differ, the raw weights ride along
+            # under 'raw' so an EMA run is never a one-way door.
+            payload = {"diffu": model.state_dict()}
+            if raw_model is not None and raw_model is not model:
+                payload["raw"] = raw_model.state_dict()
+            torch.save(payload, os.path.join(writer.logdir, "model.ckpt"))
             
             for t in self.ts:
                 model.set_num_timesteps(t)        

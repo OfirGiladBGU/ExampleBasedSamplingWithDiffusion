@@ -73,19 +73,46 @@ def parse_diffusion(diffu_params, model, device=DEFAULT_DEVICE):
     loss = diffu_params["loss"]
     return DiffusionModel(model, betas=betas, loss=loss, device=device)
 
+def parse_flow(flow_params, model, device=DEFAULT_DEVICE):
+    """Flow Matching process. Only the keys FM actually uses -- no betas, no schedule."""
+    from models.FlowMatchingProcess import FlowMatchingModel
+    return FlowMatchingModel(
+        model,
+        device=device,
+        loss=flow_params.get("loss", "mse"),
+        t_scale=flow_params.get("t_scale", 1000.0),
+        eps_t=flow_params.get("eps_t", 1e-4),
+        t_dist=flow_params.get("t_dist", "uniform"),
+        t_logitnorm_m=flow_params.get("t_logitnorm_m", 0.0),
+        t_logitnorm_s=flow_params.get("t_logitnorm_s", 1.0),
+        steps=flow_params.get("steps", 50),
+        ode_method=flow_params.get("ode_method", "euler"),
+    )
+
+def parse_process(config, model, device=DEFAULT_DEVICE):
+    """Select the generative process from the config: exactly one of 'diffusion' | 'flow'."""
+    has_diff, has_flow = "diffusion" in config, "flow" in config
+    if has_diff and has_flow:
+        raise ValueError("Config declares BOTH 'diffusion' and 'flow'; pick exactly one.")
+    if has_flow:
+        return parse_flow(config["flow"], model, device=device)
+    if has_diff:
+        return parse_diffusion(config["diffusion"], model, device=device)
+    raise ValueError("Config must declare a process: either a 'diffusion' or a 'flow' block.")
+
 def ParseTrainConfig(path):
     from utils.Trainer import Trainer
     with open(path) as config_file:
         config = json.load(config_file)
         
         assert "model" in config
-        assert "diffusion" in config
+        assert "diffusion" in config or "flow" in config
         assert "train" in config
         assert "eval" in config
         assert "path" in config
 
         model, s, m = parse_model(config["model"])
-        diffu = parse_diffusion(config["diffusion"], model)
+        diffu = parse_process(config, model)
         dataset, params = parse_train(config["train"], s, m)
         eval = parse_eval(config["path"], config["eval"])
 
@@ -107,9 +134,9 @@ def ParseSampleConfig(path, device=DEFAULT_DEVICE):
         config = json.load(config_file)
         
         assert "model" in config
-        assert "diffusion" in config
-        
+        assert "diffusion" in config or "flow" in config
+
         model, s, m = parse_model(config["model"])
-        diffu = parse_diffusion(config["diffusion"], model, device=device)
+        diffu = parse_process(config, model, device=device)
 
         return diffu

@@ -47,7 +47,7 @@ from control_fm.smart_init import (
     render_smart_init_grid,
     smart_init_points_to_offsets,
 )
-from control_fm.flow_matching import FlowMatching, build_velocity_network
+from control_fm_v2.flow_matching import MODEL_CONFIG, FlowMatching, build_velocity_network
 from utils.stippling_metrics import compute_spacing_quality, visualize_overfit_metrics
 
 # ── default globals (edit here for quick experiments) ───────────────
@@ -60,19 +60,23 @@ from utils.stippling_metrics import compute_spacing_quality, visualize_overfit_m
 DATA_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/data_taksim"
 SOURCE_DIR = os.path.join(DATA_ROOT, "source")
 TARGET_DIR = os.path.join(DATA_ROOT, "target")
-BASE_CONFIG_PATH = "config/GBN/config_fm.json"
+# control_fm_v2 has NO config file (see flow_matching.MODEL_CONFIG).
+ATTN_MIDDLE = MODEL_CONFIG["attn_middle"]
+ATTN_HEADS = MODEL_CONFIG["attn_heads"]
+T_DIST = "logitnormal"
+T_LOGITNORM_M = 0.0
+T_LOGITNORM_S = 1.0
 # NOTE: control_fm has NO pretrained baseline. build_velocity_network() / the single-stage
 # builders read the model config only -- they never call torch.load. Both the base U-Net and
 # the control branch are Flow-Matching weights trained from scratch and stored together in
 # the control_fm checkpoint. There is deliberately no "model.ckpt" path here.
 
-OUTPUT_DIR = "control_fm/overfit_outputs_CONCAT"
+OUTPUT_DIR = "control_fm_v2/overfit_outputs_SPADE_SMART"
 WANDB_ENV = ".env"
 EXPORT_GT_OFFSET = True
 
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
-TRUNCATION_RATIO = 1.00
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
 BATCH_COORDS_FEATURES = False
@@ -90,7 +94,6 @@ SMART_INIT_JITTER_PX = 0.5
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 # Loss parameters
-MIN_SNR_GAMMA = 5.0
 GEOM_CLUMP_WEIGHT = 5.0
 BEST_MAX_CV = 1e9
 BEST_MAX_CLUMPED_PCT = 100.0
@@ -110,16 +113,23 @@ CAPACITY_GRID_SIZE = 16
 
 # Flow-Matching sampling
 ODE_STEPS = 50
-ODE_METHOD = "euler"
+ODE_METHOD = "euler"  # keep in step with train_control.py
 ETA = 0.0  # 0 = deterministic ODE; > 0 = stochastic reverse SDE (1.0 = canonical)
 T_SCALE = 1000.0
 # CAPACITY_GRID_SIZE = -1  # -1 for full input resolution
 
-# FM_COUPLING = "smartinit"
-FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
-# CONDITIONING = "spade"
+# MIN_SNR_GAMMA = 5.0
+# NOTE: min-SNR weighting is only defined for the gaussian coupling (FlowMatching raises
+# otherwise), so keep this at 0.0 while FM_COUPLING = "smartinit".
+MIN_SNR_GAMMA = 0.0
+TRUNCATION_RATIO = 1.00
+FM_COUPLING = "smartinit"   # was commented out -> NameError at argparse build time
+# FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
+CONDITIONING = "spade"
 # CONDITIONING = "controlnet"  # "controlnet", "concat", or "spade"
-CONDITIONING = "concat"  # "controlnet", "concat", or "spade"
+# CONDITIONING = "concat"  # "controlnet", "concat", or "spade"
+
+
 
 # ── helpers ──────────────────────────────────────────────────────────
 def load_wandb_key():
@@ -410,7 +420,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # Paths and I/O
-    parser.add_argument("--base_config_path", default=BASE_CONFIG_PATH)
+    parser.add_argument("--t-dist", choices=["uniform", "logitnormal"], default=T_DIST)
+    parser.add_argument("--t-logitnorm-m", type=float, default=T_LOGITNORM_M)
+    parser.add_argument("--t-logitnorm-s", type=float, default=T_LOGITNORM_S)
+    parser.add_argument("--attn-middle", action=argparse.BooleanOptionalAction, default=ATTN_MIDDLE)
+    parser.add_argument("--attn-heads", type=int, default=ATTN_HEADS)
     parser.add_argument("--output_dir", default=OUTPUT_DIR)
     parser.add_argument(
         "--export-gt-offset",
@@ -715,26 +729,32 @@ def main():
 
     # ── build Flow-Matching velocity network from scratch (no diffusion baseline) ──
     fm = FlowMatching(device=device, t_scale=args.t_scale,
-                      coupling=args.fm_coupling, source_jitter_px=args.fm_source_jitter_px)
+                      coupling=args.fm_coupling, source_jitter_px=args.fm_source_jitter_px,
+                      t_dist=args.t_dist, t_logitnorm_m=args.t_logitnorm_m,
+                      t_logitnorm_s=args.t_logitnorm_s,
+                      min_snr_gamma=args.min_snr_gamma)
 
     conditioner = None
     if args.conditioning in ("concat", "spade"):
         # Single-stage, attention-free conditioning; no ControlNet dual-branch.
         n_cond = 1 + (1 if args.concat_smart_init_grid else 0)
         if args.conditioning == "spade":
-            from control_fm.single_stage import build_spade_velocity_network, SPADEConditioner
-            denoiser = build_spade_velocity_network(args.base_config_path, cond_channels=n_cond, device=device)
+            from control_fm_v2.single_stage import build_spade_velocity_network, SPADEConditioner
+            denoiser = build_spade_velocity_network(cond_channels=n_cond, device=device,
+                                                    attn_middle=args.attn_middle, attn_heads=args.attn_heads)
             conditioner = SPADEConditioner(denoiser, use_smart_init_grid=args.concat_smart_init_grid).to(device)
         else:
-            from control_fm.single_stage import build_conditional_velocity_network, SingleStageConditioner
-            denoiser = build_conditional_velocity_network(args.base_config_path, extra_in_channels=n_cond, device=device)
+            from control_fm_v2.single_stage import build_conditional_velocity_network, SingleStageConditioner
+            denoiser = build_conditional_velocity_network(extra_in_channels=n_cond, device=device,
+                                                          attn_middle=args.attn_middle, attn_heads=args.attn_heads)
             conditioner = SingleStageConditioner(denoiser, use_smart_init_grid=args.concat_smart_init_grid).to(device)
         conditioner.train()
         denoiser.train()
         control_net = None
         train_module = conditioner
     else:
-        denoiser = build_velocity_network(args.base_config_path, device=device)
+        # Attach attention BEFORE DynamicControlNet deep-copies denoiser.middle.
+        denoiser = build_velocity_network(device=device, attn_middle=args.attn_middle, attn_heads=args.attn_heads)
 
         # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
         control_net = DynamicControlNet(
@@ -892,7 +912,8 @@ def main():
         per_sample_mse = F.mse_loss(v_pred, v_target, reduction="none")
         per_sample_mse = per_sample_mse.mean(dim=(1, 2, 3))
 
-        denoise_loss = per_sample_mse.mean()
+        snr_w = fm.loss_weight(t)
+        denoise_loss = (snr_w * per_sample_mse).mean()
         loss = denoise_loss
 
         loss_val = loss.item()

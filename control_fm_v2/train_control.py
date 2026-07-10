@@ -8,7 +8,6 @@ RePaint-style resampling via ``--resample-jumps``.
 
 Usage (from project root):
     python control_fm/train_control.py \
-        --base_config_path config/GBN/config_fm.json \
         --source  /path/to/source \
         --offsets /path/to/processed_offsets \
         --epochs  100 \
@@ -17,6 +16,7 @@ Usage (from project root):
         --out control_fm/control_out
 """
 
+import contextlib
 import os
 import sys
 import argparse
@@ -45,11 +45,10 @@ except Exception:
 from control_fm.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from control_fm.DynamicStippleDataset import DynamicStippleDataset
 from control_fm.smart_init import build_smart_init_from_image
-from control_fm.flow_matching import (
-    FlowMatching,
-    build_velocity_network,
-    load_denoiser_base_weights,
-)
+from control_fm_v2.flow_matching import MODEL_CONFIG, FlowMatching, build_velocity_network
+from control_fm_v2.geometry_loss import GeometryLoss
+from control_fm_v2.ema import WeightEMA
+from control_fm_v2.arch import arch_from
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
 from utils.stippling_metrics import geometric_validation_score
 
@@ -58,31 +57,22 @@ from utils.stippling_metrics import geometric_validation_score
 # Paths and I/O
 WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
 
-FREEZE_DENOISER = False  # single-model Flow Matching: train base + control jointly
-
-
-BASE_CONFIG_PATH = "config/GBN/config_fm.json"
-
-# Two-stage ControlNet: load a TRAINED Flow-Matching base into the denoiser and (optionally)
-# freeze it, training only the control branch on top. Empty string = original behaviour
-# (base U-Net trained from scratch, jointly with the control branch, stored together in the
-# control_fm checkpoint). When set, the base weights are loaded BEFORE the control branch is
-# built, so the deep-copied control branch warm-starts from the trained base (Zhang et al.).
-# The referenced ckpt's model block must match BASE_CONFIG_PATH's model block, and the base
-# was trained with gaussian coupling -- so a loaded base requires --fm-coupling gaussian.
-#   Two-stage frozen run:
-#     --base-ckpt-path config_trained/GBN_FM/model.ckpt --freeze-denoiser --fm-coupling gaussian
-BASE_CKPT_PATH = ""
+# control_fm_v2 has NO config file. The architecture lives in
+# control_fm_v2/flow_matching.py::MODEL_CONFIG.
+# NOTE: control_fm has NO pretrained baseline. build_velocity_network() / the single-stage
+# builders read the model config only -- they never call torch.load. Both the base U-Net and
+# the control branch are Flow-Matching weights trained from scratch and stored together in
+# the control_fm checkpoint. There is deliberately no "model.ckpt" path here.
 
 # ICONS 1024 WVS
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
 # TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-# OUTPUT_DIR = "control_fm/train_outputs_icons50_512_no_random_CN_TRUNC_HEUN"
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_no_random_CN_TRUNC_HEUN"
 
 # ICONS 1024 GBN
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/target"
-OUTPUT_DIR = "control_fm/train_outputs_icons50_512_GBN_CN_FM_FROZEN"
+OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_SPADE_GEO"
 
 GRID_SIZE = 32
 VAL_SPLIT = 0.1
@@ -95,6 +85,12 @@ SDF_FEATURES = False
 BATCH_COORDS_FEATURES = False
 ENABLE_SMART_INIT_JITTER = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+MIN_SNR_GAMMA = 5.0
+
+# GEO_WEIGHT = 0.0
+GEO_WEIGHT = 0.05          # lambda_geo -- primary term (density-warped spacing hinge)
+
 
 # # CONCAT
 # ODE_METHOD = "euler"
@@ -115,12 +111,13 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # CONDITIONING = "controlnet"  # "controlnet", "concat", or "spade"
 
 # SPADE
-# ODE_METHOD = "euler"
-# TRUNCATION_RATIO = 1.00
-# FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
-# CONDITIONING = "spade"  # "controlnet", "concat", or "spade"
+ODE_METHOD = "euler"
+TRUNCATION_RATIO = 1.00
+FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
+CONDITIONING = "spade"  # "controlnet", "concat", or "spade"
 
 # SPADE + SMART
+# MIN_SNR_GAMMA = 0.0
 # ODE_METHOD = "euler"
 # TRUNCATION_RATIO = 1.00
 # FM_COUPLING = "smartinit"
@@ -132,13 +129,6 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
 # CONDITIONING = "controlnet"  # "controlnet", "concat", or "spade"
 
-# CN + TRUC
-BASE_CKPT_PATH = "config_trained/GBN_FM/model.ckpt"
-ODE_METHOD = "euler"
-TRUNCATION_RATIO = 0.30
-FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
-CONDITIONING = "controlnet"  # "controlnet", "concat", or "spade"
-FREEZE_DENOISER = True
 
 # FACES 1024
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
@@ -239,6 +229,7 @@ PRELOAD_RAM = False  # Preload all cached data to RAM (eliminates disk I/O per b
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
 # Model parameters
+FREEZE_DENOISER = False  # single-model Flow Matching: train base + control jointly
 # GRID_SIZE = 32
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
@@ -246,15 +237,43 @@ SMART_INIT_JITTER_PX = 0.5
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 # Loss component weights
-MIN_SNR_GAMMA = 5.0        # ported from v2: >0 applies min-SNR velocity weighting (gaussian only)
-T_DIST = "logitnormal"     # 'uniform' | 'logitnormal'; the trained base used logit-normal
-T_LOGITNORM_M = 0.0
-T_LOGITNORM_S = 1.0
+# Tier 1.3: 0.0 disables SNR weighting (plain velocity MSE).
+# NOTE: partially redundant with logit-normal t -- both concentrate gradient on mid-t.
+# Also w(t) -> 0 as t -> 1, i.e. exactly where gaussian sampling STARTS. Ablate it
+# separately; this is the least certain of the Tier-1 changes.
 GEOM_CLUMP_WEIGHT = 1.0
 BEST_MAX_CV = 1e9
 BEST_MAX_CLUMPED_PCT = 100.0
 
 # Training configuration
+# ── control_fm_v2 upgrades (guide: enable ONE at a time, validate after each) ──
+USE_EMA = True             # Tier 1.1 -- highest priority, on by default
+EMA_DECAY = 0.9999
+EMA_WARMUP_STEPS = 500
+T_DIST = "logitnormal"     # Tier 1.2 -- 'uniform' | 'logitnormal'
+T_LOGITNORM_M = 0.0
+T_LOGITNORM_S = 1.0
+# Tier 2 -- single source of truth is flow_matching.MODEL_CONFIG
+ATTN_MIDDLE = MODEL_CONFIG["attn_middle"]
+ATTN_HEADS = MODEL_CONFIG["attn_heads"]
+
+# ── Geometry loss on the one-step-decoded points (see geometry_loss.py) ──────
+# Auxiliary spacing signal that velocity-MSE is structurally blind to. Enabled by default
+# with a deliberately small weight; the velocity loss must stay dominant.
+GEO_CAP_WEIGHT = 0.0       # lambda_cap -- optional allocative term; leave off unless density drifts
+GEO_T_MODE = "hard"        # 'hard' | 'ramp' | 'off'; hard mask is the reasoned default
+GEO_T_MAX = 0.4            # apply only where the one-step x0 decode is trustworthy
+GEO_T_RAMP_K = 2.0         # exponent for t_mode='ramp'
+GEO_WARMUP_STEPS = 2000    # x0_pred is garbage everywhere early on; wait for v-loss to settle
+GEO_RAMP_STEPS = 1000      # then ease lambda in linearly (avoids a step-change spike-skip)
+GEO_SUBSAMPLE = 0          # 0 = all G*G points; >0 caps the O(N^2) cdist (spacing term only)
+GEO_SPACING_SCALE = 1.0    # r_target = scale * r_pack, r_pack = sqrt(2/sqrt(3)) ~ 1.0746
+GEO_RHO_FLOOR = 1e-3       # guards the density warp where rho -> 0 (white regions)
+GEO_WARP_GRID = 0          # 0 = warp against the full-res density map
+GEO_STOP_GRAD_WARP = True  # gradient flows through cdist only
+GEO_CAP_TAU = 5e-3         # soft-Voronoi temperature (control_gt_free: 0.02 -> 0.002)
+GEO_CAP_GRID = 32          # soft-Voronoi grid for the capacity term
+
 WANDB_ACTIVE = True
 
 BATCH_SIZE = 16
@@ -699,15 +718,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
 
     # Paths and I/O
-    parser.add_argument("--base_config_path", default=BASE_CONFIG_PATH)
-    parser.add_argument("--base-ckpt-path", default=BASE_CKPT_PATH,
-                        help="Two-stage: load a trained FM base into the denoiser before "
-                             "building the control branch. Empty = train base from scratch.")
-    parser.add_argument("--base-use-raw", action=argparse.BooleanOptionalAction, default=False,
-                        help="Load the non-EMA ('raw') base weights instead of the EMA ('diffu').")
-    parser.add_argument("--base-strict", action=argparse.BooleanOptionalAction, default=True,
-                        help="Require an exact base-weight match (default). --no-base-strict "
-                             "permits a partial load.")
     parser.add_argument("--source",
                         default=SOURCE_DIR,
                         help="Dir of full-resolution grayscale source images")
@@ -798,6 +808,38 @@ def main():
         default=MIN_SNR_GAMMA,
         help="Gamma for Min-SNR loss weighting (0 disables)",
     )
+    parser.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=USE_EMA,
+                        help="Tier 1.1: maintain a weight EMA and use it for eval/geometry/checkpoints")
+    parser.add_argument("--ema-decay", type=float, default=EMA_DECAY)
+    parser.add_argument("--ema-warmup-steps", type=int, default=EMA_WARMUP_STEPS,
+                        help="Hard-copy the shadow below this many accepted steps")
+    parser.add_argument("--t-dist", choices=["uniform", "logitnormal"], default=T_DIST,
+                        help="Tier 1.2: timestep sampling distribution")
+    parser.add_argument("--t-logitnorm-m", type=float, default=T_LOGITNORM_M)
+    parser.add_argument("--t-logitnorm-s", type=float, default=T_LOGITNORM_S)
+    parser.add_argument("--attn-middle", action=argparse.BooleanOptionalAction, default=ATTN_MIDDLE,
+                        help="Tier 2: zero-init multi-head bottleneck attention (no positional encoding)")
+    parser.add_argument("--attn-heads", type=int, default=ATTN_HEADS)
+    # Geometry loss (geometry_loss.py). NOTE: unrelated to --geom-clump-weight below,
+    # which weights a *reported metric* in the best-checkpoint score, not the loss.
+    parser.add_argument("--geo-weight", type=float, default=GEO_WEIGHT,
+                        help="lambda_geo for the density-warped spacing hinge (0 disables)")
+    parser.add_argument("--geo-cap-weight", type=float, default=GEO_CAP_WEIGHT,
+                        help="lambda_cap for the optional soft-capacity term (0 disables)")
+    parser.add_argument("--geo-t-mode", choices=["hard", "ramp", "off"], default=GEO_T_MODE,
+                        help="w(t): 'hard' masks t<t_max; 'ramp' uses (1-t)^k; 'off' is uniform")
+    parser.add_argument("--geo-t-max", type=float, default=GEO_T_MAX)
+    parser.add_argument("--geo-t-ramp-k", type=float, default=GEO_T_RAMP_K)
+    parser.add_argument("--geo-warmup-steps", type=int, default=GEO_WARMUP_STEPS)
+    parser.add_argument("--geo-ramp-steps", type=int, default=GEO_RAMP_STEPS)
+    parser.add_argument("--geo-subsample", type=int, default=GEO_SUBSAMPLE)
+    parser.add_argument("--geo-spacing-scale", type=float, default=GEO_SPACING_SCALE)
+    parser.add_argument("--geo-rho-floor", type=float, default=GEO_RHO_FLOOR)
+    parser.add_argument("--geo-warp-grid", type=int, default=GEO_WARP_GRID)
+    parser.add_argument("--geo-stop-grad-warp", action=argparse.BooleanOptionalAction,
+                        default=GEO_STOP_GRAD_WARP)
+    parser.add_argument("--geo-cap-tau", type=float, default=GEO_CAP_TAU)
+    parser.add_argument("--geo-cap-grid", type=int, default=GEO_CAP_GRID)
     parser.add_argument("--geom-clump-weight", type=float, default=GEOM_CLUMP_WEIGHT,
                         help="Weight of clumped_pct in geometric score: score = cv + w*(clumped_pct/100)")
     parser.add_argument("--best-max-cv", type=float, default=BEST_MAX_CV,
@@ -874,10 +916,6 @@ def main():
     parser.add_argument("--device", default=DEVICE)
     parser.add_argument("--ode-steps", type=int, default=ODE_STEPS,
                         help="Number of Euler/Heun steps for Flow-Matching ODE eval sampling")
-    parser.add_argument("--t-dist", choices=["uniform", "logitnormal"], default=T_DIST,
-                        help="Timestep sampling distribution (ported from v2)")
-    parser.add_argument("--t-logitnorm-m", type=float, default=T_LOGITNORM_M)
-    parser.add_argument("--t-logitnorm-s", type=float, default=T_LOGITNORM_S)
     parser.add_argument("--ode-method", choices=["euler", "heun"], default=ODE_METHOD,
                         help="ODE integrator for Flow-Matching sampling")
     parser.add_argument("--eta", type=float, default=ETA,
@@ -984,48 +1022,42 @@ def run(args):
                       t_logitnorm_s=args.t_logitnorm_s,
                       min_snr_gamma=args.min_snr_gamma)
 
-    # Two-stage guards: a trained base is a gaussian noise->data field wired only into the
-    # dual-branch controlnet path. Fail fast rather than load into a mismatched pipeline.
-    if args.base_ckpt_path:
-        if args.conditioning != "controlnet":
-            raise ValueError(
-                "--base-ckpt-path is only supported with --conditioning controlnet; the "
-                "concat/spade single-stage builders change the input channels, so the base "
-                "weights would not align."
-            )
-        if args.fm_coupling != "gaussian":
-            raise ValueError(
-                "--base-ckpt-path loads a base trained with gaussian coupling. Reusing it "
-                "under --fm-coupling smartinit would feed the frozen field inputs it never "
-                "saw. Use --fm-coupling gaussian (or train the base from scratch)."
-            )
+    geo_loss = GeometryLoss(
+        weight=args.geo_weight, cap_weight=args.geo_cap_weight,
+        t_mode=args.geo_t_mode, t_max=args.geo_t_max, t_ramp_k=args.geo_t_ramp_k,
+        warmup_steps=args.geo_warmup_steps, ramp_steps=args.geo_ramp_steps,
+        subsample=args.geo_subsample, spacing_scale=args.geo_spacing_scale,
+        rho_floor=args.geo_rho_floor, warp_grid=args.geo_warp_grid,
+        stop_grad_warp=args.geo_stop_grad_warp,
+        cap_tau=args.geo_cap_tau, cap_grid=args.geo_cap_grid,
+    )
+    print(geo_loss.describe())
 
     conditioner = None
     if args.conditioning in ("concat", "spade"):
         # Single-stage, attention-free conditioning; no ControlNet dual-branch.
         n_cond = 1 + (1 if args.concat_smart_init_grid else 0)
         if args.conditioning == "spade":
-            from control_fm.single_stage import build_spade_velocity_network, SPADEConditioner
-            denoiser = build_spade_velocity_network(args.base_config_path, cond_channels=n_cond, device=device)
+            from control_fm_v2.single_stage import build_spade_velocity_network, SPADEConditioner
+            denoiser = build_spade_velocity_network(
+                cond_channels=n_cond, device=device,
+                attn_middle=args.attn_middle, attn_heads=args.attn_heads)
             conditioner = SPADEConditioner(denoiser, use_smart_init_grid=args.concat_smart_init_grid).to(device)
         else:
-            from control_fm.single_stage import build_conditional_velocity_network, SingleStageConditioner
-            denoiser = build_conditional_velocity_network(args.base_config_path, extra_in_channels=n_cond, device=device)
+            from control_fm_v2.single_stage import build_conditional_velocity_network, SingleStageConditioner
+            denoiser = build_conditional_velocity_network(
+                extra_in_channels=n_cond, device=device,
+                attn_middle=args.attn_middle, attn_heads=args.attn_heads)
             conditioner = SingleStageConditioner(denoiser, use_smart_init_grid=args.concat_smart_init_grid).to(device)
         conditioner.train()
         denoiser.train()
         control_net = None
         train_module = conditioner
     else:
-        denoiser = build_velocity_network(args.base_config_path, device=device)
-
-        # Two-stage: load the trained FM base into the denoiser BEFORE building the control
-        # branch, so DynamicControlNet's deep copies warm-start from the trained base.
-        if args.base_ckpt_path:
-            load_denoiser_base_weights(
-                denoiser, args.base_ckpt_path,
-                use_raw=args.base_use_raw, strict=args.base_strict,
-            )
+        # Tier 2: attention is attached to denoiser.middle HERE, before DynamicControlNet
+        # deep-copies that middle -- otherwise the control branch silently lacks it.
+        denoiser = build_velocity_network(
+            device=device, attn_middle=args.attn_middle, attn_heads=args.attn_heads)
 
         # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
         control_net = DynamicControlNet(
@@ -1066,16 +1098,16 @@ def run(args):
     print(f"ODE sampling steps                    : {args.ode_steps}")
     print(f"ODE method                            : {args.ode_method}")
     print(f"t-scale (timestep embedding)          : {args.t_scale}")
+    print(f"t distribution (Tier 1.2)             : {args.t_dist}"
+          + (f" (m={args.t_logitnorm_m}, s={args.t_logitnorm_s})" if args.t_dist == "logitnormal" else ""))
+    print(f"min-SNR gamma (Tier 1.3)              : {args.min_snr_gamma}"
+          + ("  [disabled]" if args.min_snr_gamma <= 0 else ""))
+    print(f"Bottleneck attention (Tier 2)         : {args.attn_middle}"
+          + (f" ({args.attn_heads} heads, zero-init, no pos-enc)" if args.attn_middle else ""))
     print(f"Smart Init features enabled           : {args.smart_init_features}")
     print(f"SDF features enabled                  : {args.sdf_features}")
     print(f"Batch coords features enabled         : {args.batch_coords_features}")
     print(f"Min-SNR gamma                         : {args.min_snr_gamma}")
-    print(f"t distribution                        : {args.t_dist}")
-    if args.base_ckpt_path:
-        _mode = "FROZEN" if args.freeze_denoiser else "warm-start (trainable)"
-        print(f"Base FM checkpoint                     : {args.base_ckpt_path} [{_mode}]")
-    else:
-        print(f"Base FM checkpoint                     : (none -- base trained from scratch)")
     print(f"SDF truncation (px)                   : {args.sdf_truncate_px}")
     print(f"Smart Init micro-jitter (train, px)  : {args.smart_init_jitter_px}")
     print(f"Smart Init soft-splat sigma (px)     : {args.smart_init_splat_sigma_px}")
@@ -1190,6 +1222,22 @@ def run(args):
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, _lr_lambda)
 
+    # ── Tier 1.1: weight EMA over every jointly-trained module ────────────────
+    # controlnet path: control_net and denoiser are separate modules, both optimised.
+    # concat/spade path: train_module IS the conditioner and already holds the network.
+    ema = None
+    if args.use_ema:
+        ema_targets = {"control_net": train_module}
+        if control_net is not None:
+            ema_targets["denoiser"] = denoiser
+        ema = WeightEMA(ema_targets, decay=args.ema_decay, warmup_steps=args.ema_warmup_steps)
+        print(f"Weight EMA enabled                    : decay={args.ema_decay} warmup={args.ema_warmup_steps}")
+
+    def ema_ctx():
+        """Swap EMA weights in for eval/geometry/sampling. THE bug this prevents: keeping an
+        EMA but still sampling from the raw weights."""
+        return ema.averaged() if ema is not None else contextlib.nullcontext()
+
     # ── optional resume from latest checkpoint ───────────────────────
     start_epoch = 0
     global_step = 0
@@ -1234,6 +1282,13 @@ def run(args):
                     )
             if "optimizer" in state and state["optimizer"] is not None:
                 optimizer.load_state_dict(state["optimizer"])
+            if ema is not None:
+                if state.get("ema") is not None:
+                    ema.load_state_dict(state["ema"])
+                    print("  -> restored EMA shadow from checkpoint")
+                else:
+                    print("  -> WARNING: checkpoint has no EMA shadow; EMA restarts from the "
+                          "resumed weights (it will re-warm over --ema-warmup-steps).")
             global_step = int(state.get("global_step", 0))
             best_geom_score = float(state.get("best_geom_score", best_geom_score))
             # epoch in checkpoint is 0-based. Continue from next epoch.
@@ -1247,6 +1302,7 @@ def run(args):
     for epoch in range(start_epoch, args.epochs):
         should_save_epoch = ((epoch + 1) % args.save_every == 0) or ((epoch + 1) == args.epochs)
         epoch_loss = 0.0
+        epoch_geo = {"spacing": 0.0, "capacity": 0.0, "total": 0.0, "frac_active": 0.0, "n": 0}
         preview_batch = None
 
         train_module.train()
@@ -1342,13 +1398,30 @@ def run(args):
 
             per_sample_mse = F.mse_loss(v_pred, v_target, reduction="none")
             per_sample_mse = per_sample_mse.mean(dim=(1, 2, 3))
-            # Ported from v2: min-SNR velocity weighting. fm.loss_weight returns ones when
-            # --min-snr-gamma <= 0, so this is a no-op unless enabled.
+            # Tier 1.3: min-SNR weighting, derived for THIS interpolant (see
+            # flow_matching.FlowMatching.loss_weight). Returns ones when disabled.
             snr_w = fm.loss_weight(t)
             denoise_loss = (snr_w * per_sample_mse).mean()
             loss = denoise_loss
 
+            # Auxiliary geometry loss on the one-step-decoded points. Returns None (not a
+            # zero tensor) while inside warmup or when the t-mask empties the batch.
+            geo_comps = {}
+            if geo_loss.enabled:
+                x0_pred = fm.x0_from_velocity(offsets_t, t, v_pred)
+                geo_total, geo_comps = geo_loss(x0_pred, t, target_density, global_step)
+                if geo_total is not None:
+                    loss = loss + geo_total
+                    epoch_geo["n"] += 1
+                    for _k in ("spacing", "capacity", "total", "frac_active"):
+                        if "geo/" + _k in geo_comps:
+                            epoch_geo[_k] += geo_comps["geo/" + _k]
+
             loss_val = loss.item()
+            # Spike detection tracks the VELOCITY loss, not the total: the geometry term
+            # legitimately raises the total when it ramps in, and a step-change there would
+            # otherwise be misread as a bad batch and skipped.
+            denoise_val = denoise_loss.item()
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             if conditioner is not None:
@@ -1363,7 +1436,7 @@ def run(args):
             is_spike = (
                 args.spike_factor > 0
                 and loss_ema is not None
-                and loss_val > args.spike_factor * loss_ema
+                and denoise_val > args.spike_factor * loss_ema
             )
             if (not math.isfinite(loss_val)) or (not grads_ok) or is_spike:
                 optimizer.zero_grad(set_to_none=True)
@@ -1372,7 +1445,9 @@ def run(args):
             else:
                 optimizer.step()
                 scheduler.step()
-                loss_ema = loss_val if loss_ema is None else (1.0 - args.spike_ema_beta) * loss_ema + args.spike_ema_beta * loss_val
+                if ema is not None:
+                    ema.update()
+                loss_ema = denoise_val if loss_ema is None else (1.0 - args.spike_ema_beta) * loss_ema + args.spike_ema_beta * denoise_val
                 epoch_loss += loss_val
                 train_pbar.set_postfix(loss=f"{loss_val:.6f}")
             global_step += 1
@@ -1381,7 +1456,8 @@ def run(args):
 
         if should_save_epoch and args.wandb_train_images > 0 and preview_batch is not None and preview_batch["high_res"].shape[0] > 0:
             train_module.eval()
-            train_pred_raw = sample_eval_batch(
+            with ema_ctx():
+                train_pred_raw = sample_eval_batch(
                 fm,
                 denoiser,
                 control_net,
@@ -1394,8 +1470,8 @@ def run(args):
                 tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [train-predict]",
                 t_start=args.t_start,
                 eta=args.eta,
-                conditioner=conditioner,
-            )
+                    conditioner=conditioner,
+                )
             train_panel_path = os.path.join(args.out, f"train_panel_ep{epoch+1}.png")
             train_saved = save_val_panel(
                 train_panel_path,
@@ -1490,10 +1566,10 @@ def run(args):
                         )
                         v_pred = denoiser(offsets_t, t_net, controls=controls)
 
+                    # Deliberately UNWEIGHTED: keeps val curves comparable across
+                    # --min-snr-gamma settings.
                     per_sample_mse = F.mse_loss(v_pred, v_target, reduction="none")
                     per_sample_mse = per_sample_mse.mean(dim=(1, 2, 3))
-                    # Deliberately UNWEIGHTED (no min-SNR) so val curves stay comparable
-                    # across --min-snr-gamma settings.
                     val_loss = per_sample_mse.mean()
 
                     val_loss_sum += val_loss.item()
@@ -1505,7 +1581,8 @@ def run(args):
             if should_save_epoch and args.wandb_valid_images > 0:
                 # Export per-epoch qualitative val panel (N samples, 4 columns).
                 train_module.eval()
-                pred_raw = sample_eval_batch(
+                with ema_ctx():
+                    pred_raw = sample_eval_batch(
                     fm,
                     denoiser,
                     control_net,
@@ -1518,8 +1595,8 @@ def run(args):
                     tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [predict]",
                     t_start=args.t_start,
                     eta=args.eta,
-                    conditioner=conditioner,
-                )
+                        conditioner=conditioner,
+                    )
                 pred_raw_for_geom = pred_raw
                 panel_path = os.path.join(args.out, f"val_panel_ep{epoch+1}.png")
                 saved = save_val_panel(
@@ -1548,7 +1625,8 @@ def run(args):
             if should_save_epoch and val_preview_batch is not None and val_preview_batch["high_res"].shape[0] > 0:
                 train_module.eval()
                 if pred_raw_for_geom is None:
-                    pred_raw_for_geom = sample_eval_batch(
+                    with ema_ctx():
+                        pred_raw_for_geom = sample_eval_batch(
                         fm,
                         denoiser,
                         control_net,
@@ -1561,8 +1639,8 @@ def run(args):
                         tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [geom]",
                         t_start=args.t_start,
                         eta=args.eta,
-                        conditioner=conditioner,
-                    )
+                            conditioner=conditioner,
+                        )
 
                 pred_pointsets = []
                 for raw_sample in pred_raw_for_geom:
@@ -1594,10 +1672,15 @@ def run(args):
                     )
                     new_best_path = os.path.join(checkpoints_dir, best_name)
                     best_payload = {
+                        # Architecture identity -- the loader refuses a mismatching rebuild.
+                        "arch": arch_from(args),
                         "control_net": train_module.state_dict(),
                         # controlnet path trains the base U-Net jointly but keeps it outside
                         # control_net, so it must be saved separately or it is lost.
                         "denoiser": (denoiser.state_dict() if control_net is not None else None),
+                        "control_net_ema": (ema.shadow["control_net"] if ema is not None else None),
+                        "denoiser_ema": (ema.shadow.get("denoiser") if ema is not None else None),
+                        "ema": (ema.state_dict() if ema is not None else None),
                         "optimizer": optimizer.state_dict(),
                         "epoch": epoch,
                         "global_step": global_step,
@@ -1636,6 +1719,18 @@ def run(args):
             # Log train loss separately
             wandb.log({"epoch": epoch + 1, "metrics/train_loss": avg_loss}, step=epoch + 1)
 
+            # Geometry-loss components (training surrogate only -- never a reported result)
+            if epoch_geo["n"] > 0:
+                _n = epoch_geo["n"]
+                wandb.log({
+                    "epoch": epoch + 1,
+                    "geo/spacing": epoch_geo["spacing"] / _n,
+                    "geo/capacity": epoch_geo["capacity"] / _n,
+                    "geo/total": epoch_geo["total"] / _n,
+                    "geo/frac_active": epoch_geo["frac_active"] / _n,
+                    "geo/scale": geo_loss.scale(global_step),
+                }, step=epoch + 1)
+
             # Log val loss separately if available
             if val_avg_loss is not None:
                 wandb.log({"epoch": epoch + 1, "metrics/valid_loss": val_avg_loss}, step=epoch + 1)
@@ -1658,8 +1753,13 @@ def run(args):
         if should_save_epoch:
             save_path = os.path.join(checkpoints_dir, f"dynamic_controlnet_fm_ep{epoch+1}.pt")
             torch.save({
+                # Architecture identity -- the loader refuses a mismatching rebuild.
+                "arch": arch_from(args),
                 "control_net": train_module.state_dict(),
                 "denoiser": (denoiser.state_dict() if control_net is not None else None),
+                "control_net_ema": (ema.shadow["control_net"] if ema is not None else None),
+                "denoiser_ema": (ema.shadow.get("denoiser") if ema is not None else None),
+                "ema": (ema.state_dict() if ema is not None else None),
                 "optimizer": optimizer.state_dict(),
                 "epoch": epoch,
                 "global_step": global_step,

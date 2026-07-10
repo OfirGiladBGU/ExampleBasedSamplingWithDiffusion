@@ -1,0 +1,42 @@
+{
+    "path": "config_trained/GBN_FM",
+    "model": 
+    {
+        "num_channels": 2,
+        "ch": 128, 
+        "out_ch": 2, 
+        "ch_mult": [1, 2, 3],
+        "num_res": 2, 
+        "attn_layers": [],
+        "attn_middle": false,
+        "dropout": 0.1, 
+        "resamp_with_conv": true
+    },
+    "flow": 
+    {
+        "loss": "mse",
+        "t_scale": 1000.0,
+        "eps_t": 1e-4,
+        "t_dist": "logitnormal",
+        "t_logitnorm_m": 0.0,
+        "t_logitnorm_s": 1.0,
+        "steps": 50,
+        "ode_method": "euler"
+    },
+    "train": 
+    {
+        "dataset": "db/db_full.hdf5",
+        "samplers": ["GBN"], 
+        "batch_size": 32,
+        "ema_decay": 0.995,
+        "ema_update_every": 25,
+        "use_ema_for_eval": true,
+        "lr": 1e-5
+    },
+    "eval": 
+    {    
+        "directory": "eval/", 
+        "freq": 1000000,
+        "ts": [20, 50]
+    }
+}
