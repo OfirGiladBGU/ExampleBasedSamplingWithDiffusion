@@ -105,7 +105,7 @@ BATCH_COORDS_FEATURES = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 SHOW_DENOISING = False
 SHOW_DENOISING_INTERVAL = 50
-TRUNCATION_RATIO = 0.30
+INFER_TRUNCATION_RATIO = 0.30
 T_START_STEP = -1
 SMART_INIT_SEED = 42
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
@@ -775,7 +775,8 @@ def main():
         type=int,
         default=SHOW_DENOISING_INTERVAL,
     )
-    parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO)
+    parser.add_argument("--infer-truncation-ratio", type=float, default=INFER_TRUNCATION_RATIO,
+                        help="INFERENCE truncation: SDEdit start level for sampling")
     parser.add_argument("--t-start-step", type=int, default=T_START_STEP,
                         help="If >=0, overrides truncation-ratio derived start step")
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
@@ -814,7 +815,7 @@ def main():
     parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
 
-    if not (0.0 < args.truncation_ratio <= 1.0):
+    if not (0.0 < args.infer_truncation_ratio <= 1.0):
         raise ValueError("--truncation-ratio must be in (0,1]")
     if args.capacity_grid_size == 0 or args.capacity_grid_size < -1:
         raise ValueError("--capacity-grid-size must be > 0, or -1 for full input resolution")
@@ -907,7 +908,7 @@ def main():
     diffusion.set_num_timesteps(args.timesteps)
     diffusion.eval()
 
-    t_start = args.t_start_step if args.t_start_step >= 0 else int(args.timesteps * args.truncation_ratio)
+    t_start = args.t_start_step if args.t_start_step >= 0 else int(args.timesteps * args.infer_truncation_ratio)
     t_start = int(np.clip(t_start, 1, max(args.timesteps - 1, 1)))
 
     n_samples = args.n_samples

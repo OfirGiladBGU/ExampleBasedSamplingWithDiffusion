@@ -69,7 +69,8 @@ EXPORT_GT_OFFSET = True
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.30
+TRAIN_TRUNCATION_RATIO = 0.30
+INFER_TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 2
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
@@ -454,10 +455,16 @@ def main():
         help="Diffusion timesteps used when sampling the model for visualisation",
     )
     parser.add_argument(
-        "--truncation-ratio",
+        "--train-truncation-ratio",
         type=float,
-        default=TRUNCATION_RATIO,
-        help="Train/sampling truncation ratio for late-timestep diffusion",
+        default=TRAIN_TRUNCATION_RATIO,
+        help="TRAINING only: draw diffusion timesteps from [0, ratio * total_timesteps)",
+    )
+    parser.add_argument(
+        "--infer-truncation-ratio",
+        type=float,
+        default=INFER_TRUNCATION_RATIO,
+        help="INFERENCE only: SDEdit start level for sampling (<1.0 starts from a noised smart-init)",
     )
     parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX,
                         help="Truncate signed distance magnitudes before max-normalization (0 disables)")
@@ -701,7 +708,8 @@ def main():
     diffusion.to(device)
 
     denoiser = diffusion.model
-    truncation_cutoff = max(1, int(args.eval_timesteps * args.truncation_ratio))
+    # TRAINING truncation: restricts the diffusion timesteps sampled during training.
+    truncation_cutoff = max(1, int(args.eval_timesteps * args.train_truncation_ratio))
 
     # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
     control_net = DynamicControlNet(
@@ -734,8 +742,9 @@ def main():
     print(f"Grid size                             : {args.grid_size}x{args.grid_size}")
     print(f"GECCO dynamic features enabled        : {args.enable_gecco}")
     print(f"Adaptive gate injection enabled       : {args.enable_adaptive_gate_injection}")
-    print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
-    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{args.eval_timesteps}")
+    print(f"Train truncation ratio                : {args.train_truncation_ratio:.3f}")
+    print(f"Train truncation cutoff timesteps     : {truncation_cutoff}/{args.eval_timesteps}")
+    print(f"Infer truncation ratio (SDEdit)       : {args.infer_truncation_ratio:.3f}")
     print(f"Eval resample-jumps                   : {args.resample_jumps}")
     print(f"Smart Init features enabled           : {args.smart_init_features}")
     print(f"SDF features enabled                  : {args.sdf_features}")
@@ -871,7 +880,7 @@ def main():
                 n_samples=args.n_samples,
                 eval_timesteps=args.eval_timesteps,
                 resample_jumps=args.resample_jumps,
-                truncation_ratio=args.truncation_ratio,
+                truncation_ratio=args.infer_truncation_ratio,
             )
             vis_path = os.path.join(vis_dir, f"vis_step{step:05d}.png")
             saved = visualize_overfit_metrics(

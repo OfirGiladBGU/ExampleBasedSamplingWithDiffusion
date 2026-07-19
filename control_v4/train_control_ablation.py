@@ -51,7 +51,8 @@ SAVE_EVERY = 25
 ENABLE_GECCO = False
 ENABLE_ADAPTIVE_GATE_INJECTION = False
 EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 1.0
+TRAIN_TRUNCATION_RATIO = 1.0
+INFER_TRUNCATION_RATIO = 1.0
 RESAMPLE_JUMPS = 0
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
@@ -71,7 +72,8 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = False
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 1.0
+# TRAIN_TRUNCATION_RATIO = 1.0
+# INFER_TRUNCATION_RATIO = 1.0
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -91,7 +93,8 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = False
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 1.0
+# TRAIN_TRUNCATION_RATIO = 1.0
+# INFER_TRUNCATION_RATIO = 1.0
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -111,7 +114,8 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 1.0
+# TRAIN_TRUNCATION_RATIO = 1.0
+# INFER_TRUNCATION_RATIO = 1.0
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -211,8 +215,13 @@ def main():
                         help="Timesteps used in intermediate eval sampling")
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS,
                         help="RePaint micro-loops per timestep during eval sampling")
-    parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO,
-                        help="Train only on timesteps [0, truncation_ratio * total_timesteps)")
+    # NOTE: run() (control_v4.train_control) reads BOTH of these, so the ablation parser MUST
+    # define them. The 4 trainable approaches use 1.0/1.0 (full-range training, full denoise).
+    # The SDEdit variant is an INFERENCE-only change: --infer-truncation-ratio 0.3.
+    parser.add_argument("--train-truncation-ratio", type=float, default=TRAIN_TRUNCATION_RATIO,
+                        help="TRAINING only: draw diffusion timesteps from [0, ratio * total_timesteps)")
+    parser.add_argument("--infer-truncation-ratio", type=float, default=INFER_TRUNCATION_RATIO,
+                        help="INFERENCE only: SDEdit start level for eval sampling (0.3 = SDEdit variant)")
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED,
                         help="Random seed used when generating Smart Init")
     parser.add_argument(

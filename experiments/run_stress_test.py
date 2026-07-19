@@ -73,13 +73,13 @@ GRID_SIZE = 32
 TIMESTEPS = 1000
 
 # Baseline
-BASELINE_TRUNCATION_RATIO = 1.0
+BASELINE_INFER_TRUNCATION_RATIO = 1.0
 
 # Control V4
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.30
+INFER_TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 2
 SMART_INIT_FEATURES = False    # NOTE
 SDF_FEATURES = False           # NOTE
@@ -362,9 +362,9 @@ def main():
     parser.add_argument("--output-dir", "--out-dir", dest="output_dir", default=OUTPUT_ROOT_DIR)
     parser.add_argument("--grid-size", type=int, default=GRID_SIZE)
     parser.add_argument("--sample-timesteps", type=int, default=TIMESTEPS)
-    parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO,
+    parser.add_argument("--infer-truncation-ratio", type=float, default=INFER_TRUNCATION_RATIO,
                         help="Truncation ratio for Control V4 (SDEdit from smart init, e.g. 0.30 = 300 steps)")
-    parser.add_argument("--baseline-truncation-ratio", type=float, default=BASELINE_TRUNCATION_RATIO,
+    parser.add_argument("--baseline-infer-truncation-ratio", type=float, default=BASELINE_INFER_TRUNCATION_RATIO,
                         help="Truncation ratio for Baseline (1.0 = full denoising from pure noise)")
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
@@ -397,9 +397,9 @@ def main():
     )
     args = parser.parse_args()
 
-    if not (0.0 < args.truncation_ratio <= 1.0):
+    if not (0.0 < args.infer_truncation_ratio <= 1.0):
         raise ValueError("--truncation-ratio must be in (0,1]")
-    if not (0.0 < args.baseline_truncation_ratio <= 1.0):
+    if not (0.0 < args.baseline_infer_truncation_ratio <= 1.0):
         raise ValueError("--baseline-truncation-ratio must be in (0,1]")
     if args.n_examples <= 0:
         raise ValueError("--n-examples must be >= 1")
@@ -533,7 +533,7 @@ def main():
     # Control: SDEdit from smart_init noised at truncation t_start
     control_diffusion.set_num_timesteps(args.sample_timesteps)
     control_t_start = int(np.clip(
-        int(control_diffusion.num_timesteps * args.truncation_ratio),
+        int(control_diffusion.num_timesteps * args.infer_truncation_ratio),
         1, control_diffusion.num_timesteps - 1,
     ))
     noise = torch.randn_like(x_init)
@@ -543,15 +543,15 @@ def main():
     baseline_diffusion.reset_timesteps()
     control_diffusion.reset_timesteps()
 
-    print(f"Baseline: full denoising ({int(args.baseline_truncation_ratio * args.sample_timesteps)} steps from pure noise)")
-    print(f"Control V4: SDEdit from smart_init ({control_t_start} steps, truncation_ratio={args.truncation_ratio})")
+    print(f"Baseline: full denoising ({int(args.baseline_infer_truncation_ratio * args.sample_timesteps)} steps from pure noise)")
+    print(f"Control V4: SDEdit from smart_init ({control_t_start} steps, infer_truncation_ratio={args.infer_truncation_ratio})")
     print(f"Smart Init enabled: {args.smart_init_features}")
     print(f"Batch coords      : {args.batch_coords_features}")
     print(f"SDF enabled       : {args.sdf_features}")
 
     models_to_run = [
-        ("Baseline",   baseline_diffusion, baseline_denoiser, "baseline",   x_noisy_baseline, args.baseline_truncation_ratio),
-        ("Control V4", control_diffusion,   controlled,        "control_v4", x_noisy_control,  args.truncation_ratio),
+        ("Baseline",   baseline_diffusion, baseline_denoiser, "baseline",   x_noisy_baseline, args.baseline_infer_truncation_ratio),
+        ("Control V4", control_diffusion,   controlled,        "control_v4", x_noisy_control,  args.infer_truncation_ratio),
     ]
     results = {}
     for model_name, diffusion_obj, model_obj, desc, x_noisy, trunc_ratio in tqdm(models_to_run, desc="Models"):

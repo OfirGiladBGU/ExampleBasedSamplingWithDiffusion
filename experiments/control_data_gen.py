@@ -33,7 +33,7 @@ def main() -> int:
     ENABLE_GECCO = True
     ENABLE_ADAPTIVE_GATE_INJECTION = True
     EVAL_TIMESTEPS = 1000
-    TRUNCATION_RATIO = 0.30
+    INFER_TRUNCATION_RATIO = 0.30
     RESAMPLE_JUMPS = 2
     SMART_INIT_FEATURES = False
     SDF_FEATURES = False
@@ -114,7 +114,7 @@ def main() -> int:
                         help="Path to ControlNet checkpoint")
     parser.add_argument("--eval_timesteps", type=int, default=EVAL_TIMESTEPS)
     parser.add_argument("--grid_size", type=int, default=GRID_SIZE)
-    parser.add_argument("--truncation_ratio", type=float, default=TRUNCATION_RATIO,
+    parser.add_argument("--infer-truncation-ratio", type=float, default=INFER_TRUNCATION_RATIO,
                         help="Fraction of full schedule to use (< 1.0 uses Smart Init)")
     parser.add_argument("--enable_gecco", action=argparse.BooleanOptionalAction, default=ENABLE_GECCO)
     parser.add_argument("--enable_adaptive_gate_injection", action=argparse.BooleanOptionalAction, default=ENABLE_ADAPTIVE_GATE_INJECTION)
@@ -161,12 +161,12 @@ def main() -> int:
     print(f"Timesteps path: {TIMESTAMPS_PATH}")
 
     # Model flags
-    truncation_cutoff = max(1, int(args.eval_timesteps * args.truncation_ratio))
+    truncation_cutoff = max(1, int(args.eval_timesteps * args.infer_truncation_ratio))
     print(f"Grid size (px)                        : {args.grid_size}")
     print(f"GECCO dynamic features enabled        : {args.enable_gecco}")
     print(f"Adaptive gate injection enabled       : {args.enable_adaptive_gate_injection}")
-    print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
-    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{args.eval_timesteps}")
+    print(f"Infer truncation ratio                : {args.infer_truncation_ratio:.3f}")
+    print(f"Infer truncation start step           : {truncation_cutoff}/{args.eval_timesteps}")
     print(f"Eval resample-jumps                   : {args.resample_jumps}")
     print(f"Smart Init features enabled           : {args.smart_init_features}")
     print(f"SDF features enabled                  : {args.sdf_features}")
@@ -196,7 +196,7 @@ def main() -> int:
         smart_init_features=args.smart_init_features,
         sdf_features=args.sdf_features,
         batch_coords_features=args.batch_coords_features,
-        truncation_ratio=args.truncation_ratio,
+        truncation_ratio=args.infer_truncation_ratio,
         t_start_step=-1,
         smart_init_seed=args.smart_init_seed,
         sdf_truncate_px=args.sdf_truncate_px,

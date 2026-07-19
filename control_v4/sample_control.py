@@ -38,7 +38,7 @@ from utils.Config import ParseSampleConfig
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.30
+INFER_TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 2
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
@@ -81,7 +81,7 @@ CONTROL_CKPT_PATH = "control_v4/train_outputs_icons50_512_no_random/checkpoints/
 # # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/plant2/source/plant2_400x400.png"
 # OUTPUT_DIR = "control_v4/sample_outputs"
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
 
 # Sizes Compare
 INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source/Icons-50/monkey/emoji-one_4_monkey.png"
@@ -98,7 +98,7 @@ GRID_SIZE = 32  # NOTE
 # GRID_SIZE = 112
 OUTPUT_DIR = f"control_v4/sample_outputs_{GRID_SIZE}"
 EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.30
+INFER_TRUNCATION_RATIO = 0.30
 
 
 # Teaser
@@ -111,11 +111,11 @@ TRUNCATION_RATIO = 0.30
 
 # # OUTPUT_DIR = "control_v4/sample_outputs"
 # # EVAL_TIMESTEPS = 1000
-# # TRUNCATION_RATIO = 1.0
+# # INFER_TRUNCATION_RATIO = 1.0
 
 # OUTPUT_DIR = "control_v4/sample_outputs_trunc"
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 0.3
+# INFER_TRUNCATION_RATIO = 0.3
 
 
 # ── Helper Functions ──────────────────────────────────────────────────────────
@@ -747,7 +747,8 @@ def main():
     parser.add_argument("--grid_size", type=int, default=GRID_SIZE)
     parser.add_argument("--enable_gecco", default=ENABLE_GECCO, action=argparse.BooleanOptionalAction)
     parser.add_argument("--enable_adaptive_gate_injection", default=ENABLE_ADAPTIVE_GATE_INJECTION, action=argparse.BooleanOptionalAction)
-    parser.add_argument("--truncation_ratio", type=float, default=TRUNCATION_RATIO)
+    parser.add_argument("--infer-truncation-ratio", type=float, default=INFER_TRUNCATION_RATIO,
+                        help="INFERENCE truncation: SDEdit start level for sampling")
     parser.add_argument("--eval_timesteps", type=int, default= EVAL_TIMESTEPS)
     parser.add_argument("--smart_init_features", action=argparse.BooleanOptionalAction, default=SMART_INIT_FEATURES)
     parser.add_argument("--sdf_features", action=argparse.BooleanOptionalAction, default=SDF_FEATURES)
@@ -802,7 +803,7 @@ def run(args):
     process_single_image(
         image_path=Path(image_path),
         diffusion=diffusion, control_net=control_net,
-        grid_size=args.grid_size, eval_timesteps=args.eval_timesteps, truncation_ratio=args.truncation_ratio,
+        grid_size=args.grid_size, eval_timesteps=args.eval_timesteps, truncation_ratio=args.infer_truncation_ratio,
         t_start_step=args.t_start_step, resample_jumps=args.resample_jumps,
         smart_init_features=args.smart_init_features, sdf_features=args.sdf_features,
         smart_init_seed=args.smart_init_seed, sdf_truncate_px=args.sdf_truncate_px,

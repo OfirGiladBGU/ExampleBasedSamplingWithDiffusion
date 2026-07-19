@@ -28,7 +28,7 @@ BASE_CKPT_PATH = "config/GBN/model.ckpt"
 CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
 
 EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.30
+INFER_TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 2
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
@@ -92,7 +92,7 @@ def main():
             "--control_ckpt_path", CONTROL_CKPT,
             "--eval_timesteps", str(EVAL_TIMESTEPS),
             "--grid_size", str(grid_size),
-            "--truncation_ratio", str(TRUNCATION_RATIO),
+            "--infer-truncation-ratio", str(INFER_TRUNCATION_RATIO),
             "--resample_jumps", str(RESAMPLE_JUMPS),
             "--enable_gecco" if ENABLE_GECCO else "--no-enable_gecco",
             "--enable_adaptive_gate_injection" if ENABLE_ADAPTIVE_GATE_INJECTION else "--no-enable_adaptive_gate_injection",

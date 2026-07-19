@@ -58,20 +58,27 @@ WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-di
 BASE_CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT_PATH = "config/GBN/model.ckpt"
 
+# ICONS 1024 GBN
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/target"
 
-# ICONS 1024
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-OUTPUT_DIR = "control_v4/train_outputs_icons50_512_no_random"
+# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_GBN"
+# FREEZE_DENOISER = True  # TODO: Add in the other scripts
+# RESAMPLE_JUMPS = 2
+
+OUTPUT_DIR = "control_v4/train_outputs_icons50_512_GBN_UNIFIED"
+FREEZE_DENOISER = False  # TODO: Add in the other scripts
+RESAMPLE_JUMPS = 0
+
 GRID_SIZE = 32
 VAL_SPLIT = 0.1
-EPOCHS = 10000
+EPOCHS = 5000
 SAVE_EVERY = 10
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.30
-RESAMPLE_JUMPS = 2
+TRAIN_TRUNCATION_RATIO = 0.30
+INFER_TRUNCATION_RATIO = 0.30
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
 BATCH_COORDS_FEATURES = False
@@ -79,7 +86,28 @@ ENABLE_SMART_INIT_JITTER = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
-# FACES 1024
+# ICONS 1024 WVS
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_no_random"
+# GRID_SIZE = 32
+# VAL_SPLIT = 0.1
+# EPOCHS = 10000
+# SAVE_EVERY = 10
+# ENABLE_GECCO = True
+# ENABLE_ADAPTIVE_GATE_INJECTION = True
+# EVAL_TIMESTEPS = 1000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+# SMART_INIT_FEATURES = False
+# SDF_FEATURES = False
+# BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
+
+# FACES 1024 GBN
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
 # TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
 # OUTPUT_DIR = "control_v4/train_outputs_data_celeba_5K_1024_no_random"
@@ -90,7 +118,8 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 0.30
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
 # RESAMPLE_JUMPS = 2
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -99,7 +128,7 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
-# ANIMALS 1024
+# ANIMALS 1024 GBN
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/source"
 # TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/target"
 # OUTPUT_DIR = "control_v4/train_outputs_data_AM-2K_1024_no_random"
@@ -110,7 +139,8 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 0.30
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
 # RESAMPLE_JUMPS = 2
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -130,7 +160,8 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 0.30
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
 # RESAMPLE_JUMPS = 2
 # SMART_INIT_FEATURES = False    # NOTE
 # SDF_FEATURES = False           # NOTE
@@ -152,7 +183,8 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 0.30
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
 # RESAMPLE_JUMPS = 2
 # SMART_INIT_FEATURES = False    # NOTE
 # SDF_FEATURES = False           # NOTE
@@ -172,7 +204,8 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 0.30
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
 # RESAMPLE_JUMPS = 2
 # SMART_INIT_FEATURES = True    # NOTE
 # SDF_FEATURES = True           # NOTE
@@ -187,8 +220,15 @@ CACHE_DATA_DIR = ""
 PRELOAD_RAM = False  # Preload all cached data to RAM (eliminates disk I/O per batch)
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
+# Space management: once an epoch is a multiple of KEEP_EVERY, delete the intermediate
+# periodic checkpoints (and their train/val panels) whose epoch is NOT a multiple of
+# KEEP_EVERY. With SAVE_EVERY=10 and KEEP_EVERY=100, epochs 10..90 are pruned once epoch
+# 100 is saved, keeping 100, 200, ...  Set KEEP_EVERY=0 to disable. 'best_*' checkpoints
+# are never touched. KEEP_EVERY must be 0 or a multiple of SAVE_EVERY.
+KEEP_EVERY = 100
+
 # Model parameters
-FREEZE_DENOISER = True  # TODO: Add in the other scripts
+# FREEZE_DENOISER = True  # TODO: Add in the other scripts
 # GRID_SIZE = 32
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
@@ -735,8 +775,12 @@ def main():
                         help="Timesteps used in intermediate eval sampling")
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS,
                         help="RePaint micro-loops per timestep during eval sampling")
-    parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO,
-                        help="Train only on timesteps [0, truncation_ratio * total_timesteps)")
+    parser.add_argument("--train-truncation-ratio", type=float, default=TRAIN_TRUNCATION_RATIO,
+                        help="TRAINING only: draw diffusion timesteps from [0, ratio * total_timesteps). "
+                             "1.0 = full-range training.")
+    parser.add_argument("--infer-truncation-ratio", type=float, default=INFER_TRUNCATION_RATIO,
+                        help="INFERENCE only: SDEdit start level for eval sampling. <1.0 starts from a "
+                             "noised smart-init at t = ratio * T; 1.0 = full denoise from pure noise.")
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED,
                         help="Random seed used when generating Smart Init")
     parser.add_argument(
@@ -806,6 +850,14 @@ def main():
         default=SAVE_EVERY,
         help="Every N epochs: save standard checkpoints and export/log train+valid+hints panels (best-geom checkpoints are saved independently)",
     )
+    parser.add_argument(
+        "--keep-every",
+        type=int,
+        default=KEEP_EVERY,
+        help="Space saver: once an epoch is a multiple of this, delete earlier periodic "
+             "checkpoints + panels that are NOT multiples of it (0 disables; must be 0 or a "
+             "multiple of --save_every). 'best_*' checkpoints are kept.",
+    )
     parser.add_argument("--val-split", type=float, default=VAL_SPLIT,
                         help="Validation split ratio in [0,1). Example: 0.1 = 10%% val")
     parser.add_argument(
@@ -855,6 +907,50 @@ def main():
     run(args=args)
 
 
+def prune_intermediate_saves(epoch_label, keep_every, checkpoints_dir, out_dir, ckpt_prefix):
+    """Free disk once ``epoch_label`` is a multiple of ``keep_every``.
+
+    Deletes every periodic checkpoint ``{ckpt_prefix}{N}.pt`` (and its train/val panels
+    ``{train,val}_panel_ep{N}.png`` in ``out_dir``) for which N < epoch_label and
+    N % keep_every != 0. Multiples of keep_every and the current/future epochs are kept, and
+    the pattern deliberately does NOT match ``best_*`` checkpoints. No-op when keep_every <= 0
+    or epoch_label is not a keep multiple.
+    """
+    if keep_every <= 0 or epoch_label % keep_every != 0:
+        return
+    removed = 0
+    ckpt_re = re.compile(r"^" + re.escape(ckpt_prefix) + r"(\d+)\.pt$")
+    if os.path.isdir(checkpoints_dir):
+        for fname in os.listdir(checkpoints_dir):
+            m = ckpt_re.match(fname)
+            if not m:
+                continue
+            ep = int(m.group(1))
+            if ep >= epoch_label or ep % keep_every == 0:
+                continue
+            try:
+                os.remove(os.path.join(checkpoints_dir, fname))
+                removed += 1
+            except OSError as exc:
+                print(f"  -> KEEP_EVERY: could not remove {fname}: {exc}")
+    panel_re = re.compile(r"^(?:train|val)_panel_ep(\d+)\.png$")
+    if os.path.isdir(out_dir):
+        for fname in os.listdir(out_dir):
+            m = panel_re.match(fname)
+            if not m:
+                continue
+            ep = int(m.group(1))
+            if ep >= epoch_label or ep % keep_every == 0:
+                continue
+            try:
+                os.remove(os.path.join(out_dir, fname))
+            except OSError as exc:
+                print(f"  -> KEEP_EVERY: could not remove {fname}: {exc}")
+    if removed:
+        print(f"  -> KEEP_EVERY={keep_every}: pruned {removed} intermediate checkpoint(s) "
+              f"below epoch {epoch_label} (kept multiples of {keep_every}; best_* untouched)")
+
+
 def run(args):
     if args.wandb_valid_images < 0:
         raise ValueError("--wandb-valid-images must be >= 0")
@@ -862,8 +958,17 @@ def run(args):
         raise ValueError("--wandb-train-images must be >= 0")
     if args.save_every <= 0:
         raise ValueError("--save_every must be >= 1")
-    if not (0.0 < args.truncation_ratio <= 1.0):
-        raise ValueError("--truncation-ratio must be in (0, 1]")
+    if args.keep_every < 0:
+        raise ValueError("--keep-every must be >= 0 (0 disables pruning)")
+    if args.keep_every > 0 and args.keep_every % args.save_every != 0:
+        raise ValueError(
+            f"--keep-every ({args.keep_every}) must be a multiple of --save_every "
+            f"({args.save_every}); otherwise the kept epochs never coincide with saved ones."
+        )
+    if not (0.0 < args.train_truncation_ratio <= 1.0):
+        raise ValueError("--train-truncation-ratio must be in (0, 1]")
+    if not (0.0 < args.infer_truncation_ratio <= 1.0):
+        raise ValueError("--infer-truncation-ratio must be in (0, 1]")
     if not (args.show_selected_inputs or args.show_selected_gt or args.show_selected_predict or args.show_selected_gt_offsets):
         raise ValueError("At least one of --show-selected-inputs, --show-selected-gt, --show-selected-predict, or --show-selected-gt-offsets must be enabled")
     args.offsets = ensure_offsets_dir(args.source, args.target, args.offsets, args.grid_size)
@@ -903,7 +1008,8 @@ def run(args):
     diffusion.eval()
 
     denoiser = diffusion.model
-    truncation_cutoff = max(1, int(args.eval_timesteps * args.truncation_ratio))
+    # TRAINING truncation: restricts the diffusion timesteps sampled during training.
+    truncation_cutoff = max(1, int(args.eval_timesteps * args.train_truncation_ratio))
 
     # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
     control_net = DynamicControlNet(
@@ -935,8 +1041,9 @@ def run(args):
     print(f"Grid size                             : {args.grid_size}x{args.grid_size}")
     print(f"GECCO dynamic features enabled        : {args.enable_gecco}")
     print(f"Adaptive gate injection enabled       : {args.enable_adaptive_gate_injection}")
-    print(f"Truncation ratio                      : {args.truncation_ratio:.3f}")
-    print(f"Truncation cutoff timesteps           : {truncation_cutoff}/{args.eval_timesteps}")
+    print(f"Train truncation ratio                : {args.train_truncation_ratio:.3f}")
+    print(f"Train truncation cutoff timesteps     : {truncation_cutoff}/{args.eval_timesteps}")
+    print(f"Infer truncation ratio (SDEdit)       : {args.infer_truncation_ratio:.3f}")
     print(f"Eval resample-jumps                   : {args.resample_jumps}")
     print(f"Smart Init features enabled           : {args.smart_init_features}")
     print(f"SDF features enabled                  : {args.sdf_features}")
@@ -1078,6 +1185,26 @@ def run(args):
             )
 
     # ── training loop ────────────────────────────────────────────────
+    # On (re)start: if a previous prune was interrupted mid-deletion (e.g. the process was
+    # killed while deleting epochs 10..90 after saving epoch 100), finish it now. Re-run the
+    # pruner at the highest keep-boundary already on disk so leftover intermediates are removed
+    # rather than lingering until the next boundary. Idempotent -- a clean run is a no-op.
+    if args.keep_every > 0 and os.path.isdir(checkpoints_dir):
+        _keep_prefix = "dynamic_controlnet_v4_ep"
+        _keep_re = re.compile(r"^" + re.escape(_keep_prefix) + r"(\d+)\.pt$")
+        _keep_eps = []
+        for _keep_fname in os.listdir(checkpoints_dir):
+            _keep_m = _keep_re.match(_keep_fname)
+            if _keep_m:
+                _keep_eps.append(int(_keep_m.group(1)))
+        if _keep_eps:
+            _keep_boundary = (max(_keep_eps) // args.keep_every) * args.keep_every
+            if _keep_boundary >= args.keep_every:
+                print(f"  -> KEEP_EVERY: startup catch-up prune at boundary {_keep_boundary}")
+                prune_intermediate_saves(
+                    _keep_boundary, args.keep_every, checkpoints_dir, args.out, _keep_prefix,
+                )
+
     for epoch in range(start_epoch, args.epochs):
         should_save_epoch = ((epoch + 1) % args.save_every == 0) or ((epoch + 1) == args.epochs)
         epoch_loss = 0.0
@@ -1206,7 +1333,7 @@ def run(args):
                 resample_jumps=args.resample_jumps,
                 show_tqdm=True,
                 tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [train-predict]",
-                truncation_ratio=args.truncation_ratio,
+                truncation_ratio=args.infer_truncation_ratio,
             )
             train_panel_path = os.path.join(args.out, f"train_panel_ep{epoch+1}.png")
             train_saved = save_val_panel(
@@ -1324,7 +1451,7 @@ def run(args):
                     resample_jumps=args.resample_jumps,
                     show_tqdm=True,
                     tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [predict]",
-                    truncation_ratio=args.truncation_ratio,
+                    truncation_ratio=args.infer_truncation_ratio,
                 )
                 pred_raw_for_geom = pred_raw
                 panel_path = os.path.join(args.out, f"val_panel_ep{epoch+1}.png")
@@ -1365,7 +1492,7 @@ def run(args):
                         resample_jumps=args.resample_jumps,
                         show_tqdm=True,
                         tqdm_desc=f"Epoch {epoch+1}/{args.epochs} [geom]",
-                        truncation_ratio=args.truncation_ratio,
+                        truncation_ratio=args.infer_truncation_ratio,
                     )
 
                 pred_pointsets = []
@@ -1469,6 +1596,9 @@ def run(args):
                 "current_geom_score": float(last_geom["score"]),
             }, save_path)
             print(f"  -> saved {save_path}")
+            prune_intermediate_saves(
+                epoch + 1, args.keep_every, checkpoints_dir, args.out, "dynamic_controlnet_v4_ep",
+            )
 
     if use_wandb:
         wandb.finish()

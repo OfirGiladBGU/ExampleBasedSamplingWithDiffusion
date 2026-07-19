@@ -81,7 +81,7 @@ CKPT_PATH = "config/GBN/model.ckpt"
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 EVAL_TIMESTEPS = 1000
-TRUNCATION_RATIO = 0.30
+INFER_TRUNCATION_RATIO = 0.30
 RESAMPLE_JUMPS = 2
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
@@ -192,7 +192,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_GECCO = False
 # ENABLE_ADAPTIVE_GATE_INJECTION = False
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 1.0
+# INFER_TRUNCATION_RATIO = 1.0
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -208,7 +208,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = False
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 1.0
+# INFER_TRUNCATION_RATIO = 1.0
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -224,7 +224,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_GECCO = False
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 1.0
+# INFER_TRUNCATION_RATIO = 1.0
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -240,7 +240,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 1.0
+# INFER_TRUNCATION_RATIO = 1.0
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -256,7 +256,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 0.3  # NOTE
+# INFER_TRUNCATION_RATIO = 0.3  # NOTE
 # RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -272,7 +272,7 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
 # EVAL_TIMESTEPS = 1000
-# TRUNCATION_RATIO = 0.3  # NOTE
+# INFER_TRUNCATION_RATIO = 0.3  # NOTE
 # RESAMPLE_JUMPS = 2  # NOTE
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
@@ -466,7 +466,8 @@ def main():
 
     parser.add_argument("--eval-timesteps", type=int, default=EVAL_TIMESTEPS)
     parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
-    parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO)
+    parser.add_argument("--infer-truncation-ratio", type=float, default=INFER_TRUNCATION_RATIO,
+                        help="INFERENCE truncation: SDEdit start level for sampling")
 
     parser.add_argument("--device", default=DEVICE)
     parser.add_argument("--enable-gecco", action=argparse.BooleanOptionalAction, default=ENABLE_GECCO)
@@ -566,7 +567,7 @@ def main():
 
     if not (0.0 <= args.val_split < 1.0):
         raise ValueError("--val-split must be in [0, 1)")
-    if not (0.0 < args.truncation_ratio <= 1.0):
+    if not (0.0 < args.infer_truncation_ratio <= 1.0):
         raise ValueError("--truncation-ratio must be in (0, 1]")
     if not (args.show_selected_inputs or args.show_selected_gt or args.show_selected_predict or args.show_selected_gt_offsets):
         raise ValueError("At least one of --show-selected-inputs, --show-selected-gt, --show-selected-predict, or --show-selected-gt-offsets must be enabled")
@@ -693,7 +694,7 @@ def main():
         resample_jumps=args.resample_jumps,
         show_tqdm=True,
         tqdm_desc="eval_dataset sampling",
-        truncation_ratio=args.truncation_ratio,
+        truncation_ratio=args.infer_truncation_ratio,
     )
 
     panel_path = os.path.join(args.out, args.panel_name)
