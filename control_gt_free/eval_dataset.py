@@ -37,11 +37,10 @@ except Exception:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.Transforms import to_pointset_optimal_transport
-from control_fm_v2.flow_matching import MODEL_CONFIG, FlowMatching, build_velocity_network
-from control_fm_v2.arch import resolve_arch
+from control_fm.flow_matching import FlowMatching, build_velocity_network
 from control_fm.DynamicControlNet import DynamicControlNet
 from control_fm.DynamicStippleDataset import DynamicStippleDataset
-from control_fm_v2.train_control import (
+from control_fm.train_control import (
     _grid_centers_flat,
     dynamic_collate,
     ensure_offsets_dir,
@@ -75,16 +74,15 @@ PANEL_NAME = "eval_panel.png"
 META_NAME = "eval_selection.json"
 
 # Editable defaults (copied locally so this script is self-contained)
-# control_fm_v2 has NO config file (see flow_matching.MODEL_CONFIG).
-ATTN_MIDDLE = MODEL_CONFIG["attn_middle"]
-ATTN_HEADS = MODEL_CONFIG["attn_heads"]
-USE_EMA = True
-# NOTE: no pretrained baseline in control_fm -- all weights come from the control_fm checkpoint.
+CONFIG_PATH = "config/GBN/config.json"
+CKPT_PATH = "config/GBN/model.ckpt"
 
 # [Default] Model Component
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
+EVAL_TIMESTEPS = 1000
 TRUNCATION_RATIO = 0.30
+RESAMPLE_JUMPS = 2
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
 BATCH_COORDS_FEATURES = False
@@ -103,15 +101,6 @@ SPLIT_SEED = 42
 DEVICE = "cuda"
 SHOW_LABELS = False
 
-# [Default] Flow-Matching sampling -- these MUST match how the checkpoint was trained
-FM_COUPLING = "gaussian"       # "gaussian" or "smartinit"
-CONDITIONING = "controlnet"    # "controlnet", "concat", or "spade"
-CONCAT_SMART_INIT_GRID = False
-FM_SOURCE_JITTER_PX = 0.0      # jitter the ckpt was TRAINED with (needed for eta>0 + smartinit)
-ODE_STEPS = 50
-ODE_METHOD = "euler"  # keep in step with train_control.py
-ETA = 0.0                      # 0 = deterministic ODE; > 0 = stochastic reverse SDE (1.0 canonical)
-
 
 #####################
 # Customized Subset #
@@ -119,7 +108,7 @@ ETA = 0.0                      # 0 = deterministic ODE; > 0 = stochastic reverse
 
 # ICONS
 # CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_fm/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_fm_ep8120.pt"
-CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_fm/train_outputs_icons50_512_CN_TRUNC/checkpoints/dynamic_controlnet_fm_ep1000.pt"
+CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_fm/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_fm_ep10000.pt"
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
 TRAIN_SAMPLES = []
@@ -202,7 +191,9 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # OUTPUT_DIR = f"control_fm/eval_outputs_{RESULTS_DIR}"
 # ENABLE_GECCO = False
 # ENABLE_ADAPTIVE_GATE_INJECTION = False
+# EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 1.0
+# RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
 # BATCH_COORDS_FEATURES = False
@@ -216,7 +207,9 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # OUTPUT_DIR = f"control_fm/eval_outputs_{RESULTS_DIR}"
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = False
+# EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 1.0
+# RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
 # BATCH_COORDS_FEATURES = False
@@ -230,7 +223,9 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # OUTPUT_DIR = f"control_fm/eval_outputs_{RESULTS_DIR}"
 # ENABLE_GECCO = False
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+# EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 1.0
+# RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
 # BATCH_COORDS_FEATURES = False
@@ -244,7 +239,9 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # OUTPUT_DIR = f"control_fm/eval_outputs_{RESULTS_DIR}"
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+# EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 1.0
+# RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
 # BATCH_COORDS_FEATURES = False
@@ -258,7 +255,9 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # OUTPUT_DIR = f"control_fm/eval_outputs_{RESULTS_DIR}"
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+# EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 0.3  # NOTE
+# RESAMPLE_JUMPS = 0
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
 # BATCH_COORDS_FEATURES = False
@@ -272,7 +271,9 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # OUTPUT_DIR = f"control_fm/eval_outputs_{RESULTS_DIR}"
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+# EVAL_TIMESTEPS = 1000
 # TRUNCATION_RATIO = 0.3  # NOTE
+# RESAMPLE_JUMPS = 2  # NOTE
 # SMART_INIT_FEATURES = False
 # SDF_FEATURES = False
 # BATCH_COORDS_FEATURES = False
@@ -417,65 +418,16 @@ def _export_selected_columns(out_dir, meta_rows, cond_batch, gt_offsets_batch, p
 
 
 def _load_models(args, device):
-    """Build the velocity network for the trained conditioning architecture and load weights.
-
-    Returns ``(fm, denoiser, control_net, conditioner)`` -- mirroring
-    ``control_fm/sample_control.py::load_pipeline`` so this script evaluates the exact
-    same pipeline the sampler runs.
-    """
+    """Build the Flow-Matching velocity network and trained ControlNet checkpoint."""
     if not args.control_ckpt:
         raise ValueError("--control-ckpt is required")
     if not os.path.isfile(args.control_ckpt):
         raise FileNotFoundError(f"Control checkpoint was not found: {args.control_ckpt}")
 
-    fm = FlowMatching(
-        device=device,
-        t_scale=args.t_scale,
-        coupling=args.fm_coupling,
-        source_jitter_px=args.fm_source_jitter_px,
-    )
-    state = torch.load(args.control_ckpt, map_location="cpu")
-    # The checkpoint stamp is authoritative about which weights exist.
-    eff = resolve_arch(state, args, prefer_checkpoint=args.arch_from_ckpt,
-                       strict=args.strict_arch, ckpt_path=args.control_ckpt)
-    args.conditioning = eff["conditioning"]
-    args.fm_coupling = eff["fm_coupling"]
-    args.attn_middle, args.attn_heads = eff["attn_middle"], eff["attn_heads"]
-    args.enable_gecco = eff["enable_gecco"]
-    args.enable_adaptive_gate_injection = eff["enable_adaptive_gate_injection"]
-    args.smart_init_features = eff["smart_init_features"]
-    args.sdf_features = eff["sdf_features"]
-    args.batch_coords_features = eff["batch_coords_features"]
-    args.concat_smart_init_grid = eff["concat_smart_init_grid"]
+    denoiser = build_velocity_network(args.config, device=device)
+    denoiser.eval()
+    fm = FlowMatching(device=device, t_scale=args.t_scale)
 
-    # ── single-stage (attention-free) conditioners: the net lives inside the conditioner ──
-    if args.conditioning in ("concat", "spade"):
-        n_cond = 1 + (1 if args.concat_smart_init_grid else 0)
-        if args.conditioning == "spade":
-            from control_fm_v2.single_stage import SPADEConditioner, build_spade_velocity_network
-            denoiser = build_spade_velocity_network(cond_channels=n_cond, device=device,
-                                                    attn_middle=args.attn_middle, attn_heads=args.attn_heads)
-            conditioner = SPADEConditioner(denoiser, use_smart_init_grid=args.concat_smart_init_grid).to(device)
-        else:
-            from control_fm_v2.single_stage import SingleStageConditioner, build_conditional_velocity_network
-            denoiser = build_conditional_velocity_network(extra_in_channels=n_cond, device=device,
-                                                          attn_middle=args.attn_middle, attn_heads=args.attn_heads)
-            conditioner = SingleStageConditioner(denoiser, use_smart_init_grid=args.concat_smart_init_grid).to(device)
-
-        sd = state
-        if isinstance(state, dict):
-            for key in ("control_net", "model_state_dict", "state_dict"):
-                if isinstance(state.get(key), dict):
-                    sd = state[key]
-                    break
-        conditioner.load_state_dict(sd, strict=False)
-        conditioner.eval()
-        denoiser.eval()
-        return fm, denoiser, None, conditioner
-
-    # ── dual-branch ControlNet ────────────────────────────────────────────────────────
-    # Attach attention BEFORE DynamicControlNet deep-copies denoiser.middle.
-    denoiser = build_velocity_network(device=device, attn_middle=args.attn_middle, attn_heads=args.attn_heads)
     control_net = DynamicControlNet(
         denoiser,
         grid_size=args.grid_size,
@@ -485,40 +437,17 @@ def _load_models(args, device):
         batch_coords_features=args.batch_coords_features,
         enable_adaptive_gate_injection=args.enable_adaptive_gate_injection,
     ).to(device)
+    state = torch.load(args.control_ckpt, map_location="cpu")
     control_net.safe_load_state_dict(state, strict=False)
-
-    # DynamicControlNet only deep-copies the encoder/middle into ctrl_* submodules; the base
-    # U-Net (decoder, out_conv, ...) is trained jointly but stored under a separate "denoiser"
-    # key. Skipping this leaves the base network at its RANDOM init and every panel is noise.
-    denoiser_sd = state.get("denoiser") if isinstance(state, dict) else None
-    if denoiser_sd is None:
-        raise RuntimeError(
-            f"Checkpoint '{args.control_ckpt}' contains no 'denoiser' weights.\n"
-            "With --conditioning controlnet the base U-Net is trained jointly "
-            "(FREEZE_DENOISER=False) but lives OUTSIDE control_net, so it must be stored "
-            "separately. Older checkpoints saved only the control branch, which means the base "
-            "network cannot be restored and the predictions would come from a randomly "
-            "initialised U-Net.\n"
-            "Fix: retrain (or resume and re-save) with the current train_control.py, which now "
-            "stores the 'denoiser' state dict."
-        )
-    denoiser.load_state_dict(denoiser_sd, strict=False)
-    denoiser.eval()
     control_net.eval()
-    return fm, denoiser, control_net, None
+    return fm, denoiser, control_net
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
 
-    parser.add_argument("--attn-middle", action=argparse.BooleanOptionalAction, default=ATTN_MIDDLE)
-    parser.add_argument("--strict-arch", action=argparse.BooleanOptionalAction, default=True,
-                        help="(when --no-arch-from-ckpt) refuse a checkpoint whose stamped architecture differs")
-    parser.add_argument("--arch-from-ckpt", action=argparse.BooleanOptionalAction, default=True,
-                        help="Build the network from the checkpoint's architecture stamp (authoritative)")
-    parser.add_argument("--attn-heads", type=int, default=ATTN_HEADS)
-    parser.add_argument("--use-ema", action=argparse.BooleanOptionalAction, default=USE_EMA,
-                        help="Load the EMA weights from the checkpoint when present")
+    parser.add_argument("--config", default=CONFIG_PATH)
+    parser.add_argument("--ckpt", default=CKPT_PATH)
     parser.add_argument("--control-ckpt", default=CONTROL_CKPT, help="Trained control_fm checkpoint path")
 
     parser.add_argument("--source", default=SOURCE_DIR)
@@ -533,23 +462,12 @@ def main():
     parser.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
     parser.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX)
 
+    parser.add_argument("--eval-timesteps", type=int, default=EVAL_TIMESTEPS)
+    parser.add_argument("--resample-jumps", type=int, default=RESAMPLE_JUMPS)
     parser.add_argument("--truncation-ratio", type=float, default=TRUNCATION_RATIO)
-    parser.add_argument("--ode-steps", type=int, default=ODE_STEPS,
+    parser.add_argument("--ode-steps", type=int, default=50,
                         help="Number of Euler/Heun steps for Flow-Matching ODE sampling")
-    parser.add_argument("--ode-method", choices=["euler", "heun"], default=ODE_METHOD)
-    parser.add_argument("--fm-coupling", choices=["gaussian", "smartinit", "otbatch"], default=FM_COUPLING,
-                        help="FM source endpoint. MUST match how the checkpoint was trained. "
-                             "(otbatch samples identically to gaussian -- both start from noise.)")
-    parser.add_argument("--fm-source-jitter-px", type=float, default=FM_SOURCE_JITTER_PX,
-                        help="Source jitter the checkpoint was TRAINED with; required for --eta > 0 "
-                             "with smartinit coupling.")
-    parser.add_argument("--conditioning", choices=["controlnet", "concat", "spade"], default=CONDITIONING,
-                        help="Conditioning architecture. MUST match how the checkpoint was trained.")
-    parser.add_argument("--concat-smart-init-grid", action=argparse.BooleanOptionalAction,
-                        default=CONCAT_SMART_INIT_GRID,
-                        help="(concat/spade) also feed the smart-init occupancy grid as a condition channel")
-    parser.add_argument("--eta", type=float, default=ETA,
-                        help="Stochasticity: 0 = deterministic ODE, 1.0 = canonical reverse SDE.")
+    parser.add_argument("--ode-method", choices=["euler", "heun"], default="euler")
     parser.add_argument("--t-start", type=float, default=1.0,
                         help="Starting t for ODE sampling (1.0 = full noise->data)")
     parser.add_argument("--t-scale", type=float, default=1000.0,
@@ -666,12 +584,8 @@ def main():
     args.offsets = ensure_offsets_dir(args.source, args.target, args.offsets, args.grid_size)
     os.makedirs(args.out, exist_ok=True)
 
-    # The smart-init is needed whenever it is either the FM coupling source, or the anchor for a
-    # truncated (SDEdit-style) gaussian start -- exactly as in control_fm/sample_control.py.
-    needs_smart_init = (args.fm_coupling == "smartinit") or (args.truncation_ratio < 1.0)
-
     cache_data_dir = args.cache_data_dir
-    if not (args.smart_init_features or args.sdf_features or needs_smart_init):
+    if not (args.smart_init_features or args.sdf_features):
         cache_data_dir = None
     elif not cache_data_dir:
         cache_data_dir = os.path.join(args.out, "cache_data")
@@ -685,7 +599,6 @@ def main():
         smart_init_seed=args.smart_init_seed,
         smart_init_features=args.smart_init_features,
         sdf_features=args.sdf_features,
-        provide_smart_init_source=needs_smart_init,
         preload_ram=False,
     )
     if len(base_dataset) == 0:
@@ -714,7 +627,6 @@ def main():
         smart_init_seed=args.smart_init_seed,
         smart_init_features=args.smart_init_features,
         sdf_features=args.sdf_features,
-        provide_smart_init_source=needs_smart_init,
         filenames=train_filenames,
         preload_ram=False,
     )
@@ -727,7 +639,6 @@ def main():
         smart_init_seed=args.smart_init_seed,
         smart_init_features=args.smart_init_features,
         sdf_features=args.sdf_features,
-        provide_smart_init_source=needs_smart_init,
         filenames=val_filenames,
         preload_ram=False,
     )
@@ -760,7 +671,7 @@ def main():
     device = torch.device(args.device)
     batch = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in batch.items()}
 
-    fm, denoiser, control_net, conditioner = _load_models(args, device)
+    fm, denoiser, control_net = _load_models(args, device)
 
     if (
         args.smart_init_features
@@ -776,28 +687,6 @@ def main():
             grid_centers_flat=grid_centers_flat,
         )
 
-    # Reproduce the sampler's start-state policy (control_fm/sample_control.py):
-    #   smartinit coupling             -> start exactly at the smart-init, t = 1 -> 0
-    #   gaussian, truncation_ratio 1.0 -> pure-noise start, t = 1 -> 0
-    #   gaussian, truncation_ratio < 1 -> SDEdit: noise the smart-init to t_start, then integrate
-    # Previously --truncation-ratio was parsed and validated here but never used, so the panel
-    # always showed a pure-noise sample regardless of the flag.
-    t_start = float(args.t_start)
-    x_start = None
-    if args.fm_coupling == "gaussian" and args.truncation_ratio < 1.0:
-        smart_src = batch.get("smart_init_offsets")
-        if smart_src is None:
-            raise RuntimeError("Truncated (SDEdit) eval needs 'smart_init_offsets' in the batch")
-        t_start = float(args.truncation_ratio)
-        eps0 = torch.randn_like(smart_src)
-        t_vec = torch.full((smart_src.shape[0],), t_start, device=device)
-        x_start = fm.interpolate(smart_src, eps0, t_vec)
-
-    print(
-        f"Sampling: conditioning={args.conditioning} coupling={args.fm_coupling} "
-        f"t_start={t_start} ode_steps={args.ode_steps} method={args.ode_method} eta={args.eta}"
-    )
-
     pred_raw = sample_eval_batch(
         fm,
         denoiser,
@@ -809,10 +698,7 @@ def main():
         ode_method=args.ode_method,
         show_tqdm=True,
         tqdm_desc="eval_dataset sampling",
-        t_start=t_start,
-        x_start=x_start,
-        eta=args.eta,
-        conditioner=conditioner,
+        t_start=args.t_start,
     )
 
     panel_path = os.path.join(args.out, args.panel_name)
@@ -854,13 +740,6 @@ def main():
         "selected_rows": meta_rows,
         "panel_path": panel_path,
         "control_ckpt": args.control_ckpt,
-        "conditioning": args.conditioning,
-        "fm_coupling": args.fm_coupling,
-        "truncation_ratio": args.truncation_ratio,
-        "t_start": t_start,
-        "ode_steps": args.ode_steps,
-        "ode_method": args.ode_method,
-        "eta": args.eta,
         "store_selected_inputs": args.store_selected_inputs,
         "store_selected_gt": args.store_selected_gt,
         "store_selected_predict": args.store_selected_predict,

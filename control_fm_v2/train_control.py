@@ -72,7 +72,6 @@ WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-di
 # ICONS 1024 GBN
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/target"
-OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_SPADE_GEO"
 
 GRID_SIZE = 32
 VAL_SPLIT = 0.1
@@ -86,10 +85,12 @@ BATCH_COORDS_FEATURES = False
 ENABLE_SMART_INIT_JITTER = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
+ETA = 0.0  # 0 = deterministic ODE; > 0 = stochastic reverse SDE (1.0 = canonical)
+ODE_STEPS = 50
 MIN_SNR_GAMMA = 5.0
 
-# GEO_WEIGHT = 0.0
-GEO_WEIGHT = 0.05          # lambda_geo -- primary term (density-warped spacing hinge)
+GEO_WEIGHT = 0.0
+# GEO_WEIGHT = 0.05          # lambda_geo -- primary term (density-warped spacing hinge)
 
 
 # # CONCAT
@@ -97,24 +98,67 @@ GEO_WEIGHT = 0.05          # lambda_geo -- primary term (density-warped spacing 
 # TRUNCATION_RATIO = 1.00
 # FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
 # CONDITIONING = "concat"  # "controlnet", "concat", or "spade"
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_CONCAT"
 
 # CN 
 # ODE_METHOD = "euler"
 # TRUNCATION_RATIO = 1.00
 # FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
 # CONDITIONING = "controlnet"  # "controlnet", "concat", or "spade"
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_CN"
 
 # CN + TRUC
 # ODE_METHOD = "euler"
 # TRUNCATION_RATIO = 0.30
 # FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
 # CONDITIONING = "controlnet"  # "controlnet", "concat", or "spade"
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_CN_TRUNC"
 
 # SPADE
-ODE_METHOD = "euler"
-TRUNCATION_RATIO = 1.00
-FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
-CONDITIONING = "spade"  # "controlnet", "concat", or "spade"
+# ODE_METHOD = "euler"
+# TRUNCATION_RATIO = 1.00
+# FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
+# CONDITIONING = "spade"  # "controlnet", "concat", or "spade"
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_SPADE"
+
+# SPADE + GEO
+# ODE_METHOD = "euler"
+# TRUNCATION_RATIO = 1.00
+# FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
+# CONDITIONING = "spade"  # "controlnet", "concat", or "spade"
+# GEO_WEIGHT = 0.05
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_SPADE_GEO"
+
+# SPADE + TRUNC
+# ODE_METHOD = "euler"
+# TRUNCATION_RATIO = 0.30
+# FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
+# CONDITIONING = "spade"  # "controlnet", "concat", or "spade"
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_SPADE_TRUNC"
+
+# # SPADE + TRUNC + GEO
+# ODE_METHOD = "euler"
+# TRUNCATION_RATIO = 0.30
+# FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
+# CONDITIONING = "spade"  # "controlnet", "concat", or "spade"
+# GEO_WEIGHT = 0.05
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_SPADE_TRUNC_GEO"
+
+# CN + TRUNC + GEO
+# ODE_METHOD = "euler"
+# TRUNCATION_RATIO = 0.30
+# FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
+# CONDITIONING = "controlnet"  # "controlnet", "concat", or "spade"
+# GEO_WEIGHT = 0.05
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_CN_TRUNC_GEO"
+
+# SPADE + TRUNC 100
+# ODE_METHOD = "euler"
+# TRUNCATION_RATIO = 0.30
+# FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
+# CONDITIONING = "spade"  # "controlnet", "concat", or "spade"
+# ODE_STEPS = 100
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_SPADE_TRUNC_100"
 
 # SPADE + SMART
 # MIN_SNR_GAMMA = 0.0
@@ -122,12 +166,42 @@ CONDITIONING = "spade"  # "controlnet", "concat", or "spade"
 # TRUNCATION_RATIO = 1.00
 # FM_COUPLING = "smartinit"
 # CONDITIONING = "spade"
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_SPADE_SMART"
 
 # CN + TRUC + HEUN
 # ODE_METHOD = "heun"
 # TRUNCATION_RATIO = 0.30
 # FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
 # CONDITIONING = "controlnet"  # "controlnet", "concat", or "spade"
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_CN_TRUNC_HEUN"
+
+# OTBATCH
+# BASE_CKPT_PATH  = ""
+# FREEZE_DENOISER = False
+# ODE_METHOD = "euler"
+# TRUNCATION_RATIO = 0.30
+# FM_COUPLING = "otbatch"
+# CONDITIONING = "controlnet"
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_OTBATCH"
+# keep MIN_SNR_GAMMA, ODE_METHOD, everything else identical to the gaussian run
+
+# CN + SMART + GEO
+# MIN_SNR_GAMMA = 0.0
+# ODE_METHOD = "euler"
+# TRUNCATION_RATIO = 1.0
+# FM_COUPLING = "smartinit"  # "smartinit" or "gaussian"
+# CONDITIONING = "controlnet"  # "controlnet", "concat", or "spade"
+# GEO_WEIGHT = 0.05
+# OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_CN_SMART_GEO"
+
+
+# CN + ETA
+ETA = 1.0
+ODE_METHOD = "euler"
+TRUNCATION_RATIO = 0.3
+FM_COUPLING = "gaussian"  # "smartinit" or "gaussian"
+CONDITIONING = "controlnet"  # "controlnet", "concat", or "spade"
+OUTPUT_DIR = "control_fm_v2/train_outputs_icons50_512_GBN_CN_ETA"
 
 
 # FACES 1024
@@ -228,6 +302,13 @@ CACHE_DATA_DIR = ""
 PRELOAD_RAM = False  # Preload all cached data to RAM (eliminates disk I/O per batch)
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
+# Space management: once an epoch is a multiple of KEEP_EVERY, delete the intermediate
+# periodic checkpoints (and their train/val panels) whose epoch is NOT a multiple of
+# KEEP_EVERY. With SAVE_EVERY=10 and KEEP_EVERY=100, epochs 10..90 are pruned once epoch
+# 100 is saved, keeping 100, 200, ...  Set KEEP_EVERY=0 to disable. 'best_*' checkpoints
+# are never touched. KEEP_EVERY must be 0 or a multiple of SAVE_EVERY.
+KEEP_EVERY = 100
+
 # Model parameters
 FREEZE_DENOISER = False  # single-model Flow Matching: train base + control jointly
 # GRID_SIZE = 32
@@ -280,8 +361,7 @@ BATCH_SIZE = 16
 LR = 1e-4
 
 # Flow-Matching sampling / stability
-ODE_STEPS = 50
-ETA = 0.0  # 0 = deterministic ODE; > 0 = stochastic reverse SDE (1.0 = canonical)
+# ODE_STEPS = 50
 T_SCALE = 1000.0
 DEVICE = "cuda"
 RESUME_LATEST = True
@@ -869,6 +949,14 @@ def main():
         default=SAVE_EVERY,
         help="Every N epochs: save standard checkpoints and export/log train+valid+hints panels (best-geom checkpoints are saved independently)",
     )
+    parser.add_argument(
+        "--keep-every",
+        type=int,
+        default=KEEP_EVERY,
+        help="Space saver: once an epoch is a multiple of this, delete earlier periodic "
+             "checkpoints + panels that are NOT multiples of it (0 disables; must be 0 or a "
+             "multiple of --save_every). 'best_*' checkpoints are kept.",
+    )
     parser.add_argument("--val-split", type=float, default=VAL_SPLIT,
                         help="Validation split ratio in [0,1). Example: 0.1 = 10%% val")
     parser.add_argument(
@@ -926,8 +1014,10 @@ def main():
                         help="Starting t for ODE sampling (1.0 = full noise->data)")
     parser.add_argument("--t-scale", type=float, default=T_SCALE,
                         help="Scale applied to continuous t before sinusoidal timestep embedding")
-    parser.add_argument("--fm-coupling", choices=["gaussian", "smartinit"], default=FM_COUPLING,
-                        help="FM source endpoint: 'gaussian' (noise->data) or 'smartinit' (smart-init->data coupling)")
+    parser.add_argument("--fm-coupling", choices=["gaussian", "smartinit", "otbatch"], default=FM_COUPLING,
+                        help="FM source endpoint / training pairing: 'gaussian' (independent noise->data), "
+                             "'smartinit' (smart-init->data), or 'otbatch' (noise->data with minibatch "
+                             "optimal-transport pairing, OT-CFM)")
     parser.add_argument("--fm-source-jitter-px", type=float, default=0.0,
                         help="Gaussian jitter (offset/pixel units) on the smart-init source during training (smartinit coupling)")
     parser.add_argument("--conditioning", choices=["controlnet", "concat", "spade"], default=CONDITIONING,
@@ -950,6 +1040,50 @@ def main():
     run(args=args)
 
 
+def prune_intermediate_saves(epoch_label, keep_every, checkpoints_dir, out_dir, ckpt_prefix):
+    """Free disk once ``epoch_label`` is a multiple of ``keep_every``.
+
+    Deletes every periodic checkpoint ``{ckpt_prefix}{N}.pt`` (and its train/val panels
+    ``{train,val}_panel_ep{N}.png`` in ``out_dir``) for which N < epoch_label and
+    N % keep_every != 0. Multiples of keep_every and the current/future epochs are kept, and
+    the pattern deliberately does NOT match ``best_*`` checkpoints. No-op when keep_every <= 0
+    or epoch_label is not a keep multiple.
+    """
+    if keep_every <= 0 or epoch_label % keep_every != 0:
+        return
+    removed = 0
+    ckpt_re = re.compile(r"^" + re.escape(ckpt_prefix) + r"(\d+)\.pt$")
+    if os.path.isdir(checkpoints_dir):
+        for fname in os.listdir(checkpoints_dir):
+            m = ckpt_re.match(fname)
+            if not m:
+                continue
+            ep = int(m.group(1))
+            if ep >= epoch_label or ep % keep_every == 0:
+                continue
+            try:
+                os.remove(os.path.join(checkpoints_dir, fname))
+                removed += 1
+            except OSError as exc:
+                print(f"  -> KEEP_EVERY: could not remove {fname}: {exc}")
+    panel_re = re.compile(r"^(?:train|val)_panel_ep(\d+)\.png$")
+    if os.path.isdir(out_dir):
+        for fname in os.listdir(out_dir):
+            m = panel_re.match(fname)
+            if not m:
+                continue
+            ep = int(m.group(1))
+            if ep >= epoch_label or ep % keep_every == 0:
+                continue
+            try:
+                os.remove(os.path.join(out_dir, fname))
+            except OSError as exc:
+                print(f"  -> KEEP_EVERY: could not remove {fname}: {exc}")
+    if removed:
+        print(f"  -> KEEP_EVERY={keep_every}: pruned {removed} intermediate checkpoint(s) "
+              f"below epoch {epoch_label} (kept multiples of {keep_every}; best_* untouched)")
+
+
 def run(args):
     if args.wandb_valid_images < 0:
         raise ValueError("--wandb-valid-images must be >= 0")
@@ -957,6 +1091,13 @@ def run(args):
         raise ValueError("--wandb-train-images must be >= 0")
     if args.save_every <= 0:
         raise ValueError("--save_every must be >= 1")
+    if args.keep_every < 0:
+        raise ValueError("--keep-every must be >= 0 (0 disables pruning)")
+    if args.keep_every > 0 and args.keep_every % args.save_every != 0:
+        raise ValueError(
+            f"--keep-every ({args.keep_every}) must be a multiple of --save_every "
+            f"({args.save_every}); otherwise the kept epochs never coincide with saved ones."
+        )
     if not (0.0 < args.truncation_ratio <= 1.0):
         raise ValueError("--truncation-ratio must be in (0, 1]")
     if not (args.show_selected_inputs or args.show_selected_gt or args.show_selected_predict or args.show_selected_gt_offsets):
@@ -1299,6 +1440,26 @@ def run(args):
             )
 
     # ── training loop ────────────────────────────────────────────────
+    # On (re)start: if a previous prune was interrupted mid-deletion (e.g. the process was
+    # killed while deleting epochs 10..90 after saving epoch 100), finish it now. Re-run the
+    # pruner at the highest keep-boundary already on disk so leftover intermediates are removed
+    # rather than lingering until the next boundary. Idempotent -- a clean run is a no-op.
+    if args.keep_every > 0 and os.path.isdir(checkpoints_dir):
+        _keep_prefix = "dynamic_controlnet_fm_ep"
+        _keep_re = re.compile(r"^" + re.escape(_keep_prefix) + r"(\d+)\.pt$")
+        _keep_eps = []
+        for _keep_fname in os.listdir(checkpoints_dir):
+            _keep_m = _keep_re.match(_keep_fname)
+            if _keep_m:
+                _keep_eps.append(int(_keep_m.group(1)))
+        if _keep_eps:
+            _keep_boundary = (max(_keep_eps) // args.keep_every) * args.keep_every
+            if _keep_boundary >= args.keep_every:
+                print(f"  -> KEEP_EVERY: startup catch-up prune at boundary {_keep_boundary}")
+                prune_intermediate_saves(
+                    _keep_boundary, args.keep_every, checkpoints_dir, args.out, _keep_prefix,
+                )
+
     for epoch in range(start_epoch, args.epochs):
         should_save_epoch = ((epoch + 1) % args.save_every == 0) or ((epoch + 1) == args.epochs)
         epoch_loss = 0.0
@@ -1769,6 +1930,9 @@ def run(args):
                 "current_geom_score": float(last_geom["score"]),
             }, save_path)
             print(f"  -> saved {save_path}")
+            prune_intermediate_saves(
+                epoch + 1, args.keep_every, checkpoints_dir, args.out, "dynamic_controlnet_fm_ep",
+            )
 
     if use_wandb:
         wandb.finish()

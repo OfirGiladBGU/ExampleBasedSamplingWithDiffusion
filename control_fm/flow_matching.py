@@ -139,8 +139,17 @@ class FlowMatching(nn.Module):
     cloud so the model generalizes to different smart-inits at inference. It is also the
     quantity that makes stochastic (SDE) sampling well defined for this coupling.
 
-    Both couplings reuse the same linear interpolant and velocity target; only the source
-    endpoint fed as ``eps`` changes.
+    ``coupling="otbatch"``: like gaussian -- the source is marginally N(0, I) and inference
+    still starts from pure noise -- but during TRAINING the batch of noise samples is reordered
+    by exact minibatch optimal transport so each noise sample is paired with the data sample it
+    is closest to (OT-CFM; Tong et al. 2023). Independent gaussian pairing makes the regressed
+    velocity target ``eps - x0`` a conditional MEAN over every (x0, eps) pair consistent with a
+    given x_t, which averages valid blue-noise displacements into a smoothed field; OT pairing
+    makes that target near-deterministic. Only the training-time pairing changes -- SNR, score,
+    SDE and the inference noise-start are all identical to gaussian. See ``_ot_couple``.
+
+    All couplings reuse the same linear interpolant and velocity target; only the source
+    endpoint (and, for otbatch, its within-batch pairing) changes.
     """
 
     def __init__(self, device="cpu", t_scale=1000.0, eps_t=1e-4,
@@ -162,24 +171,30 @@ class FlowMatching(nn.Module):
         self.min_snr_gamma = float(min_snr_gamma)
         self.snr_weight_normalize = bool(snr_weight_normalize)
 
-        if self.coupling not in ("gaussian", "smartinit"):
-            raise ValueError(f"Unknown coupling '{self.coupling}' (expected 'gaussian' or 'smartinit')")
+        if self.coupling not in ("gaussian", "smartinit", "otbatch"):
+            raise ValueError(f"Unknown coupling '{self.coupling}' (expected 'gaussian', 'smartinit', or 'otbatch')")
         if self.t_dist not in ("uniform", "logitnormal"):
             raise ValueError(f"Unknown t_dist '{self.t_dist}' (expected 'uniform' or 'logitnormal')")
-        if self.min_snr_gamma > 0.0 and self.coupling != "gaussian":
+        if self.min_snr_gamma > 0.0 and self.coupling not in ("gaussian", "otbatch"):
             raise ValueError(
-                "min_snr_gamma > 0 is only defined for coupling='gaussian'. The interpolant "
-                "SNR assumes the source is N(0, I); with the smartinit coupling the source is "
-                "a data-dependent point cloud and 'signal-to-noise ratio' has no meaning. "
-                "Set --min-snr-gamma 0 or use --fm-coupling gaussian."
+                "min_snr_gamma > 0 needs a source that is marginally N(0, I) ('gaussian' or "
+                "'otbatch'). With the smartinit coupling the source is a data-dependent point "
+                "cloud and 'signal-to-noise ratio' has no meaning. Set --min-snr-gamma 0 or "
+                "use --fm-coupling gaussian/otbatch."
             )
+        # Note: under otbatch, eps|x0 is OT-biased (not exactly N(0, I) conditionally), so the
+        # min-SNR weight is approximate there. Kept identical to the gaussian baseline on
+        # purpose so the OT run changes ONE variable (the coupling) and stays comparable.
 
     # -- coupling / source endpoint ----------------------------------
     def sample_source(self, x_data, smart_init=None):
-        """Return the source endpoint (t=1) of the interpolant.
+        """Return the source endpoint (t=1) of the interpolant, for the whole batch.
 
         gaussian  -> N(0, I) with the shape of ``x_data``.
         smartinit -> ``smart_init`` offsets (+ optional pixel jitter), broadcast to x_data.
+        otbatch   -> N(0, I) noise reordered across the batch by minibatch OT so noise[i] is
+                     paired with the nearest x_data[i] (see ``_ot_couple``). Must be given the
+                     FULL batch (which the training loop does) for the pairing to do anything.
         """
         if self.coupling == "smartinit":
             if smart_init is None:
@@ -190,7 +205,37 @@ class FlowMatching(nn.Module):
             if self.source_jitter_px > 0.0:
                 src = src + torch.randn_like(src) * self.source_jitter_px
             return src
-        return torch.randn_like(x_data)
+        eps = torch.randn_like(x_data)
+        if self.coupling == "otbatch":
+            eps = self._ot_couple(x_data, eps)
+        return eps
+
+    @staticmethod
+    def _ot_couple(x_data, eps):
+        """Minibatch optimal-transport coupling (OT-CFM, Tong et al. 2023).
+
+        Reorders ``eps`` within the batch to minimize total squared transport cost
+        ``sum_i ||x_data[i] - eps[pi(i)]||^2``, so straight interpolant paths cross far less
+        and the velocity target ``eps - x_data`` becomes near-deterministic instead of a
+        conditional mean over many independent pairings. Marginally ``eps`` is unchanged (a
+        relabelled set of N(0, I) samples), so nothing downstream of training is affected.
+
+        Exact assignment via the Hungarian algorithm; the batch is small so the B x B solve is
+        negligible (no Sinkhorn approximation needed). No-op for B < 2 (e.g. the overfit test).
+        The permutation is non-differentiable, which is fine: ``eps`` is a target endpoint, not
+        a quantity we backprop through.
+        """
+        b = x_data.shape[0]
+        if b < 2:
+            return eps
+        from scipy.optimize import linear_sum_assignment
+        a = x_data.reshape(b, -1)
+        e = eps.reshape(b, -1)
+        cost = torch.cdist(a, e) ** 2                       # (B, B) squared-euclidean
+        # col[i] = index of the noise sample assigned to data sample i.
+        _row, col = linear_sum_assignment(cost.detach().cpu().numpy())
+        perm = torch.as_tensor(col, device=eps.device, dtype=torch.long)
+        return eps[perm]
 
     def start_state(self, shape, device=None, smart_init=None):
         """Initial ODE state at t_start for sampling (no jitter -- use the real smart-init)."""

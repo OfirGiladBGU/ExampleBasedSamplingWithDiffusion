@@ -1,0 +1,54 @@
+# Objective-driven (GT-free) stippling — all knobs in one place.
+# These mirror the flags of train_control.py / test_overfit.py; nothing here is read automatically
+# yet (pass the flags on the CLI), but this file is the single source of truth for the
+# defaults and the intent behind each knob. See README.md (current) --- note the pure
+# objective-driven (unroll) mode was CLOSED; the shipped method is the hybrid.
+
+data:
+  source: /path/to/source              # grayscale source images
+  offsets: /path/to/processed_offsets  # GBN reference offsets (val split + GBN bar ONLY, never a train target)
+  out: control_gt_free/train_outputs_gtfree
+  base_config_path: config/GBN/config.json
+  grid_size: 32
+
+model:
+  conditioning: concat                 # concat | spade (single-stage, attention-free)
+  concat_smart_init_grid: false
+  t_scale: 1000.0
+  fm_coupling: gaussian                # PRIMARY = gaussian (from noise). smartinit = ablation C.
+
+objective_unroll:
+  unroll_steps: 8                      # K: ODE steps unrolled WITH grad each step. 1 = one-step x0.
+  unroll_method: euler                 # euler | heun
+  grad_checkpoint: false               # checkpoint each step to trade compute for memory when K is large
+
+loss:
+  # start at comparable gradient magnitudes, then tune (README open item 3)
+  w_cap: 1.0                           # soft delta_c   (validator: compute_m2_capacity_constraint)
+  w_cvt: 1.0                           # soft CVT energy (validator: compute_m1_cvt_energy)
+  w_pcf: 1.0                           # density-warped PCF vs empirical GBN target (validator: M5 / spectrum)
+  loss_grid: 32                        # DOWNSAMPLED soft-Voronoi grid (O(N*G) memory); hard validator stays full-res
+  pcf_warp_grid: 0                     # rho-map resolution for the PCF warp (0 = full image res)
+  stop_grad_warp: true                 # gradient flows through cdist only; warp factor detached (README default)
+  gbn_bar: control_gt_free/gbn_bar.pt  # bundle from eval/precompute_gbn_bar.py (empirical PCF target + hard bar)
+
+tau_schedule:                          # "tau is the whole ballgame"
+  tau_start: 0.02                      # warm: stable global signal (~squared mean spacing)
+  tau_end: 0.002                       # cool: near-hard, matches the scipy Voronoi validator
+  tau_mode: cosine                     # cosine | linear | exp
+  tau_warmup_frac: 0.1                 # hold tau_start for the first 10% of steps
+
+optim:
+  epochs: 200
+  batch_size: 16
+  lr: 1.0e-4
+  grad_clip: 1.0
+  val_split: 0.1
+  eval_every: 10                       # run HARD validation (scipy/FFT + visual grid) every N epochs
+  eval_batches: 3
+  init_ckpt: null                      # optional warm-start (imitation checkpoint A)
+  device: cuda
+  wandb: false
+
+# Phase 1 kill-test (do FIRST): short run, --w-pcf on with --gbn-bar, --fm-coupling gaussian,
+# inspect the visual grid + the vs-GBN HARD deltas before any full run. See the README.

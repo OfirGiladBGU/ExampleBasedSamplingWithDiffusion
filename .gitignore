@@ -10,3 +10,4 @@ wandb/
 logs*/
 .env
 results*/
+*_out*/
