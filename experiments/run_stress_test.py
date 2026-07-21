@@ -449,6 +449,11 @@ def main():
     ).to(device)
     state = torch.load(args.control_ckpt, map_location="cpu")
     control_net.safe_load_state_dict(state, strict=False)
+    # If the control checkpoint was trained unfrozen, restore its trained base
+    # into the control backbone (NOT the separate baseline_denoiser).
+    if isinstance(state, dict) and state.get("denoiser") is not None:
+        control_backbone.load_state_dict(state["denoiser"], strict=False)
+        print("Loaded trained (unfrozen) base denoiser from control checkpoint")
     control_net.eval()
 
     condition_images_01 = []

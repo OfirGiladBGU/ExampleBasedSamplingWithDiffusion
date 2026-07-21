@@ -1173,6 +1173,9 @@ def run(args):
         else:
             state = torch.load(latest_path, map_location="cpu")
             control_net.safe_load_state_dict(state, strict=False)
+            if state.get("denoiser") is not None:
+                denoiser.load_state_dict(state["denoiser"], strict=False)
+                print("  -> restored trained (unfrozen) base denoiser from checkpoint")
             if "optimizer" in state and state["optimizer"] is not None:
                 optimizer.load_state_dict(state["optimizer"])
             global_step = int(state.get("global_step", 0))
@@ -1526,6 +1529,8 @@ def run(args):
                     new_best_path = os.path.join(checkpoints_dir, best_name)
                     best_payload = {
                         "control_net": control_net.state_dict(),
+                        "denoiser": (None if args.freeze_denoiser else denoiser.state_dict()),
+                        "freeze_denoiser": bool(args.freeze_denoiser),
                         "optimizer": optimizer.state_dict(),
                         "epoch": epoch,
                         "global_step": global_step,
@@ -1587,6 +1592,11 @@ def run(args):
             save_path = os.path.join(checkpoints_dir, f"dynamic_controlnet_v4_ep{epoch+1}.pt")
             torch.save({
                 "control_net": control_net.state_dict(),
+                # When the base is unfrozen its trained weights live only in `denoiser`
+                # (DynamicControlNet does NOT hold the base), so they must be saved
+                # explicitly or they are lost on reload. Frozen -> None (base == GBN base).
+                "denoiser": (None if args.freeze_denoiser else denoiser.state_dict()),
+                "freeze_denoiser": bool(args.freeze_denoiser),
                 "optimizer": optimizer.state_dict(),
                 "epoch": epoch,
                 "global_step": global_step,

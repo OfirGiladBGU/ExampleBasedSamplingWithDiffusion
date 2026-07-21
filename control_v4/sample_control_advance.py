@@ -840,6 +840,11 @@ def main():
     ).to(device)
     state = torch.load(args.control_ckpt, map_location="cpu")
     control_net.safe_load_state_dict(state, strict=False)
+    # If trained with the base unfrozen, restore the trained base denoiser
+    # (stored under "denoiser"; None/absent -> keep the original GBN base).
+    if isinstance(state, dict) and state.get("denoiser") is not None:
+        denoiser.load_state_dict(state["denoiser"], strict=False)
+        print("Loaded trained (unfrozen) base denoiser from control checkpoint")
     control_net.eval()
 
     img_stem = os.path.splitext(os.path.basename(args.input_image))[0]

@@ -775,6 +775,9 @@ def main():
         checkpoint = torch.load(latest_ckpt_path, map_location=device)
         control_net.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if checkpoint.get("denoiser") is not None:
+            denoiser.load_state_dict(checkpoint["denoiser"], strict=False)
+            print("  -> restored trained (unfrozen) base denoiser from checkpoint")
         best_val_score = float(checkpoint.get("best_val_score", best_val_score))
         start_step = int(checkpoint.get("step", 0)) + 1
         print(f"Resumed from latest checkpoint: {latest_ckpt_path} (start_step={start_step})")
@@ -903,6 +906,10 @@ def main():
             checkpoint = {
                 "step": step,
                 "model_state_dict": control_net.state_dict(),
+                # Base is not held by control_net; when unfrozen its trained weights
+                # must be saved explicitly or they are lost on reload/resume.
+                "denoiser": (None if args.freeze_denoiser else denoiser.state_dict()),
+                "freeze_denoiser": bool(args.freeze_denoiser),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "best_val_score": min(best_val_score, geom["score"]),
                 "current_val_score": geom["score"],
@@ -955,6 +962,8 @@ def main():
     ckpt_path = os.path.join(out_dir, "dynamic_controlnet_v4_overfit.pt")
     torch.save({
         "model_state_dict": control_net.state_dict(),
+        "denoiser": (None if args.freeze_denoiser else denoiser.state_dict()),
+        "freeze_denoiser": bool(args.freeze_denoiser),
         "optimizer_state_dict": optimizer.state_dict(),
         "step": args.steps,
         "loss_history": losses,

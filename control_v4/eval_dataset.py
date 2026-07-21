@@ -441,6 +441,13 @@ def _load_models(args, device):
     ).to(device)
     state = torch.load(args.control_ckpt, map_location="cpu")
     control_net.safe_load_state_dict(state, strict=False)
+    # If this checkpoint was trained with the base unfrozen, the trained base
+    # weights are stored in the checkpoint under "denoiser" (the frozen GBN base
+    # otherwise). Load them over the freshly-built base or the model reverts to
+    # the original GBN weights and the control branch drives a wrong base.
+    if isinstance(state, dict) and state.get("denoiser") is not None:
+        denoiser.load_state_dict(state["denoiser"], strict=False)
+        print("Loaded trained (unfrozen) base denoiser from control checkpoint")
     control_net.eval()
     return diffusion, denoiser, control_net
 

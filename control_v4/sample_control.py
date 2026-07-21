@@ -348,6 +348,11 @@ def load_pipeline(base_config_path, base_ckpt_path, control_ckpt_path, grid_size
     
     state = torch.load(control_ckpt_path, map_location="cpu")
     control_net.safe_load_state_dict(state, strict=False)
+    # Restore the trained base denoiser if this checkpoint was trained unfrozen
+    # (stored under "denoiser"; None/absent for frozen runs -> keep GBN base).
+    if isinstance(state, dict) and state.get("denoiser") is not None:
+        denoiser.load_state_dict(state["denoiser"], strict=False)
+        print("Loaded trained (unfrozen) base denoiser from control checkpoint")
     control_net.eval()
     
     return diffusion, control_net
