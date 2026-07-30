@@ -21,6 +21,7 @@ Usage (from project root):
 import os
 import sys
 import argparse
+import json
 import re
 from datetime import datetime
 
@@ -53,169 +54,19 @@ from utils.stippling_metrics import geometric_validation_score
 # ── default globals (edit here for quick experiments) ───────────────
 
 # Paths and I/O
-WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
-
-BASE_CONFIG_PATH = "config/GBN/config.json"
-BASE_CKPT_PATH = "config/GBN/model.ckpt"
-
-# ICONS 1024 GBN
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/target"
-
-# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_GBN"
-# FREEZE_DENOISER = True  # TODO: Add in the other scripts
-# RESAMPLE_JUMPS = 2
-
-OUTPUT_DIR = "control_v4/train_outputs_icons50_512_GBN_UNIFIED"
-FREEZE_DENOISER = False  # TODO: Add in the other scripts
-RESAMPLE_JUMPS = 0
-
-GRID_SIZE = 32
-VAL_SPLIT = 0.1
-EPOCHS = 5000
-SAVE_EVERY = 10
-ENABLE_GECCO = True
-ENABLE_ADAPTIVE_GATE_INJECTION = True
-EVAL_TIMESTEPS = 1000
-TRAIN_TRUNCATION_RATIO = 0.30
-INFER_TRUNCATION_RATIO = 0.30
-SMART_INIT_FEATURES = False
-SDF_FEATURES = False
-BATCH_COORDS_FEATURES = False
-ENABLE_SMART_INIT_JITTER = False
-ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# ICONS 1024 WVS
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_no_random"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.1
-# EPOCHS = 10000
-# SAVE_EVERY = 10
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# FACES 1024 GBN
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
-# OUTPUT_DIR = "control_v4/train_outputs_data_celeba_5K_1024_no_random"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.1
-# EPOCHS = 10000
-# SAVE_EVERY = 10
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# ANIMALS 1024 GBN
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/target"
-# OUTPUT_DIR = "control_v4/train_outputs_data_AM-2K_1024_no_random"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.1
-# EPOCHS = 20000
-# SAVE_EVERY = 10
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# Stress 1 1024
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/target"
-# OUTPUT_DIR = "control_v4/train_outputs_data_stress1_no_random"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.0
-# EPOCHS = 10000
-# SAVE_EVERY = 50
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = False    # NOTE
-# SDF_FEATURES = False           # NOTE
-# BATCH_COORDS_FEATURES = False  # NOTE
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# Stress 2 1024 V2
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/target"
-# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_V2_no_random"
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.0
-# EPOCHS = 10000
-# SAVE_EVERY = 50
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = False    # NOTE
-# SDF_FEATURES = False           # NOTE
-# BATCH_COORDS_FEATURES = False  # NOTE
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# # Stress 2 1024 V1 - IGNORE
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/target"
-# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_no_random"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.0
-# EPOCHS = 10000
-# SAVE_EVERY = 10
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = True    # NOTE
-# SDF_FEATURES = True           # NOTE
-# BATCH_COORDS_FEATURES = True  # NOTE
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
+WANDB_ENV = ".env"
 
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
 OFFSETS_DIR = ""
+
+# Where ground-truth points come from when building offsets.
+#   "npy" -> prefer the exact coordinates written beside each target (<stem>.npy), fall back to
+#            centroid detection on the PNG for any stem that has no .npy yet.
+#   "png" -> always use centroid detection (the original behaviour).
+# The oracle generators write both files side by side (--export_type both), and the .npy is exact:
+# it holds the solver's own continuous coordinates, whereas the PNG has been quantised to the pixel
+# grid and loses any two points that landed in the same pixel.
+POINTS_SOURCE = "npy"
 CACHE_DATA_DIR = ""
 PRELOAD_RAM = False  # Preload all cached data to RAM (eliminates disk I/O per batch)
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
@@ -225,15 +76,52 @@ VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 # KEEP_EVERY. With SAVE_EVERY=10 and KEEP_EVERY=100, epochs 10..90 are pruned once epoch
 # 100 is saved, keeping 100, 200, ...  Set KEEP_EVERY=0 to disable. 'best_*' checkpoints
 # are never touched. KEEP_EVERY must be 0 or a multiple of SAVE_EVERY.
+SAVE_EVERY = 10
 KEEP_EVERY = 100
 
 # Model parameters
-# FREEZE_DENOISER = True  # TODO: Add in the other scripts
-# GRID_SIZE = 32
+BASE_CONFIG_PATH = "config/GBN/config.json"
+BASE_CKPT_PATH = ""  # clean training: base trains FROM SCRATCH (no pretrained GBN). Pretrained: "config/GBN/model.ckpt"
+FREEZE_DENOISER = True
+GRID_SIZE = 32
+VAL_SPLIT = 0.1
+EPOCHS = 5000
+ENABLE_GECCO = True
+ENABLE_ADAPTIVE_GATE_INJECTION = True
+EVAL_TIMESTEPS = 1000
+TRAIN_TRUNCATION_RATIO = 1.00
+INFER_TRUNCATION_RATIO = 0.50
+RESAMPLE_JUMPS = 0
+SMART_INIT_FEATURES = False
+SDF_FEATURES = False
+BATCH_COORDS_FEATURES = False
+ENABLE_SMART_INIT_JITTER = False
+ENABLE_SMART_INIT_SPLAT_SIGMA = False
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
 SMART_INIT_JITTER_PX = 0.5
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
+
+# Component 1 - training timestep sampling schedule.
+#   "uniform"      -> original behaviour (torch.randint over [0, cutoff)).
+#   "logit_normal" -> sample u ~ N(m, s), t = sigmoid(u) * cutoff. Concentrates the
+#                     gradient budget on low-t (final-spacing) steps. m<0 pushes lower.
+T_SAMPLING = "uniform"
+LOGIT_NORMAL_M = 0.0
+LOGIT_NORMAL_S = 1.0
+
+# Component 2 - density-match (KDE) loss on the low-t x0 decode.
+#   Decodes the one-step x0 estimate to a point set, splats both it and the teacher
+#   point set to a low-res Gaussian density map, and penalises the difference. This
+#   directly matches the teacher's density field (capacity), which raw eps-MSE only
+#   matches indirectly. Weight 0.0 -> OFF (bit-exact original behaviour).
+DENSITY_LOSS_WEIGHT = 0.0
+DENSITY_KDE_GRID = 16          # KDE map resolution (coarser than GRID_SIZE = low-pass)
+DENSITY_KDE_SIGMA_PX = 1.0     # Gaussian sigma, in KDE-grid pixels
+DENSITY_LOSS_T_FRAC = 0.4      # only apply where t < frac * eval_timesteps
+DENSITY_LOSS_T_SOFT = 0.0      # width of a soft ramp at that cutoff (0 = hard mask)
+DENSITY_LOSS_WARMUP_EPOCHS = 0 # linearly ramp the weight in over N epochs (0 = no ramp)
+DENSITY_LOSS_GRAD_LOG_EVERY = 0  # log ||grad L_main|| vs ||grad L_density|| every N steps
 
 # Loss component weights
 MIN_SNR_GAMMA = 5.0
@@ -261,6 +149,93 @@ SHOW_SELECTED_PREDICT = True
 SHOW_SELECTED_GT_OFFSETS = True
 
 
+############################
+# CONFIGURATION PARAMETERS #
+############################
+
+# ICONS 1024 GBN
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/target"
+
+OUTPUT_DIR = "control_v4/train_outputs_icons50_512_GBN_UNIFIED"
+FREEZE_DENOISER = False  # NOTE
+BASE_CKPT_PATH = ""
+
+# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_GBN"
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# ICONS 1024 WVS
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_WVS/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_WVS/target"
+
+# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_WVS_UNIFIED"
+# FREEZE_DENOISER = False  # NOTE
+# BASE_CKPT_PATH = ""
+
+# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_WVS"
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# FACES 1024 GBN
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
+# OUTPUT_DIR = "control_v4/train_outputs_data_celeba_5K_1024_no_random"
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# ANIMALS 1024 GBN
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/target"
+# OUTPUT_DIR = "control_v4/train_outputs_data_AM-2K_1024_no_random"
+# EPOCHS = 20000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# Stress 1 1024
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/target"
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress1_no_random"
+# VAL_SPLIT = 0.0              # NOTE
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# Stress 2 1024 V2
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/target"
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_V2_no_random"
+# VAL_SPLIT = 0.0              # NOTE
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# Stress 2 1024 V1 - IGNORE
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/target"
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_no_random"
+# VAL_SPLIT = 0.0              # NOTE
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
 def load_wandb_key():
     if os.path.exists(WANDB_ENV):
         with open(WANDB_ENV) as f:
@@ -272,7 +247,23 @@ def load_wandb_key():
     return False
 
 
-def extract_points_from_target(img_path, n_points):
+def _fit_points_to_n(points, n_points):
+    """Force a point set to exactly n_points, as the offsets tensor (2, G, G) requires.
+
+    Unchanged behaviour: subsample when long, pad with uniform random when short. The padding is
+    only reachable when points came from a PNG -- centroid detection merges dots that touch, so a
+    dense target can yield fewer than n_points. A .npy is exact and never triggers it.
+    """
+    rng = np.random.RandomState(42)
+    if len(points) > n_points:
+        points = points[rng.choice(len(points), n_points, replace=False)]
+    elif len(points) < n_points:
+        deficit = n_points - len(points)
+        points = np.vstack([points, rng.rand(deficit, 2)])
+    return points
+
+
+def extract_points_from_png(img_path, n_points):
     """Detect dot centroids in a stippled target and return (N, 2) in [0, 1]."""
     img = Image.open(img_path).convert("L")
     img_np = np.array(img, dtype=np.uint8)
@@ -286,18 +277,36 @@ def extract_points_from_target(img_path, n_points):
 
     h, w = img_np.shape
     points = np.array([[cx / w, cy / h] for cy, cx in centroids], dtype=np.float64)
-
-    rng = np.random.RandomState(42)
-    if len(points) > n_points:
-        points = points[rng.choice(len(points), n_points, replace=False)]
-    elif len(points) < n_points:
-        deficit = n_points - len(points)
-        points = np.vstack([points, rng.rand(deficit, 2)])
-
-    return points
+    return _fit_points_to_n(points, n_points)
 
 
-def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
+def extract_points_from_npy(npy_path, n_points):
+    """Load exact ground-truth coordinates: (N, 2) float, x then y, in [0, 1], y down.
+
+    Same convention extract_points_from_png returns, so the two are interchangeable.
+    """
+    points = np.load(npy_path).astype(np.float64)
+    if points.ndim != 2 or points.shape[1] != 2:
+        raise ValueError(f"expected (N, 2) points in {npy_path}, got {points.shape}")
+    return _fit_points_to_n(points, n_points)
+
+
+def extract_points_from_target(img_path, n_points, points_source=None):
+    """Ground-truth points for one target, preferring exact coordinates over the rasterised PNG.
+
+    With points_source="npy" (the default) the sibling <stem>.npy is used when present and the PNG
+    is the fallback, so a partially-exported dataset still trains. Returns (points, source_used).
+    """
+    if points_source is None:
+        points_source = POINTS_SOURCE
+    if points_source == "npy":
+        npy_path = os.path.splitext(img_path)[0] + ".npy"
+        if os.path.exists(npy_path):
+            return extract_points_from_npy(npy_path, n_points), "npy"
+    return extract_points_from_png(img_path, n_points), "png"
+
+
+def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size, points_source=None):
     """Ensure offsets exist; auto-export from targets when missing/empty."""
     if offsets_dir and offsets_dir.strip():
         resolved_offsets_dir = offsets_dir
@@ -355,6 +364,10 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
             f"Offsets already complete: {len(expected_stems)} / {len(expected_stems)} "
             f"in {resolved_offsets_dir}"
         )
+        print(
+            "         (cached from a previous run -- the point source is baked in. To rebuild "
+            "from .npy, delete that directory or point --offsets at a new one.)"
+        )
         return resolved_offsets_dir
 
     print("Offsets export is incomplete. Resuming export from target images...")
@@ -381,8 +394,11 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
 
     n_points = grid_size ** 2
     exported = 0
+    src_counts = {"npy": 0, "png": 0}
     for stem in tqdm(export_stems, desc="Exporting offsets", unit="img"):
-        pts = extract_points_from_target(target_map[stem], n_points)
+        pts, used = extract_points_from_target(target_map[stem], n_points,
+                                               points_source=points_source)
+        src_counts[used] += 1
         offsets = to_image_optimal_transport(pts)
 
         # Write through a temporary file then atomically replace target file.
@@ -406,11 +422,106 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
             f"Offset export incomplete after resume: missing {len(final_missing)} files."
         )
 
+    resolved_src = points_source if points_source is not None else POINTS_SOURCE
+    print(f"  -> point source '{resolved_src}': {src_counts['npy']} from .npy, "
+          f"{src_counts['png']} from .png")
+    if resolved_src == "npy" and src_counts["png"]:
+        print(f"     NOTE: {src_counts['png']} stems had no .npy and fell back to centroid "
+              f"detection on the PNG (re-run the oracle generator with --export_type both).")
     print(
         f"  -> exported/re-exported {exported} files; "
         f"offsets complete: {len(expected_stems)} / {len(expected_stems)} in {resolved_offsets_dir}"
     )
     return resolved_offsets_dir
+
+
+def sample_training_timesteps(batch_size, truncation_cutoff, device,
+                              mode="uniform", m=0.0, s=1.0):
+    """Draw diffusion timesteps in [0, truncation_cutoff) for a training step.
+
+    Component 1. ``mode="uniform"`` reproduces the original ``torch.randint`` draw
+    exactly. ``mode="logit_normal"`` samples ``u ~ N(m, s)``, maps ``t = sigmoid(u)``
+    into ``[0, truncation_cutoff)`` and rounds to an integer timestep, concentrating
+    the gradient budget on the low-t steps that establish final point spacing. A
+    negative ``m`` pushes mass further toward low t.
+    """
+    if mode == "logit_normal":
+        u = torch.randn(batch_size, device=device) * s + m
+        t = (torch.sigmoid(u) * truncation_cutoff).long()
+        return t.clamp_(0, max(truncation_cutoff - 1, 0))
+    return torch.randint(0, truncation_cutoff, (batch_size,), device=device)
+
+
+def gaussian_kde_map(coords, kde_grid, sigma_px, grid_centers_flat=None):
+    """Differentiable Gaussian KDE of (B,N,2) coords onto a (B,K*K) density map.
+
+    Component 2. Unlike ``render_occupancy_grid_gpu`` (hard ``.long()`` binning, no
+    gradient) and ``render_smart_init_gpu`` (``amax`` -> occupancy, saturates), this
+    *sums* the Gaussian contributions of every point, so the result is a genuine
+    density that is differentiable w.r.t. ``coords``. Each map is normalised to
+    *mean* 1 (i.e. sum = K*K), which makes the loss invariant to point count, kernel
+    scale AND map resolution. Normalising to sum 1 instead would put cell values at
+    ~1/K^2 and the squared-error loss at ~1e-7, forcing an ~1e6 density weight.
+    """
+    bsz = coords.shape[0]
+    if grid_centers_flat is None:
+        grid_centers_flat = _grid_centers_flat(kde_grid, device=coords.device, dtype=coords.dtype)
+    centers = grid_centers_flat.expand(bsz, -1, -1)          # (B, K*K, 2)
+
+    sigma = max(float(sigma_px), 1e-4) / float(kde_grid)
+    dist = torch.cdist(centers, coords, p=2)                 # (B, K*K, N)
+    gauss = torch.exp(-(dist * dist) / (2.0 * sigma * sigma))
+    density = gauss.sum(dim=2)                               # (B, K*K)
+    n_cells = density.shape[1]
+    return density * (n_cells / density.sum(dim=1, keepdim=True).clamp(min=1e-8))
+
+
+def density_match_loss(x0_pred, x0_true, t, grid_size, kde_grid, sigma_px,
+                       t_cutoff, t_soft=0.0, kde_centers=None, point_centers=None):
+    """Component 2 loss: || KDE(decode(x0_pred)) - KDE(decode(x0_true)) ||^2.
+
+    The x0 estimate is meaningless at high t, so the per-sample loss is masked to
+    ``t < t_cutoff``. ``t_soft > 0`` replaces the hard indicator with a linear ramp
+    that decays to 0 over ``t_soft`` steps above the cutoff, avoiding a gradient
+    discontinuity at the boundary. Returns ``(loss, active_fraction)``; the loss is
+    the mask-weighted mean, so it stays on the same scale as the number of steps
+    that actually contribute.
+    """
+    if t_soft > 0.0:
+        w = ((t_cutoff + t_soft - t.float()) / float(t_soft)).clamp(0.0, 1.0)
+    else:
+        w = (t < t_cutoff).to(x0_pred.dtype)
+
+    active = w.sum()
+    if float(active) <= 0.0:
+        return x0_pred.sum() * 0.0, 0.0
+
+    coords_pred = offsets_to_coords_gpu(x0_pred, grid_size, point_centers)
+    # The teacher side is a constant target - no gradient flows back through it.
+    coords_true = offsets_to_coords_gpu(x0_true.detach(), grid_size, point_centers)
+
+    kde_pred = gaussian_kde_map(coords_pred, kde_grid, sigma_px, kde_centers)
+    kde_true = gaussian_kde_map(coords_true, kde_grid, sigma_px, kde_centers)
+
+    per_sample = ((kde_pred - kde_true) ** 2).mean(dim=1)     # (B,)
+    loss = (per_sample * w).sum() / active.clamp(min=1e-8)
+    return loss, float(active) / float(t.shape[0])
+
+
+def loss_grad_norm(loss, params):
+    """L2 norm of d(loss)/d(params), for the Component 2 gradient-balance diagnostic.
+
+    Uses ``retain_graph=True`` so the real backward pass is unaffected. Only call
+    this periodically - it costs an extra backward.
+    """
+    grads = torch.autograd.grad(
+        loss, params, retain_graph=True, allow_unused=True, create_graph=False,
+    )
+    total = 0.0
+    for g in grads:
+        if g is not None:
+            total += float(g.detach().pow(2).sum())
+    return total ** 0.5
 
 
 def sample_eval_batch(diffusion, denoiser, control_net, batch, device, n_samples=4, eval_timesteps=1000, resample_jumps=2,
@@ -725,13 +836,21 @@ def main():
 
     # Paths and I/O
     parser.add_argument("--base_config_path", default=BASE_CONFIG_PATH)
-    parser.add_argument("--base_ckpt_path", default=BASE_CKPT_PATH)
+    parser.add_argument("--base_ckpt_path", "--base-ckpt-path", default=BASE_CKPT_PATH,
+                        help="Pretrained base diffusion checkpoint. Pass '' to train the "
+                             "base FROM SCRATCH (random init, no pretrained GBN bias); "
+                             "requires --no-freeze-denoiser.")
     parser.add_argument("--source",
                         default=SOURCE_DIR,
                         help="Dir of full-resolution grayscale source images")
     parser.add_argument("--target",
                         default=TARGET_DIR,
                         help="Dir of stippled target images (used to auto-export offsets if needed)")
+    parser.add_argument("--points-source", dest="points_source",
+                        choices=("npy", "png"), default=POINTS_SOURCE,
+                        help="npy: use the exact <stem>.npy beside each target, falling back to "
+                             "PNG centroid detection when absent (default). png: always detect "
+                             "centroids in the PNG.")
     parser.add_argument("--offsets",
                         default=OFFSETS_DIR,
                         help="Dir of .npy offset files; if empty/missing, offsets are exported from --target")
@@ -812,6 +931,71 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=ENABLE_ADAPTIVE_GATE_INJECTION,
         help="Use sigmoid-gated adaptive injection (default); use --no-enable-adaptive-gate-injection for simple zero convolutions",
+    )
+
+    parser.add_argument(
+        "--t-sampling",
+        choices=["uniform", "logit_normal"],
+        default=T_SAMPLING,
+        help="Component 1: training timestep sampling. 'logit_normal' concentrates the "
+             "gradient budget on low-t (final-spacing) steps.",
+    )
+    parser.add_argument(
+        "--logit-normal-m",
+        type=float,
+        default=LOGIT_NORMAL_M,
+        help="Mean m of logit-normal t sampling; negative pushes mass toward low t.",
+    )
+    parser.add_argument(
+        "--logit-normal-s",
+        type=float,
+        default=LOGIT_NORMAL_S,
+        help="Std s of logit-normal t sampling.",
+    )
+
+    parser.add_argument(
+        "--density-loss-weight",
+        type=float,
+        default=DENSITY_LOSS_WEIGHT,
+        help="Component 2: weight of the density-match (KDE) loss on the low-t x0 "
+             "decode. 0 disables it entirely (default).",
+    )
+    parser.add_argument(
+        "--density-kde-grid",
+        type=int,
+        default=DENSITY_KDE_GRID,
+        help="Resolution of the KDE density map for the Component 2 loss.",
+    )
+    parser.add_argument(
+        "--density-kde-sigma-px",
+        type=float,
+        default=DENSITY_KDE_SIGMA_PX,
+        help="Gaussian sigma (in KDE-grid pixels) used to splat points for Component 2.",
+    )
+    parser.add_argument(
+        "--density-loss-t-frac",
+        type=float,
+        default=DENSITY_LOSS_T_FRAC,
+        help="Component 2 is applied only where t < frac * eval_timesteps.",
+    )
+    parser.add_argument(
+        "--density-loss-t-soft",
+        type=float,
+        default=DENSITY_LOSS_T_SOFT,
+        help="Width (in timesteps) of a soft ramp at the Component 2 t cutoff; 0 = hard mask.",
+    )
+    parser.add_argument(
+        "--density-loss-warmup-epochs",
+        type=int,
+        default=DENSITY_LOSS_WARMUP_EPOCHS,
+        help="Linearly ramp the Component 2 weight in over this many epochs (0 = no ramp).",
+    )
+    parser.add_argument(
+        "--density-loss-grad-log-every",
+        type=int,
+        default=DENSITY_LOSS_GRAD_LOG_EVERY,
+        help="Every N steps, log ||grad L_main|| vs ||grad L_density|| to pick the "
+             "Component 2 weight by gradient balance. 0 = off (costs an extra backward).",
     )
 
     # Loss parameters
@@ -971,10 +1155,20 @@ def run(args):
         raise ValueError("--infer-truncation-ratio must be in (0, 1]")
     if not (args.show_selected_inputs or args.show_selected_gt or args.show_selected_predict or args.show_selected_gt_offsets):
         raise ValueError("At least one of --show-selected-inputs, --show-selected-gt, --show-selected-predict, or --show-selected-gt-offsets must be enabled")
-    args.offsets = ensure_offsets_dir(args.source, args.target, args.offsets, args.grid_size)
+    args.offsets = ensure_offsets_dir(args.source, args.target, args.offsets, args.grid_size,
+                                      points_source=args.points_source)
 
     device = torch.device(args.device)
     os.makedirs(args.out, exist_ok=True)
+
+    # Export the run parameters (the same dict wandb records as its config) to the
+    # output root, next to the train/val panels, so every run is self-documenting
+    # even without wandb.
+    run_params_path = os.path.join(args.out, "run_params.json")
+    with open(run_params_path, "w", encoding="utf-8") as _pf:
+        json.dump({"run_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), **vars(args)},
+                  _pf, indent=2, default=str)
+    print(f"  -> wrote run parameters: {run_params_path}")
 
     # ── wandb ────────────────────────────────────────────────────────
     use_wandb = WANDB_ACTIVE
@@ -1003,7 +1197,18 @@ def run(args):
 
     # ── load pretrained diffusion + build Dynamic ControlNet V4 ──────
     diffusion = ParseSampleConfig(args.base_config_path, device=device)
-    diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"], strict=False)
+    if args.base_ckpt_path:
+        diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"], strict=False)
+    else:
+        # Empty base_ckpt_path -> keep the random ParseSampleConfig init and train the base
+        # FROM SCRATCH (no pretrained GBN bias). Only meaningful with an unfrozen base.
+        if args.freeze_denoiser:
+            raise ValueError(
+                "--base_ckpt_path '' (train from scratch) requires --no-freeze-denoiser: "
+                "a frozen random base cannot be trained."
+            )
+        print("  -> base_ckpt_path is empty: training the denoiser FROM SCRATCH "
+              "(random init, no pretrained GBN weights).")
     diffusion.to(device)
     diffusion.eval()
 
@@ -1049,6 +1254,16 @@ def run(args):
     print(f"SDF features enabled                  : {args.sdf_features}")
     print(f"Batch coords features enabled         : {args.batch_coords_features}")
     print(f"Min-SNR gamma                         : {args.min_snr_gamma}")
+    density_loss_enabled = args.density_loss_weight > 0.0
+    density_t_cutoff = args.density_loss_t_frac * float(args.eval_timesteps)
+    _tsamp = args.t_sampling + (f" (m={args.logit_normal_m}, s={args.logit_normal_s})" if args.t_sampling == "logit_normal" else "")
+    _dens = (
+        f"on (w={args.density_loss_weight}, kde={args.density_kde_grid}, "
+        f"sigma={args.density_kde_sigma_px}px, t<{density_t_cutoff:.0f})"
+        if density_loss_enabled else "off"
+    )
+    print(f"Density-match (KDE) loss              : {_dens}")
+    print(f"Timestep sampling                     : {_tsamp}")
     print(f"SDF truncation (px)                   : {args.sdf_truncate_px}")
     print(f"Smart Init micro-jitter (train, px)  : {args.smart_init_jitter_px}")
     print(f"Smart Init soft-splat sigma (px)     : {args.smart_init_splat_sigma_px}")
@@ -1135,7 +1350,14 @@ def run(args):
         )
 
     print(f"Dataset split: train={train_len}, val={val_len}")
-    grid_centers_flat = _grid_centers_flat(args.grid_size, device=device, dtype=torch.float32) if args.smart_init_features else None
+    # Component 2 decodes offsets -> points, so it needs the point-grid centres too.
+    # (density_loss_enabled / density_t_cutoff are defined earlier, with the banner.)
+    _need_point_centers = args.smart_init_features or density_loss_enabled
+    grid_centers_flat = _grid_centers_flat(args.grid_size, device=device, dtype=torch.float32) if _need_point_centers else None
+    density_kde_centers = (
+        _grid_centers_flat(args.density_kde_grid, device=device, dtype=torch.float32)
+        if density_loss_enabled else None
+    )
 
     # ── optimizer ────────────────────────────────────────────────────
     if args.freeze_denoiser:
@@ -1211,6 +1433,7 @@ def run(args):
     for epoch in range(start_epoch, args.epochs):
         should_save_epoch = ((epoch + 1) % args.save_every == 0) or ((epoch + 1) == args.epochs)
         epoch_loss = 0.0
+        epoch_density_loss = 0.0
         preview_batch = None
 
         control_net.train()
@@ -1280,7 +1503,10 @@ def run(args):
                 high_res_sdf = None
                 target_sdf = None
 
-            t = torch.randint(0, truncation_cutoff, (x_0.shape[0],), device=device)
+            t = sample_training_timesteps(
+                x_0.shape[0], truncation_cutoff, device,
+                mode=args.t_sampling, m=args.logit_normal_m, s=args.logit_normal_s,
+            )
             noise = torch.randn_like(x_0)
             offsets_t = diffusion.q_sample(x_0, t, noise)
 
@@ -1308,6 +1534,46 @@ def run(args):
 
             loss = denoise_loss
 
+            density_loss_item = 0.0
+            if density_loss_enabled:
+                density_w = args.density_loss_weight
+                if args.density_loss_warmup_epochs > 0:
+                    density_w *= min(1.0, float(epoch) / float(args.density_loss_warmup_epochs))
+                if density_w > 0.0:
+                    # Closed-form one-step x0 estimate from (x_t, eps_pred).
+                    x0_pred = diffusion.predict_xstart_from_noise(offsets_t, t, noise_pred)
+                    d_loss, d_active = density_match_loss(
+                        x0_pred, x_0, t,
+                        grid_size=args.grid_size,
+                        kde_grid=args.density_kde_grid,
+                        sigma_px=args.density_kde_sigma_px,
+                        t_cutoff=density_t_cutoff,
+                        t_soft=args.density_loss_t_soft,
+                        kde_centers=density_kde_centers,
+                        point_centers=grid_centers_flat,
+                    )
+                    if (args.density_loss_grad_log_every > 0
+                            and global_step % args.density_loss_grad_log_every == 0
+                            and d_active > 0.0):
+                        # Mirror the clip_grad_norm_ scope below: when the base is
+                        # unfrozen the density gradient flows through the denoiser too,
+                        # so measuring the control branch alone understates the ratio.
+                        _gp = [p for p in control_net.parameters() if p.requires_grad]
+                        if not args.freeze_denoiser:
+                            _gp += [p for p in denoiser.parameters() if p.requires_grad]
+                        gn_main = loss_grad_norm(denoise_loss, _gp)
+                        gn_dens = loss_grad_norm(density_w * d_loss, _gp)
+                        _ratio = gn_dens / max(gn_main, 1e-12)
+                        print(f"  [C2 grad] step {global_step}: |g_main|={gn_main:.4e} "
+                              f"|g_density|={gn_dens:.4e} ratio={_ratio:.3f} "
+                              f"(target 0.05-0.20) active={d_active:.2f}")
+                        if use_wandb:
+                            wandb.log({"c2/grad_ratio": _ratio,
+                                       "c2/grad_main": gn_main,
+                                       "c2/grad_density": gn_dens}, step=epoch + 1)
+                    loss = denoise_loss + density_w * d_loss
+                    density_loss_item = float(d_loss.detach())
+
             optimizer.zero_grad()
             loss.backward()
             if args.freeze_denoiser:
@@ -1318,10 +1584,12 @@ def run(args):
             optimizer.step()
 
             epoch_loss += loss.item()
+            epoch_density_loss += density_loss_item
             global_step += 1
             train_pbar.set_postfix(loss=f"{loss.item():.6f}")
 
         avg_loss = epoch_loss / max(len(train_loader), 1)
+        avg_density_loss = epoch_density_loss / max(len(train_loader), 1)
 
         if should_save_epoch and args.wandb_train_images > 0 and preview_batch is not None and preview_batch["high_res"].shape[0] > 0:
             control_net.eval()
@@ -1408,7 +1676,10 @@ def run(args):
                                 grid_centers_flat=grid_centers_flat,
                             )
 
-                    t = torch.randint(0, truncation_cutoff, (x_0.shape[0],), device=device)
+                    t = sample_training_timesteps(
+                        x_0.shape[0], truncation_cutoff, device,
+                        mode=args.t_sampling, m=args.logit_normal_m, s=args.logit_normal_s,
+                    )
                     noise = torch.randn_like(x_0)
                     offsets_t = diffusion.q_sample(x_0, t, noise)
 
@@ -1568,6 +1839,9 @@ def run(args):
 
             # Log train loss separately
             wandb.log({"epoch": epoch + 1, "metrics/train_loss": avg_loss}, step=epoch + 1)
+            if density_loss_enabled:
+                wandb.log({"epoch": epoch + 1, "metrics/train_density_loss": avg_density_loss},
+                          step=epoch + 1)
 
             # Log val loss separately if available
             if val_avg_loss is not None:
