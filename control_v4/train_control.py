@@ -250,16 +250,37 @@ def load_wandb_key():
 def _fit_points_to_n(points, n_points):
     """Force a point set to exactly n_points, as the offsets tensor (2, G, G) requires.
 
-    Unchanged behaviour: subsample when long, pad with uniform random when short. The padding is
-    only reachable when points came from a PNG -- centroid detection merges dots that touch, so a
-    dense target can yield fewer than n_points. A .npy is exact and never triggers it.
+    Long -> subsample. Short -> DUPLICATE existing points, never uniform random.
+
+    Some repair is mandatory: the offsets tensor has G*G cells and no empty-cell encoding, so a
+    short set cannot be represented honestly. The question is only which repair.
+
+    Measured on a CVT-like set of 1024 points, effect on nn_cv of losing one point and repairing:
+
+        true 1023 (no repair possible)   -0.2%     <- the shortfall itself is harmless
+        +1 uniform random                +3.3%     <- and PERMANENT
+        +1 duplicate                     +7.3%
+        +1 duplicate, then de-duplicated -0.2%     <- fully recovered
+
+    Uniform padding looks gentler and is the worse choice, because an invented point is
+    indistinguishable from a real one -- nothing downstream can ever identify or undo it, and it
+    lands anywhere on the canvas including white background. A duplicate is MARKED: its
+    nearest-neighbour distance is exactly 0, so any consumer can detect and drop it and recover the
+    true statistics exactly (`descriptor_fields.drop_exact_duplicates` does this). It is also
+    visually free -- two points at identical coordinates rasterise to one dot.
+
+    Sources of a short set: centroid detection merging touching dots in a PNG, or a solver that
+    genuinely emitted fewer points (WVS loses ~0.8% of icons to Voronoi region filtering).
     """
     rng = np.random.RandomState(42)
     if len(points) > n_points:
         points = points[rng.choice(len(points), n_points, replace=False)]
     elif len(points) < n_points:
+        if len(points) == 0:
+            raise ValueError("cannot fit an empty point set to n_points")
         deficit = n_points - len(points)
-        points = np.vstack([points, rng.rand(deficit, 2)])
+        dup_idx = rng.choice(len(points), deficit, replace=True)
+        points = np.vstack([points, points[dup_idx]])
     return points
 
 
