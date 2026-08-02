@@ -181,10 +181,12 @@ hold. Then:
 - keep density as a hard condition and text/control as a residual,
 - text is an **inference-time selector** (prompt → control field), never a training loss on the
   geometry (no CLIP-on-stipple loss),
-- **re-validate grid-transfer at G = 64/96 after adding the control branch** — the
-  budget-generalization claim depends on full resolution-transferability, and a control branch
+- **re-validate grid-transfer at G ∈ {32, 48, 64} after adding the control branch** — the
+  budget-generalization claim depends on resolution-transferability, and a control branch
   that sneaks in learned absolute positional encodings on the query coordinates will break it
-  silently. This is a required post-training validation gate.
+  silently. This is a required post-training validation gate. **G = 96 is out of scope** — it is
+  past the current model's controllability limit, so it would test the base prior, not the control
+  branch. Train baked-in config is G = 32; 48 and 64 are the transfer targets.
 
 ---
 

@@ -99,6 +99,17 @@ class AnisoControlNet(DynamicControlNet):
         return (encoder_controls, middle_control)
 
 
+def scale_controls(c, g):
+    """Scale a (encoder_controls, middle_control) structure by a scalar gain.
+
+    The aniso branch is a RESIDUAL summed into the frozen U-Net, so scaling its
+    injections amplifies the anisotropy push without retraining and without
+    touching the density branch (density stays a hard condition).
+    """
+    enc, mid = c
+    return ([[e * g for e in layer] for layer in enc], mid * g)
+
+
 def sum_controls(a, b):
     """Elementwise-sum two (encoder_controls, middle_control) structures."""
     enc_a, mid_a = a
@@ -119,6 +130,7 @@ class DualControlledDenoiser(nn.Module):
         self.locked = denoiser
         self.density = density_control     # frozen
         self.aniso = aniso_control         # trainable
+        self.aniso_gain = 1.0              # inference-time amplification of the aniso residual
         self._high_res_image = None
         self._target_density = None
         self._control_field = None
@@ -145,6 +157,8 @@ class DualControlledDenoiser(nn.Module):
             high_res_sdf=None, target_sdf_map=None, target_smart_init_map=None,
         )
         controls_aniso = self.aniso(x, t, ctl, target_density_map=tgt)
+        if self.aniso_gain != 1.0:
+            controls_aniso = scale_controls(controls_aniso, self.aniso_gain)
         controls = sum_controls(controls_density, controls_aniso)
         return self.locked(x, t, cond=cond, controls=controls)
 

@@ -40,6 +40,8 @@ from control_v4.smart_init import build_smart_init_from_image, add_noise_at_t
 
 import aniso_control as ac
 import aniso_pilot as ap
+import aniso_density as ad
+import aniso_m2 as m2
 import m4_teacher
 
 
@@ -113,6 +115,35 @@ def load_icons(icons_dir, n, himg, grid, rng):
     return out
 
 
+def build_aniso_init(img, theta_deg, kappa_init, G, device, seed=0):
+    """Weak classical anisotropic seed for the upgrade: sample the icon's own ink
+    density at LOW kappa and the commanded theta, map to an offset grid. The model
+    then STRENGTHENS this toward the target kappa -- the teacher-init regime that is
+    the only thing shown to break the ~0.03 from-isotropic magnitude ceiling.
+    Returns None if the sampler could not place exactly N points (caller falls back)."""
+    rho = ad.ink_density(np.asarray(img, dtype=np.float32))
+    N = G * G
+    th_fn, ka_fn, kmax = m2.const_field(float(theta_deg), float(kappa_init))
+    rng = np.random.default_rng(1234 + seed)
+    P, r0, att = ad.sample_exact_n_density(rho, th_fn, ka_fn, N, rng,
+                                           r0_init=0.85, kappa_max=kmax, progress=False)
+    if len(P) != N:
+        return None
+    off = m4_teacher.points_to_offset_grid(P, G)          # (2,G,G)
+    return torch.from_numpy(off).unsqueeze(0).float().to(device)
+
+
+def icons_from_arrays(imgs, dens, names):
+    """Build eval icon dicts from stored held-out arrays (mirror of load_icons)."""
+    out = []
+    for k in range(len(imgs)):
+        img = np.asarray(imgs[k], dtype=np.float32)
+        out.append(dict(name=str(names[k]), img=img,
+                        dens=np.asarray(dens[k], dtype=np.float32),
+                        dist=distance_transform_edt(img < 0.5)))
+    return out
+
+
 def sample_from(diffusion, dual, control, density, high_res, G, trunc,
                 eval_timesteps, device, x_init=None, seed=0):
     """SDEdit-style: start from x_init (or smart-init), noise at trunc, denoise."""
@@ -167,9 +198,35 @@ def main():
     pa.add_argument("--device", default=DEVICE)
     pa.add_argument("--dotsize", type=float, default=DOTSIZE)
     pa.add_argument("--eval_only", action="store_true")
+    pa.add_argument("--control_gain", type=float, default=1.0,
+                    help="inference-time gain on the ANISO branch residual (1.0 = as "
+                         "trained). Magnitude is the blocker: orientation error is a "
+                         "monotone function of achieved strength, so amplifying the "
+                         "residual is the cheapest lever. Density branch is untouched.")
+    pa.add_argument("--eval_seed", type=int, default=0,
+                    help="reseeds the re-noise realizations; vary it to measure the "
+                         "seed variance of the transfer metrics (10 held-out icons at "
+                         "strength ~0.02 are noisy -- a single seed can mislead).")
+    pa.add_argument("--init", choices=["iso", "aniso"], default="iso",
+                    help="upgrade seed. 'iso' = frozen model's isotropic stipple (from-nothing "
+                         "story, empirically capped ~0.03). 'aniso' = weak low-kappa classical "
+                         "sample the model then strengthens (teacher-init regime).")
+    pa.add_argument("--init_kappa", type=float, default=1.2,
+                    help="kappa of the weak anisotropic seed when --init aniso; the branch must "
+                         "amplify init_kappa -> the separately-commanded target kappa.")
+    pa.add_argument("--eval_train_n", type=int, default=0,
+                    help="DIAGNOSTIC: evaluate on the first N TRAINING icons (branch saw these) "
+                         "instead of the held-out set. In-domain keep%% >> held-out -> data/"
+                         "generalization gap; in-domain also weak -> the branch is weak everywhere.")
     pa.add_argument("--include_primitives", action="store_true",
                     help="ALSO evaluate on the training primitives (IN-DOMAIN control): "
                          "separates a generalization gap from a nucleation gap")
+    pa.add_argument("--density", dest="include_density", action="store_true",
+                    help="give the ANISO branch the density map. DEFAULT IS OFF: the density "
+                         "ablation showed hiding density forces a content-independent local rule "
+                         "and is what let orientation transfer to unseen icons. (The frozen "
+                         "density branch always gets density regardless -- density stays a hard "
+                         "condition; this flag only concerns the orientation branch.)")
     pa.add_argument("--load_aniso", default="")
     pa.add_argument("--out", default=OUTPUT_DIR)
     args = pa.parse_args()
@@ -197,7 +254,12 @@ def main():
                                          strict=False)
     ac.freeze(density_control)
 
-    aniso = ac.AnisoControlNet(denoiser, grid_size=G, include_density=True).to(device)
+    include_density = args.include_density
+    aniso = ac.AnisoControlNet(denoiser, grid_size=G,
+                               include_density=include_density).to(device)
+    print("AnisoControlNet include_density=%s%s"
+          % (include_density, "" if include_density
+             else "  [density hidden from aniso branch -- transfer-safe default]"))
 
     # ── primitives training set ──────────────────────────────────────
     ds = np.load(args.dataset, allow_pickle=True)
@@ -248,7 +310,21 @@ def main():
 
     # ── evaluate on UNSEEN icons ─────────────────────────────────────
     dual = ac.DualControlledDenoiser(denoiser, density_control, aniso).to(device)
-    icons = load_icons(args.icons_dir, args.n_test_icons, args.himg, G, rng)
+    dual.aniso_gain = args.control_gain
+    if args.control_gain != 1.0:
+        print("aniso residual gain = %.2f" % args.control_gain)
+    if args.eval_train_n > 0:
+        n = min(args.eval_train_n, len(ds["prim_imgs"]))
+        icons = icons_from_arrays(ds["prim_imgs"][:n], ds["prim_dens"][:n],
+                                  ["TRAIN_" + str(x) for x in list(ds["prim_names"])[:n]])
+        print("IN-DOMAIN eval: first %d TRAINING icons (branch saw these)" % n)
+    elif "test_imgs" in getattr(ds, "files", []):
+        icons = icons_from_arrays(ds["test_imgs"], ds["test_dens"],
+                                  list(ds["test_names"]))
+        print("held-out eval: %d test icons from dataset (disjoint from training)"
+              % len(icons))
+    else:
+        icons = load_icons(args.icons_dir, args.n_test_icons, args.himg, G, rng)
     if args.include_primitives:
         # In-domain control: same upgrade protocol, on shapes the branch trained on.
         prim_np = ds["prim_imgs"]
@@ -263,6 +339,8 @@ def main():
         icons = extra + icons
         print("in-domain control: prepended %d primitives to the eval set" % len(extra))
     zero_ctl = torch.zeros((1, 3, G, G), device=device)
+    torch.manual_seed(1000 + args.eval_seed)   # vary re-noise realizations across eval seeds
+    np.random.seed(1000 + args.eval_seed)
     rows = []
     panels = []
     for ic in icons:
@@ -286,10 +364,16 @@ def main():
             cmap = torch.from_numpy(
                 m4_teacher.control_map(cond["theta_deg"], cond["kappa"], G)
             ).unsqueeze(0).float().to(device)
+            if args.init == "aniso":
+                ai = build_aniso_init(ic["img"], cond["theta_deg"], args.init_kappa,
+                                      G, device, seed=args.eval_seed)
+                x_init_up = ai if ai is not None else base
+            else:
+                x_init_up = base
             up_on = sample_from(diffusion, dual, cmap, dn, hr, G, args.upgrade_trunc,
-                                args.eval_timesteps, device, x_init=base, seed=7)
+                                args.eval_timesteps, device, x_init=x_init_up, seed=7)
             up_off = sample_from(diffusion, dual, zero_ctl, dn, hr, G, args.upgrade_trunc,
-                                 args.eval_timesteps, device, x_init=base, seed=7)
+                                 args.eval_timesteps, device, x_init=x_init_up, seed=7)
             for tag, raw in (("ON", up_on), ("OFF", up_off)):
                 xy = ac.offsets_to_coords(raw)[0].detach().cpu().numpy()
                 st, ax = measure(xy)
@@ -324,6 +408,11 @@ def main():
                     float(np.mean(loss_hist[-w:]))))
     L.append("base_trunc=%.2f (baseline stipple)  upgrade_trunc=%.2f  train_trunc=%.2f"
              % (args.base_trunc, args.upgrade_trunc, args.train_trunc))
+    L.append("aniso branch %s density  (default OFF for transfer; frozen density branch always has it)"
+             % ("SEES" if args.include_density else "BLIND to"))
+    L.append("eval_seed=%d  control_gain=%.2f" % (args.eval_seed, args.control_gain))
+    L.append("init=%s%s" % (args.init,
+             ("  init_kappa=%.2f" % args.init_kappa) if args.init == "aniso" else ""))
     L.append("NOTE: interior columns are shape-contaminated on irregular icons")
     L.append("      (missing neighbours near ink edges fake orientation); gate uses ALL points.")
     L.append("")
@@ -356,6 +445,16 @@ def main():
                  % (mon, mof, moe))
         L.append("GATE: ON > OFF + 0.03 -> %s ; orient_err < 20deg -> %s"
                  % (mon > mof + 0.03, moe < 20.0))
+        L.append("")
+        L.append("per condition (unseen icons, all points):")
+        for c in sorted(set(r["cond"] for r in rows_ic)):
+            con = [r for r in rows_ic if r["cond"] == c and r["control"] == "ON"]
+            cof = [r for r in rows_ic if r["cond"] == c and r["control"] == "OFF"]
+            L.append("  %-9s ON str=%.3f OFF str=%.3f | ON oe=%5.1f OFF oe=%5.1f" % (
+                c, float(np.nanmean([r["strength"] for r in con])),
+                float(np.nanmean([r["strength"] for r in cof])),
+                float(np.nanmean([r["orient_err"] for r in con])),
+                float(np.nanmean([r["orient_err"] for r in cof]))))
         L.append("")
         if mon > mof + 0.03 and moe < 20.0:
             L.append("RESULT: the anisotropy rule TRANSFERS to unseen images. Trained only on")
