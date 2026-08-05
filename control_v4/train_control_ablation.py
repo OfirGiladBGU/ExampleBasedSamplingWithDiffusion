@@ -46,6 +46,7 @@ VAL_SPLIT = 0.1
 # EPOCHS = 10000
 EPOCHS = 5000
 SAVE_EVERY = 25
+KEEP_EVERY = 100                    # 0 disables pruning; if >0 must be a multiple of SAVE_EVERY
 ENABLE_GECCO = False
 ENABLE_ADAPTIVE_GATE_INJECTION = False
 EVAL_TIMESTEPS = 1000
@@ -104,6 +105,24 @@ MIN_SNR_GAMMA = 5.0
 GEOM_CLUMP_WEIGHT = 1.0
 BEST_MAX_CV = 1e9
 BEST_MAX_CLUMPED_PCT = 100.0
+
+# ── Synced with train_control.py run(): these args are READ by run() and must be
+#    provided or run(args) raises AttributeError. Defaults preserve the original
+#    ablation behaviour. Values below MATCH train_control's current defaults
+#    (Component 2 ON at 0.8); override here to diverge for a given ablation.
+POINTS_SOURCE = "npy"
+DROP_WHITE_POINTS = True
+WHITE_THRESHOLD = 255
+T_SAMPLING = "uniform"            # Component 1 OFF
+LOGIT_NORMAL_M = 0.0
+LOGIT_NORMAL_S = 1.0
+DENSITY_LOSS_WEIGHT = 0.8         # Component 2 ON (train_control default); set 0.0 to disable
+DENSITY_KDE_GRID = 32
+DENSITY_KDE_SIGMA_PX = 1.0
+DENSITY_LOSS_T_FRAC = 0.4
+DENSITY_LOSS_T_SOFT = 0.0
+DENSITY_LOSS_WARMUP_EPOCHS = 5
+DENSITY_LOSS_GRAD_LOG_EVERY = 20
 
 # Training configuration
 WANDB_ACTIVE = True
@@ -297,6 +316,38 @@ def main():
         help="Show the last panel column (GT Offset Quiver)",
     )
     parser.add_argument("--device", default=DEVICE)
+
+    # ── Synced with train_control.py: run() reads all of the following ──────────
+    parser.add_argument("--points-source", dest="points_source",
+                        choices=("npy", "png"), default=POINTS_SOURCE,
+                        help="npy: exact <stem>.npy beside each target (PNG-centroid fallback); png: always PNG centroids.")
+    parser.add_argument("--drop-white-points", action=argparse.BooleanOptionalAction, default=DROP_WHITE_POINTS,
+                        help="Drop GT points on background (rho < --white-threshold) and duplicate survivors. Changes cached OFFSETS.")
+    parser.add_argument("--white-threshold", type=float, default=WHITE_THRESHOLD,
+                        help="Source pixel value 0-255; a point is dropped when the pixel under it is >= this.")
+    parser.add_argument("--keep-every", type=int, default=KEEP_EVERY,
+                        help="Keep only periodic checkpoints at multiples of this (0 disables; must be a multiple of --save_every).")
+    parser.add_argument("--t-sampling", choices=["uniform", "logit_normal"], default=T_SAMPLING,
+                        help="Component 1: training timestep sampling.")
+    parser.add_argument("--logit-normal-m", type=float, default=LOGIT_NORMAL_M,
+                        help="Mean m of logit-normal t sampling.")
+    parser.add_argument("--logit-normal-s", type=float, default=LOGIT_NORMAL_S,
+                        help="Std s of logit-normal t sampling.")
+    parser.add_argument("--density-loss-weight", type=float, default=DENSITY_LOSS_WEIGHT,
+                        help="Component 2: density-match (KDE) loss weight (0 disables).")
+    parser.add_argument("--density-kde-grid", type=int, default=DENSITY_KDE_GRID,
+                        help="Resolution of the KDE density map for Component 2.")
+    parser.add_argument("--density-kde-sigma-px", type=float, default=DENSITY_KDE_SIGMA_PX,
+                        help="Gaussian sigma (KDE-grid pixels) for Component 2 splatting.")
+    parser.add_argument("--density-loss-t-frac", type=float, default=DENSITY_LOSS_T_FRAC,
+                        help="Component 2 applied only where t < frac * eval_timesteps.")
+    parser.add_argument("--density-loss-t-soft", type=float, default=DENSITY_LOSS_T_SOFT,
+                        help="Soft-ramp width (timesteps) at the Component 2 t cutoff; 0 = hard mask.")
+    parser.add_argument("--density-loss-warmup-epochs", type=int, default=DENSITY_LOSS_WARMUP_EPOCHS,
+                        help="Ramp Component 2 weight in over N epochs (0 = no ramp).")
+    parser.add_argument("--density-loss-grad-log-every", type=int, default=DENSITY_LOSS_GRAD_LOG_EVERY,
+                        help="Log grad-balance ratio every N steps (0 = off).")
+
     args = parser.parse_args()
     run(args=args)
 

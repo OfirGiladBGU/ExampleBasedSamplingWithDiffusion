@@ -97,7 +97,7 @@ POINTS_SOURCE = "npy"
 # anti-aliased gradient where a density-following sampler legitimately belongs -- at 192 you would be
 # deleting the contour structure that GBN's banding signature is made of, not cleaning up noise.
 # Stay at or near 250; below ~240 this stops being a background filter.
-DROP_WHITE_POINTS = False
+# DROP_WHITE_POINTS = False
 DROP_WHITE_POINTS = True
 WHITE_THRESHOLD = 255           # source pixel value >= this counts as background (0-255)
 CACHE_DATA_DIR = ""
