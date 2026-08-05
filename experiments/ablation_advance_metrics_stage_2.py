@@ -34,10 +34,6 @@ from utils.stippling_metrics_advance import compute_all_advanced_metrics
 
 CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH = "config/GBN/model.ckpt"
-
-# Vanilla
-WEIGHTS_DIR = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_vanilla/checkpoints"
-RESULTS_DIR = "vanilla"
 GRID_SIZE = 32
 ENABLE_GECCO = False
 ENABLE_ADAPTIVE_GATE_INJECTION = False
@@ -50,85 +46,50 @@ BATCH_COORDS_FEATURES = False
 ENABLE_SMART_INIT_JITTER = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
+
+# Vanilla
+WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_vanilla/checkpoints"
+RESULTS_DIR = "vanilla"
+
+
+# Unfrozen
+# WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_unfrozen/checkpoints"
+# RESULTS_DIR = "unfrozen"
+# BASE_CKPT_PATH = ""  # NOTE
+
+
 # GECCO
-# WEIGHTS_DIR = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_gecco/checkpoints"
+# WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_gecco/checkpoints"
 # RESULTS_DIR = "gecco"
-# GRID_SIZE = 32
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = False
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 1.0
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+# ENABLE_GECCO = True  # NOTE
+
 
 # Adaptive gate injection
-# WEIGHTS_DIR = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_agi/checkpoints"
+# WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_agi/checkpoints"
 # RESULTS_DIR = "agi"
-# GRID_SIZE = 32
-# ENABLE_GECCO = False
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 1.0
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+# ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+
 
 # Full
-# WEIGHTS_DIR = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints"
+# WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints"
 # RESULTS_DIR = "full"
-# GRID_SIZE = 32
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 1.0
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+# BASE_CKPT_PATH = ""  # NOTE
+# ENABLE_GECCO = True  # NOTE
+# ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+
 
 # Full + SDEdit
-# WEIGHTS_DIR = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints"
+# WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints"
 # RESULTS_DIR = "sdedit"
-# GRID_SIZE = 32
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 0.3
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-# Full + SDEdit + resample jumps
-# WEIGHTS_DIR = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints"
-# RESULTS_DIR = "sdedit_resample"
-# GRID_SIZE = 32
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 0.3
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+# BASE_CKPT_PATH = ""  # NOTE
+# ENABLE_GECCO = True  # NOTE
+# ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+# INFER_TRUNCATION_RATIO = 0.5  # NOTE
 
 
 # Default folders
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
 OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e400_b50_1024"
 

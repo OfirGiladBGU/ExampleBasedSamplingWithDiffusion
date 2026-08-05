@@ -24,8 +24,9 @@ DATA_PATH = Path(
 # Full ICONS - TIMES - V2 parameter set (passed explicitly; do not assume the
 # underlying script defaults).
 BASE_CONFIG_PATH = "config/GBN/config.json"
-BASE_CKPT_PATH = "config/GBN/model.ckpt"
-CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# BASE_CKPT_PATH = "config/GBN/model.ckpt"
+BASE_CKPT_PATH = ""
+CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
 
 EVAL_TIMESTEPS = 1000
 INFER_TRUNCATION_RATIO = 0.30

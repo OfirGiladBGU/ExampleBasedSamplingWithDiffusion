@@ -33,7 +33,7 @@ CHECKPOINTS_LIGHTEN_DIR = "checkpoints_lighten"
 CHECKPOINTS_DIR = "checkpoints"
 
 # Pattern for checkpoint files
-CHECKPOINT_PATTERN = r"dynamic_controlnet_v4_ep(\d+)\.pt"
+CHECKPOINT_PATTERN = r"dynamic_ep(\d+)\.ckpt"
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ def find_checkpoints(directory, pattern=CHECKPOINT_PATTERN):
         return []
 
     checkpoints = []
-    for file in directory.glob("*.pt"):
+    for file in directory.glob("*.ckpt"):
         epoch = extract_epoch_num(file.name)
         if epoch is not None:
             checkpoints.append((epoch, file))

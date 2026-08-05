@@ -107,42 +107,47 @@ SHOW_LABELS = False
 #####################
 
 # ICONS
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep8120.pt"
-CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_Icons-50_1024_WVS/checkpoints/dynamic_ep10000.ckpt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_WVS/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_WVS/target"
+# TRAIN_SAMPLES = []
+# VALID_SAMPLES = [1, 2, 3, 4]
+
+CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 TRAIN_SAMPLES = []
 VALID_SAMPLES = [1, 2, 3, 4]
 
 
 # FACES
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_data_celeba_5K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_CelebA-5K_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_GBN/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_GBN/target"
 # TRAIN_SAMPLES = []
 # VALID_SAMPLES = [1, 2, 3, 4, 6, 8, 10, 17, 18, 19, 21, 23, 24, 25, 26, 28, 30, 32, 35, 36]
 
 
 # ANIMALS
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_data_AM-2K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/target"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_data_AM-2K_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024_GBN/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024_GBN/target"
 # TRAIN_SAMPLES = []
 # VALID_SAMPLES = [0, 2, 4, 8, 9, 10, 11, 12, 13, 14]
 
 
 # ICONS - TIMES
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 # TRAIN_SAMPLES = []
 # VALID_SAMPLES = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
 
 
 # ICONS - TEASER
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 # TRAIN_SAMPLES = []
 # VALID_SAMPLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 # STORE_SELECTED_INPUTS = True
@@ -154,8 +159,8 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # Ablations #
 
 # Condition config (0.0)
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 # TRAIN_SAMPLES = []
 # VALID_SAMPLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 # STORE_SELECTED_INPUTS = True
@@ -171,8 +176,8 @@ VALID_SAMPLES = [1, 2, 3, 4]
 
 
 # Common config (1.0)
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 # TRAIN_SAMPLES = []
 # VALID_SAMPLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 # STORE_SELECTED_INPUTS = True
@@ -184,101 +189,59 @@ VALID_SAMPLES = [1, 2, 3, 4]
 # SHOW_SELECTED_PREDICT = True
 # SHOW_SELECTED_GT_OFFSETS = False
 
+# CONFIG_PATH = "config/GBN/config.json"
+# CKPT_PATH = "config/GBN/model.ckpt"
+# GRID_SIZE = 32
+# ENABLE_GECCO = False
+# ENABLE_ADAPTIVE_GATE_INJECTION = False
+# EVAL_TIMESTEPS = 1000
+# INFER_TRUNCATION_RATIO = 1.0
+# RESAMPLE_JUMPS = 0
+# SMART_INIT_FEATURES = False
+# SDF_FEATURES = False
+# BATCH_COORDS_FEATURES = False
+# ENABLE_SMART_INIT_JITTER = False
+# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+
 # Vanilla (1.1)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_vanilla/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_Icons-50_1024_GBN_vanilla/checkpoints/dynamic_ep10000.ckpt"
 # RESULTS_DIR = "vanilla"
-# GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
-# ENABLE_GECCO = False
-# ENABLE_ADAPTIVE_GATE_INJECTION = False
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 1.0
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
-# GECCO (1.2)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_gecco/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# Unfrozen (1.2)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_Icons-50_1024_GBN_unfrozen/checkpoints/dynamic_ep10000.ckpt"
+# RESULTS_DIR = "unfrozen"
+# OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
+# CKPT_PATH = ""  # NOTE
+
+# GECCO (1.3)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_Icons-50_1024_GBN_gecco/checkpoints/dynamic_ep10000.ckpt"
 # RESULTS_DIR = "gecco"
-# GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
 # ENABLE_GECCO = True  # NOTE
-# ENABLE_ADAPTIVE_GATE_INJECTION = False
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 1.0
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
-# Adaptive gate injection (1.3)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_agi/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# Adaptive gate injection (1.4)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_Icons-50_1024_GBN_agi/checkpoints/dynamic_ep10000.ckpt"
 # RESULTS_DIR = "agi"
-# GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
-# ENABLE_GECCO = False
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 1.0
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
-# Full (1.4)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# Full (1.5)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep10000.ckpt"
 # RESULTS_DIR = "full"
-# GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
+# CKPT_PATH = ""  # NOTE
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 1.0
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
-# Full + SDEdit (1.5)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# Full + SDEdit (1.6)
+# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep10000.ckpt"
 # RESULTS_DIR = "sdedit"
-# GRID_SIZE = 32
 # OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
+# CKPT_PATH = ""  # NOTE
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 0.3  # NOTE
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-# Full + SDEdit + resample jumps (1.6)
-# CONTROL_CKPT = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/train_outputs_icons50_512_full/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-# RESULTS_DIR = "sdedit_resample"
-# GRID_SIZE = 32
-# OUTPUT_DIR = f"control_v4/eval_outputs_{RESULTS_DIR}"
-# ENABLE_GECCO = True  # NOTE
-# ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
-# EVAL_TIMESTEPS = 1000
-# INFER_TRUNCATION_RATIO = 0.3  # NOTE
-# RESAMPLE_JUMPS = 2  # NOTE
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
+# INFER_TRUNCATION_RATIO = 0.5  # NOTE
 
 
 def _parse_index_list(raw_text, arg_name):

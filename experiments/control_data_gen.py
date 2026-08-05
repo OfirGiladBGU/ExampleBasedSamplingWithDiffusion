@@ -7,7 +7,7 @@ generate stipple point distributions. Outputs target images with timing info.
 Usage:
     python experiments/control_data_gen.py \\
         --data_path /path/to/data \\
-        --control_ckpt control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt \\
+        --control_ckpt control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt \\
         --timesteps 1000 \\
         --track_time
 """
@@ -27,7 +27,8 @@ from control_v4.sample_control import run_inference_on_directory
 def main() -> int:
     # Defaults #
     BASE_CONFIG_PATH = "config/GBN/config.json"
-    BASE_CKPT_PATH = "config/GBN/model.ckpt"
+    # BASE_CKPT_PATH = "config/GBN/model.ckpt"
+    BASE_CKPT_PATH = ""
 
     # Model parameters
     ENABLE_GECCO = True
@@ -63,26 +64,26 @@ def main() -> int:
     ############################
     
     # ICONS
-    # CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-    # DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/quantitative_advance_metrics"
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    # DATA_PATH = "experiments/outputs/quantitative_advance_metrics"
     # GRID_SIZE = 32
 
     # Faces Set Sample
-    # CONTROL_CKPT = "control_v4/train_outputs_data_celeba_5K_1024_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-    # DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/faces_results_compare"
+    # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    # DATA_PATH = "experiments/outputs/faces_results_compare"
     # GRID_SIZE = 32
 
     # ICONS - TIMES - V1
-    # CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-    # DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/icons_results_runtimes"
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    # DATA_PATH = "experiments/outputs/icons_results_runtimes"
     # GRID_SIZE = 24
     # GRID_SIZE = 32
     # GRID_SIZE = 48
 
 
     # ICONS - TIMES - V2
-    CONTROL_CKPT = "control_v4/train_outputs_icons50_512_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-    DATA_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/icons_results_runtimes"
+    CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    DATA_PATH = "experiments/outputs/icons_results_runtimes"
     GRID_SIZE = 16
     # GRID_SIZE = 24 
     # GRID_SIZE = 32

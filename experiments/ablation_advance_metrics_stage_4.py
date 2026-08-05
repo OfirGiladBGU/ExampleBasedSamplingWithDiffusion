@@ -34,11 +34,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 RESULT_DIR_LIST = [
     "vanilla",
+    "unfrozen",
     "gecco",
     "agi",
     "full",
     "sdedit",
-    "sdedit_resample",
 ]
 
 

@@ -47,11 +47,12 @@ def _fs():
 def _format_advanced_text(metrics):
     """Format M1-M5 metrics as a compact monospace string for text axes."""
     return (
-        f"M1 CVT Energy        : {metrics.get('M1_cvt_energy', 0.0):.4f}\n"
+        f"M1 CVT Energy         : {metrics.get('M1_cvt_energy', 0.0):.4f}\n"
         f"M2 Capacity Constraint: {metrics.get('M2_voronoi_mass_cv', 0.0):.4f}\n"
-        f"M3 EMD               : {metrics.get('M3_emd_distance', 0.0):.4f}\n"
-        f"M4 Sinkhorn Distance : {metrics.get('M4_sinkhorn_ot_cost', 0.0):.4f}\n"
-        f"M5 Spatial Measure   : {metrics.get('M5_spatial_measure_rho_mean', 0.0):.4f}"
+        f"M2v2 Power Cell Cap CV: {metrics.get('M2_v2_power_cell_cap_cv', 0.0):.4f}\n"
+        f"M3 EMD                : {metrics.get('M3_emd_distance', 0.0):.4f}\n"
+        f"M4 Sinkhorn Distance  : {metrics.get('M4_sinkhorn_ot_cost', 0.0):.4f}\n"
+        f"M5 Spatial Measure    : {metrics.get('M5_spatial_measure_rho_mean', 0.0):.4f}"
     )
 
 
@@ -223,6 +224,74 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
         }
     except Exception:
         return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
+
+
+def power_cell_areas(pts, weights=None, n_probe=48, rng=None):
+    """Monte-Carlo POWER (Laguerre) cell areas (they sum to 1). Ported from
+    control_v4_mix_metrics/descriptor_fields.py. Power distance is |x - p|^2 - w; each probe is
+    assigned to its min-power owner via a Euclidean shortlist re-ranked by power distance, which
+    stays O(m log n) with bounded weights.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.asarray(pts, dtype=np.float64)
+    n = len(pts)
+    rng = np.random.RandomState(0) if rng is None else rng
+    if weights is None:
+        weights = np.zeros(n)
+    weights = np.asarray(weights, dtype=np.float64)
+    m = int(n_probe * n)
+    probe = rng.rand(m, 2)
+    tree = cKDTree(pts)
+    kq = min(n, 16)
+    dd, ii = tree.query(probe, k=kq)
+    if kq == 1:
+        dd = dd[:, None]
+        ii = ii[:, None]
+    pw = dd ** 2 - weights[ii]
+    owners = ii[np.arange(m), np.argmin(pw, axis=1)]
+    counts = np.bincount(owners, minlength=n).astype(np.float64)
+    return counts / max(m, 1)
+
+
+def compute_m2_v2_power_cell(points, image_01=None, rng=None, n_probe=48, k=8):
+    """M2_v2 -- capacity constraint via POWER (Laguerre) cells instead of plain Voronoi.
+
+    Same capacity idea as M2, but the cells are power cells whose weights come from the local
+    point density lam = k / (pi r_k^2): a point in a dense region legitimately owns a smaller cell
+    and the power weight encodes that. Each cell area is compared to what the local density
+    predicts (1/lam), so the CV reads capacity DISORDER, not the density gradient -- the R4
+    objection to the Voronoi-based M2. Mirrors descriptor_fields.cap_cv (global version here).
+
+    Returns {"power_cell_cap_cv": delta, ...} where delta = mean((ratio/mean - 1)^2) is the squared
+    CV, matching M2's delta_c convention (0 = perfect capacity).
+    """
+    try:
+        from scipy.spatial import cKDTree
+        eps = 1e-12
+        pts = np.asarray(points, dtype=np.float64)
+        n = len(pts)
+        if n < k + 2:
+            return {"power_cell_cap_cv": 0.0, "power_cell_cap_std": 0.0}
+        rs = rng if isinstance(rng, np.random.RandomState) else np.random.RandomState(45)
+        tree = cKDTree(pts)
+        k_eff = min(k, n - 1)
+        dists, _ = tree.query(pts, k=k_eff + 1)
+        dk = dists[:, k_eff]
+        lam = k_eff / (np.pi * np.maximum(dk, eps) ** 2)          # local intensity
+        w = (1.0 / np.maximum(lam, eps)) / np.pi                   # r^2-scale weight
+        w = w - w.mean()
+        areas = power_cell_areas(pts, weights=w, n_probe=n_probe, rng=rs)
+        expect = 1.0 / np.maximum(lam, eps)
+        expect_n = expect / max(expect.sum(), eps)
+        ratio = areas / np.maximum(expect_n, eps)
+        r_star = ratio.mean()
+        if r_star < eps:
+            return {"power_cell_cap_cv": 0.0, "power_cell_cap_std": 0.0}
+        delta = float(np.mean((ratio / r_star - 1.0) ** 2))       # squared CV, like M2 delta_c
+        return {"power_cell_cap_cv": float(np.clip(delta, 0, 10)),
+                "power_cell_cap_std": float(ratio.std())}
+    except Exception:
+        return {"power_cell_cap_cv": 0.0, "power_cell_cap_std": 0.0}
 
 
 def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.01):
@@ -434,6 +503,8 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_appro
     result.update({f"M1_{k}": v for k, v in m1.items()})
     m2 = compute_m2_capacity_constraint(points, image_01, rng=np.random.default_rng(42), mc_approx=mc_approx)
     result.update({f"M2_{k}": v for k, v in m2.items()})
+    m2v2 = compute_m2_v2_power_cell(points, image_01, rng=np.random.RandomState(45))
+    result.update({f"M2_v2_{k}": v for k, v in m2v2.items()})
     m3 = compute_m3_emd(points, None, image_01, rng=np.random.default_rng(43), mc_approx=mc_approx)
     result.update({f"M3_{k}": v for k, v in m3.items()})
     m4 = compute_m4_sinkhorn(points, image_01, rng=np.random.default_rng(44))
@@ -832,6 +903,7 @@ def visualize_advanced_metrics_panel(
     metrics_names = [
         ("M1", "CVT Energy",          "M1_cvt_energy"),
         ("M2", "Capacity Constraint", "M2_voronoi_mass_cv"),
+        ("M2v2", "Power Cell Cap CV", "M2_v2_power_cell_cap_cv"),
         ("M3", "EMD",                 "M3_emd_distance"),
         ("M4", "Sinkhorn Distance",   "M4_sinkhorn_ot_cost"),
         ("M5", "Spatial Measure",     "M5_spatial_measure_rho_mean"),

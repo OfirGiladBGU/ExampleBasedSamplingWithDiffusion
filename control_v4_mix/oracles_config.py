@@ -1,16 +1,16 @@
 """Central oracle registry for the multi-style axis.
 
 Oracle NAME -> data-root defaults live here so the command line only needs names, e.g.
-    --oracles "WVS;GBN;DITTER"
+    --oracles "WVS;GBN;DITHER"
 Each entry may still be overridden inline as NAME:/custom/root. The list ORDER fixes the one-hot
-index (WVS=0, GBN=1, DITTER=2, ...), so keep it consistent between training and eval.
+index (WVS=0, GBN=1, DITHER=2, ...), so keep it consistent between training and eval.
 Each root must contain source/, target/ (stipple ~1024 dots), and processed_offsets/.
 """
 
 ORACLES = [
     ("WVS", "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_WVS"),
     ("GBN", "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN"),
-    ("DITTER", "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_DITTER"),
+    ("DITHER", "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_DITHER"),
     # ("BNOT", "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_BNOT"),
 ]
 ORACLES_MAP = dict(ORACLES)

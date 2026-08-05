@@ -24,11 +24,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 RESULTS_DIR = "vanilla"
+# RESULTS_DIR = "unfrozen"
 # RESULTS_DIR = "gecco"
 # RESULTS_DIR = "agi"
 # RESULTS_DIR = "full"
 # RESULTS_DIR = "sdedit"
-# RESULTS_DIR = "sdedit_resample"
 
 
 # Default folders

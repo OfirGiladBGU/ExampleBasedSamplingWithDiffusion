@@ -34,19 +34,17 @@ SHOW_SELECTED_PREDICT = True
 SHOW_SELECTED_GT_OFFSETS = True
 
 # Paths and I/O
-WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
+WANDB_ENV = ".env"
+
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 
 BASE_CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT_PATH = "config/GBN/model.ckpt"
-
-
-# ICONS 1024 - VANILLA
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-OUTPUT_DIR = "control_v4/train_outputs_icons50_512_vanilla"
 GRID_SIZE = 32
 VAL_SPLIT = 0.1
-EPOCHS = 10000
+# EPOCHS = 10000
+EPOCHS = 5000
 SAVE_EVERY = 25
 ENABLE_GECCO = False
 ENABLE_ADAPTIVE_GATE_INJECTION = False
@@ -61,67 +59,30 @@ ENABLE_SMART_INIT_JITTER = False
 ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
-# ICONS - GECCO
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_gecco"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.1
-# EPOCHS = 10000
-# SAVE_EVERY = 25
+# Vanilla
+OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_vanilla"
+
+
+# Unfrozen
+# OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_unfrozen"
+# BASE_CKPT_PATH = ""
+
+
+# GECCO
+# OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_gecco"
 # ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = False
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 1.0
-# INFER_TRUNCATION_RATIO = 1.0
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
-# ICONS - ADAPTIVE GATE INJECTION
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_agi"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.1
-# EPOCHS = 10000
-# SAVE_EVERY = 25
-# ENABLE_GECCO = False
+# Adaptive gate injection
+# OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_agi"
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 1.0
-# INFER_TRUNCATION_RATIO = 1.0
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
-# ICONS - FULL
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/target"
-# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_full"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.1
-# EPOCHS = 10000
-# SAVE_EVERY = 25
+# Full
+# OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_full"
+# BASE_CKPT_PATH = ""
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 1.0
-# INFER_TRUNCATION_RATIO = 1.0
-# RESAMPLE_JUMPS = 0
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.

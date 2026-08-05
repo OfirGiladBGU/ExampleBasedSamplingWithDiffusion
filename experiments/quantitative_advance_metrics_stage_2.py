@@ -39,6 +39,7 @@ NUM_EPOCHS = -1
 METRIC_ORDER = [
     "M1_cvt_energy",
     "M2_voronoi_mass_cv",
+    "M2_v2_power_cell_cap_cv",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",

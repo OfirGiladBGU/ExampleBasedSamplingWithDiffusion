@@ -38,9 +38,9 @@ BASELINE_CONFIG_PATH = "config_trained/GBN_stress1/config.json"
 BASELINE_CKPT_PATH = "config_trained/GBN_stress1/model.ckpt"
 # Control V4 configuration
 CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
-CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-# CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data_stress1_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
+CONTROL_BASE_CKPT_PATH = ""
+CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynamic_ep10000.ckpt"
 
 # Stress 2 - SKIP:
 # DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2"
@@ -50,8 +50,9 @@ CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1_no_random/checkpoi
 # BASELINE_CKPT_PATH = "config_trained/GBN_stress2/model.ckpt"
 # # Control V4 configuration
 # CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
-# CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-# CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data_stress2/checkpoints/dynamic_controlnet_v4_ep1500.pt"
+# # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
+# CONTROL_BASE_CKPT_PATH = ""
+# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2/checkpoints/dynamic_ep10000.ckpt"
 
 
 # Stress V2:
@@ -62,9 +63,9 @@ CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1_no_random/checkpoi
 # BASELINE_CKPT_PATH = "config_trained/GBN_stress2_V2/model.ckpt"
 # # Control V4 configuration
 # CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
-# CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
-# # CONTROLNET_CKPT_PATH = "control_v4/train_archive_ALL_FEATURES/train_outputs_data_stress2_V2_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
-# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2_V2_no_random/checkpoints/dynamic_controlnet_v4_ep10000.pt"
+# # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
+# CONTROL_BASE_CKPT_PATH = ""
+# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2_V2/checkpoints/dynamic_ep10000.ckpt"
 
 # Common settings
 DEVICE = "cuda"
