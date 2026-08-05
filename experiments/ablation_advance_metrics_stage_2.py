@@ -34,6 +34,7 @@ from utils.stippling_metrics_advance import compute_all_advanced_metrics
 
 CONFIG_PATH = "config/GBN/config.json"
 CKPT_PATH = "config/GBN/model.ckpt"
+FREEZE_DENOISER = True  # TODO: Add in the other scripts
 GRID_SIZE = 32
 ENABLE_GECCO = False
 ENABLE_ADAPTIVE_GATE_INJECTION = False
@@ -56,6 +57,7 @@ RESULTS_DIR = "vanilla"
 # WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_unfrozen/checkpoints"
 # RESULTS_DIR = "unfrozen"
 # BASE_CKPT_PATH = ""  # NOTE
+# FREEZE_DENOISER = False  # NOTE
 
 
 # GECCO
@@ -74,6 +76,7 @@ RESULTS_DIR = "vanilla"
 # WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints"
 # RESULTS_DIR = "full"
 # BASE_CKPT_PATH = ""  # NOTE
+# FREEZE_DENOISER = False  # NOTE
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
 
@@ -82,6 +85,7 @@ RESULTS_DIR = "vanilla"
 # WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints"
 # RESULTS_DIR = "sdedit"
 # BASE_CKPT_PATH = ""  # NOTE
+# FREEZE_DENOISER = False  # NOTE
 # ENABLE_GECCO = True  # NOTE
 # ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
 # INFER_TRUNCATION_RATIO = 0.5  # NOTE

@@ -41,6 +41,7 @@ TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GB
 
 BASE_CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT_PATH = "config/GBN/model.ckpt"
+FREEZE_DENOISER = True  # TODO: Add in the other scripts
 GRID_SIZE = 32
 VAL_SPLIT = 0.1
 # EPOCHS = 10000
@@ -67,6 +68,7 @@ OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_vanilla"
 # Unfrozen
 # OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_unfrozen"
 # BASE_CKPT_PATH = ""
+# FREEZE_DENOISER = False
 
 
 # GECCO
@@ -82,6 +84,7 @@ OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_vanilla"
 # Full
 # OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_full"
 # BASE_CKPT_PATH = ""
+# FREEZE_DENOISER = False
 # ENABLE_GECCO = True
 # ENABLE_ADAPTIVE_GATE_INJECTION = True
 
@@ -93,7 +96,6 @@ PRELOAD_RAM = False  # Preload all cached data to RAM (eliminates disk I/O per b
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
 # Model parameters
-FREEZE_DENOISER = True  # TODO: Add in the other scripts
 # GRID_SIZE = 32
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
