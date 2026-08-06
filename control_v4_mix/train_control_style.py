@@ -45,12 +45,11 @@ except Exception:
 from utils.Config import ParseSampleConfig
 from control_v4.DynamicControlNet import DynamicControlNet, DynamicControlledDenoiser
 from control_v4.DynamicStippleDataset import DynamicStippleDataset
-from control_v4_mix.DynamicControlNetMultiStyle import (
-    DynamicControlNetMultiStyle,
-    DynamicControlledMultiStyleDenoiser,
+from control_v4_mix.DynamicControlNetStyle import (
+    DynamicControlNetStyle,
+    DynamicControlledStyleDenoiser,
 )
-from control_v4_mix.MultiStyleStippleDataset import MultiStyleStippleDataset
-from control_v4_mix.data_split import source_train_val_split, split_from_manifest
+from control_v4_mix.StyleStippleDataset import StyleStippleDataset
 from control_v4.smart_init import add_noise_at_t
 from control_v4.smart_init import build_smart_init_from_image
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
@@ -72,7 +71,7 @@ TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN
 # FREEZE_DENOISER = True  # TODO: Add in the other scripts
 # RESAMPLE_JUMPS = 2
 
-OUTPUT_DIR = "control_v4_mix/train_outputs_multistyle"
+OUTPUT_DIR = "control_v4_mix/train_outputs_style_wvs_gbn"
 FREEZE_DENOISER = False  # TODO: Add in the other scripts
 RESAMPLE_JUMPS = 0
 
@@ -225,10 +224,11 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 OFFSETS_DIR = ""
 CACHE_DATA_DIR = ""
 
-# Multi-oracle style axis. Each oracle shares the SAME source images (same rho); training uses
-# ONE-HOT conditioning (WVS=[1,0,0], GBN=[0,1,0], DITHER=[0,0,1]) and hopes to interpolate convex
-# combinations like [0.5,0.5,0]. Per oracle: source/ + target/ stipple + processed_offsets/.
-from control_v4_mix.oracles_config import ORACLES_DEFAULT, resolve_oracles
+# WVS<->GBN style axis (Phase 2). Both oracles share the SAME source (same rho);
+# only the target offsets differ. See control_v4_mix/style_axis_wvs_gbn_plan.md.
+WVS_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_WVS"
+GBN_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN"
+STYLE_S_JSON = "control_v4_mix/style_s.json"
 PRELOAD_RAM = False  # Preload all cached data to RAM (eliminates disk I/O per batch)
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
@@ -544,7 +544,7 @@ def sample_eval_batch(diffusion, denoiser, control_net, batch, device, n_samples
     ``t_start = int(eval_timesteps * truncation_ratio)`` to ``smart_init_offsets``
     and denoises only from there, matching the truncated training regime.
     """
-    controlled = DynamicControlledMultiStyleDenoiser(denoiser, control_net)
+    controlled = DynamicControlledStyleDenoiser(denoiser, control_net)
     high_res_img = batch["high_res"]
     target_density = batch["target_density"]
     high_res_sdf = batch.get("high_res_sdf")
@@ -563,8 +563,8 @@ def sample_eval_batch(diffusion, denoiser, control_net, batch, device, n_samples
             smart_init_offsets_list.append(torch.from_numpy(smart_offsets_np).unsqueeze(0))
         smart_init_offsets = torch.cat(smart_init_offsets_list, dim=0)
 
-    style_vec_eval = batch.get("style_vec")
-    controlled.set_condition(high_res_img, high_res_sdf, target_density, target_sdf, smart_init_grid, style_vec=style_vec_eval)
+    style_s_eval = batch.get("style_s")
+    controlled.set_condition(high_res_img, high_res_sdf, target_density, target_sdf, smart_init_grid, style_s=style_s_eval)
 
     original_model = diffusion.model
     diffusion.model = controlled
@@ -840,8 +840,8 @@ def dynamic_collate(batch):
         collated["smart_init_grid"] = torch.stack([sample["smart_init_grid"].contiguous() for sample in batch], dim=0)
         collated["smart_init_offsets"] = torch.stack([sample["smart_init_offsets"].contiguous() for sample in batch], dim=0)
 
-    if "style_vec" in sample0:
-        collated["style_vec"] = torch.stack([sample["style_vec"] for sample in batch], dim=0)
+    if "style_s" in sample0:
+        collated["style_s"] = torch.stack([sample["style_s"].reshape(()) for sample in batch], dim=0)
 
     return collated
 
@@ -861,10 +861,12 @@ def main():
     parser.add_argument("--offsets",
                         default=OFFSETS_DIR,
                         help="Dir of .npy offset files; if empty/missing, offsets are exported from --target")
-    parser.add_argument("--oracles", default=ORACLES_DEFAULT,
-                        help="';'-separated NAME:root list; each root has source/,target/,processed_offsets/")
-    parser.add_argument("--val-manifest", default="control_v4_mix/validation_manifest.json",
-                        help="JSON list of val image basenames; if present, defines the EXACT val set")
+    parser.add_argument("--wvs-root", default=WVS_ROOT,
+                        help="WVS oracle root (source/, target/, processed_offsets/)")
+    parser.add_argument("--gbn-root", default=GBN_ROOT,
+                        help="GBN oracle root (shares source images with WVS)")
+    parser.add_argument("--style-s-json", default=STYLE_S_JSON,
+                        help="style_s.json from precompute_style_s.py (per-icon normalized s)")
     parser.add_argument("--cache-data-dir", default=CACHE_DATA_DIR,
                         help="Optional directory to cache feature artifacts (SDF and/or Smart Init) as .npy")
     parser.add_argument("--preload-ram", action="store_true", default=PRELOAD_RAM,
@@ -1166,18 +1168,18 @@ def run(args):
         raise ValueError("--infer-truncation-ratio must be in (0, 1]")
     if not (args.show_selected_inputs or args.show_selected_gt or args.show_selected_predict or args.show_selected_gt_offsets):
         raise ValueError("At least one of --show-selected-inputs, --show-selected-gt, --show-selected-predict, or --show-selected-gt-offsets must be enabled")
-    # Multi-oracle: parse --oracles, ensure each oracle offsets exist; first oracle source is the
-    # shared rho input (all oracles share source content).
-    oracle_names, oracle_offsets, first_root = [], {}, None
-    for name, root in resolve_oracles(args.oracles):
-        odir = ensure_offsets_dir(os.path.join(root, "source"), os.path.join(root, "target"),
-                                  os.path.join(root, "processed_offsets"), args.grid_size)
-        oracle_names.append(name)
-        oracle_offsets[name] = odir
-        if first_root is None:
-            first_root = root
-    args.source = os.path.join(first_root, "source")
-    args.offsets = oracle_offsets[oracle_names[0]]
+    # Style axis: ensure BOTH oracles' offsets exist (shared source). args.source is set to the
+    # shared WVS source; the style dataset reads per-oracle processed_offsets directly.
+    args.source = os.path.join(args.wvs_root, "source")
+    wvs_offsets_dir = ensure_offsets_dir(os.path.join(args.wvs_root, "source"),
+                                         os.path.join(args.wvs_root, "target"),
+                                         os.path.join(args.wvs_root, "processed_offsets"),
+                                         args.grid_size)
+    gbn_offsets_dir = ensure_offsets_dir(os.path.join(args.gbn_root, "source"),
+                                         os.path.join(args.gbn_root, "target"),
+                                         os.path.join(args.gbn_root, "processed_offsets"),
+                                         args.grid_size)
+    args.offsets = wvs_offsets_dir
 
     device = torch.device(args.device)
     os.makedirs(args.out, exist_ok=True)
@@ -1218,9 +1220,8 @@ def run(args):
     truncation_cutoff = max(1, int(args.eval_timesteps * args.train_truncation_ratio))
 
     # NOTE: Create control_net BEFORE freezing denoiser so deep copies have requires_grad=True
-    control_net = DynamicControlNetMultiStyle(
+    control_net = DynamicControlNetStyle(
         denoiser,
-        style_dim=len(oracle_names),
         grid_size=args.grid_size,
         enable_gecco=args.enable_gecco,
         smart_init_features=args.smart_init_features,
@@ -1272,41 +1273,41 @@ def run(args):
     print(f"Smart Init jitter enabled            : {args.enable_smart_init_jitter}")
     print(f"Smart Init splat-sigma enabled       : {args.enable_smart_init_splat_sigma}")
 
-    # dataset
+    # dataset 
     cache_data_dir = args.cache_data_dir
     if not (args.smart_init_features or args.sdf_features):
         cache_data_dir = None
     elif not cache_data_dir:
         cache_data_dir = os.path.join(args.out, "cache_data")
-    dataset = MultiStyleStippleDataset(
-        args.source, oracle_names, oracle_offsets, grid_size=args.grid_size,
+    oracle_offsets = {"WVS": wvs_offsets_dir, "GBN": gbn_offsets_dir}
+    dataset = StyleStippleDataset(
+        args.source, oracle_offsets, args.style_s_json, grid_size=args.grid_size,
     )
     if len(dataset) == 0:
         raise RuntimeError(
-            "MultiStyleStippleDataset has 0 samples. Check the shared source dir and that each "
-            "oracle processed_offsets share matching stems."
+            "StyleStippleDataset has 0 samples. Check that style_s.json, the shared source dir, and "
+            "both oracles' processed_offsets share matching stems. Run precompute_style_s.py first."
         )
-    print(f"Multi-style dataset: {len(dataset)} samples over {len(dataset.filenames)} icons; "
-          f"K={dataset.K} oracles={oracle_names}; per-oracle counts = {dataset.oracle_counts()}")
-    # Held-out val set. Prefer an explicit manifest of val basenames (EXACTLY reproduces the
-    # reference control_v4 split regardless of source-folder structure); else fall back to the
-    # source-folder split.
-    if args.val_manifest and os.path.isfile(args.val_manifest):
-        train_filenames, val_filenames = split_from_manifest(args.source, args.val_manifest)
-        print(f"Val set from manifest {args.val_manifest}: {len(val_filenames)} val icons "
-              f"(train {len(train_filenames)})")
-    else:
-        train_filenames, val_filenames = source_train_val_split(args.source, args.val_split, seed=42)
-        print(f"Val set from source-folder split: {len(val_filenames)} val icons")
-    train_len, val_len = len(train_filenames), len(val_filenames)
-    train_dataset = MultiStyleStippleDataset(
-        args.source, oracle_names, oracle_offsets, grid_size=args.grid_size,
+    print(f"Style dataset: {len(dataset)} samples over {len(dataset.filenames)} icons; "
+          f"per-oracle counts = {dataset.oracle_counts()}")
+    # Split by SOURCE icon so both oracles of an icon stay in the same split (no leakage).
+    n_files = len(dataset.filenames)
+    val_len = int(n_files * args.val_split)
+    val_len = min(max(val_len, 0), max(n_files - 1, 0))
+    train_len = n_files - val_len
+
+    all_indices = torch.randperm(n_files, generator=torch.Generator().manual_seed(42)).tolist()
+    train_filenames = [dataset.filenames[i] for i in all_indices[:train_len]]
+    val_filenames = [dataset.filenames[i] for i in all_indices[train_len:]]
+
+    train_dataset = StyleStippleDataset(
+        args.source, oracle_offsets, args.style_s_json, grid_size=args.grid_size,
         filenames=train_filenames,
     )
     val_dataset = None
     if val_len > 0:
-        val_dataset = MultiStyleStippleDataset(
-            args.source, oracle_names, oracle_offsets, grid_size=args.grid_size,
+        val_dataset = StyleStippleDataset(
+            args.source, oracle_offsets, args.style_s_json, grid_size=args.grid_size,
             filenames=val_filenames,
         )
 
@@ -1498,7 +1499,7 @@ def run(args):
                 high_res_sdf=high_res_sdf,
                 target_sdf_map=target_sdf,
                 target_smart_init_map=smart_init_grid,
-                style_vec=batch["style_vec"],
+                style_s=batch["style_s"],
             )
             noise_pred = denoiser(offsets_t, t, controls=controls)
 
@@ -1672,7 +1673,7 @@ def run(args):
                         high_res_sdf=high_res_sdf,
                         target_sdf_map=target_sdf,
                         target_smart_init_map=smart_init_grid,
-                        style_vec=batch["style_vec"],
+                        style_s=batch["style_s"],
                     )
                     noise_pred = denoiser(offsets_t, t, controls=controls)
 
