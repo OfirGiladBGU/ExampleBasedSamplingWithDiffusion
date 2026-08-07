@@ -55,51 +55,54 @@ def main() -> int:
     EXPORT_PNG = True
     EXPORT_NPY = True
 
-    TRACK_TIME = False
+    TRACK_TIME = True
     TRACK_TIME_FULL = False
     TRACK_PROFILE_TRACE = False
 
     ############################
     # CONFIGURATION PARAMETERS #
     ############################
-    
-    # ICONS
+
+    # Quadratic Sample
+    CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic_V2"
+    GRID_SIZE = 32
+    TRACK_TIME = False
+
+    # Monkey Sample
     # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
-    # DATA_PATH = "experiments/outputs/quantitative_advance_metrics"
+    # DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/monkey"
     # GRID_SIZE = 32
+    # TRACK_TIME = False
+
+    # Plant Sample
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    # DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/plant2"
+    # GRID_SIZE = 32
+    # TRACK_TIME = False
+
 
     # Faces Set Sample
     # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
     # DATA_PATH = "experiments/outputs/faces_results_compare"
     # GRID_SIZE = 32
+    # TRACK_TIME = False
 
-    # ICONS - TIMES - V1
+    # Icons-50 - METRICS
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    # DATA_PATH = "experiments/outputs/quantitative_advance_metrics"
+    # GRID_SIZE = 32
+    # TRACK_TIME = False
+
+    # Icons-50 - TIMES - V1
     # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
     # DATA_PATH = "experiments/outputs/icons_results_runtimes"
     # GRID_SIZE = 24
     # GRID_SIZE = 32
     # GRID_SIZE = 48
+    # # TRACK_TIME_FULL = True
+    # # TRACK_PROFILE_TRACE = True
 
-
-    # ICONS - TIMES - V2
-    CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
-    DATA_PATH = "experiments/outputs/icons_results_runtimes"
-    GRID_SIZE = 16
-    # GRID_SIZE = 24 
-    # GRID_SIZE = 32
-    # GRID_SIZE = 40
-    # GRID_SIZE = 48
-    # GRID_SIZE = 56
-    # GRID_SIZE = 64
-    # GRID_SIZE = 72
-    # GRID_SIZE = 80
-    # GRID_SIZE = 88
-    # GRID_SIZE = 96
-    # GRID_SIZE = 104
-    # GRID_SIZE = 112
-    TRACK_TIME = True
-    # TRACK_TIME_FULL = True
-    # TRACK_PROFILE_TRACE = True
 
     parser = argparse.ArgumentParser(
         description="Generate stipple targets using ControlNet V4 inference",
@@ -151,7 +154,8 @@ def main() -> int:
     SOURCE_PATH = os.path.join(args.data_path, "source")
     TARGET_PATH = os.path.join(args.data_path, "target")
     JSON_PATH = os.path.join(args.data_path, "prompt.json")
-    TARGET_NPY_PATH = os.path.join(args.data_path, "target_npy")
+    # TARGET_NPY_PATH = os.path.join(args.data_path, "target_npy")
+    TARGET_NPY_PATH = os.path.join(args.data_path, "target")
     TIMESTAMPS_PATH = os.path.join(args.data_path, "timestamps")
 
     print(f"Data path: {data_path}")
