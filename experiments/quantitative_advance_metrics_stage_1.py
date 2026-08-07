@@ -40,6 +40,7 @@ TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_WVS_1024"
 # TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_CN_1024"
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
+POINTS_SOURCE = "npy"
 
 METRIC_ORDER = [
     "M1_cvt_energy",
@@ -81,6 +82,14 @@ def parse_args():
         "--dry-run",
         action="store_true",
         help="Only show what would be processed, don't compute",
+    )
+    p.add_argument(
+        "--points-source",
+        choices=("npy", "png", "auto"),
+        default=POINTS_SOURCE,
+        help="Where target points come from: 'npy' loads the exact <stem>.npy coords "
+             "(default), 'png' detects dot centroids in the PNG, 'auto' uses the npy when "
+             "present and falls back to the PNG.",
     )
     return p.parse_args()
 
@@ -134,6 +143,37 @@ def extract_points_from_target(image_path, threshold=128, invert=False):
     return points
 
 
+def load_points_from_npy(npy_path):
+    """Load exact point coords: (N, 2) float, [cx/w, cy/h], y-down, in [0, 1]."""
+    pts = np.load(npy_path).astype(np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        raise ValueError(f"expected (N, 2) points in {npy_path}, got {pts.shape}")
+    return pts
+
+
+def get_target_points(image_path, points_source):
+    """Return (N, 2) target points from exact .npy coords, PNG centroids, or auto.
+
+    npy and PNG-centroid coordinates share the same convention ([x/w, y/h], y-down,
+    [0, 1]), so the two are interchangeable for the metrics -- 'npy' just uses the
+    solver's exact coordinates instead of re-detecting them from the rasterised dots.
+    """
+    npy_path = os.path.splitext(str(image_path))[0] + ".npy"
+    if points_source == "png":
+        return extract_points_from_target(image_path)
+    if points_source == "npy":
+        if not os.path.exists(npy_path):
+            raise FileNotFoundError(
+                f"--points-source npy but no sibling .npy for {image_path} "
+                f"(expected {npy_path}); use --points-source auto or png)."
+            )
+        return load_points_from_npy(npy_path)
+    # auto: prefer exact coords, fall back to PNG centroid detection
+    if os.path.exists(npy_path):
+        return load_points_from_npy(npy_path)
+    return extract_points_from_target(image_path)
+
+
 def find_source_image(target_image_path, source_folder):
     """Find the grayscale condition image in source_folder matching a target.
 
@@ -169,7 +209,7 @@ def serialize_metrics(metrics):
     return ordered
 
 
-def process_images(target_folder, source_folder, output_folder, mc_approx=True, dry_run=False):
+def process_images(target_folder, source_folder, output_folder, mc_approx=True, dry_run=False, points_source="npy"):
     """Score every target dot image against its matching grayscale source density."""
     target_path = Path(target_folder)
     source_path_dir = Path(source_folder)
@@ -189,6 +229,7 @@ def process_images(target_folder, source_folder, output_folder, mc_approx=True, 
 
     print(f"Found {len(images)} target images in {target_folder}")
     print(f"Using grayscale density from source folder: {source_path_dir}")
+    print(f"Target points source: {points_source}")
 
     if dry_run:
         print(f"DRY RUN: would process to {output_path}")
@@ -211,8 +252,8 @@ def process_images(target_folder, source_folder, output_folder, mc_approx=True, 
         json_path = output_path / json_name
 
         try:
-            # Points come from the TARGET dot image.
-            points = extract_points_from_target(image_path)
+            # Target points: exact .npy coords, PNG centroids, or auto (per --points-source).
+            points = get_target_points(image_path, points_source)
 
             # Density comes from the matching GRAYSCALE SOURCE condition image
             # (the field the stipples are meant to reproduce).
@@ -262,6 +303,7 @@ def main():
         output_folder,
         mc_approx=args.mc_approx,
         dry_run=args.dry_run,
+        points_source=args.points_source,
     )
     return rc
 
