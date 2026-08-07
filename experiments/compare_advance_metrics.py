@@ -85,43 +85,44 @@ PLOT_AREA_FRACTION = 0.88
 TEXT_SIZE = 15
 
 
-DEFAULT_INPUT_IMAGE = "experiments/results/quadratic_V2/source/quadratic_density_gradient.png"
+DEFAULT_INPUT_IMAGE = "experiments/outputs/images_results_metrics/quadratic_V2/source/quadratic_density_gradient.png"
+DEFAULT_OUT_BASE = "experiments/outputs/images_results_metrics/quadratic_V2/results"
 DEFAULT_COMPARE_LIST = [
-    {"WVS": "experiments/results/quadratic_V2/target_WVS_1024/quadratic_density_gradient.png"},
-    {"BNOT": "experiments/results/quadratic_V2/target_BNOT_1024/quadratic_density_gradient.png"},
-    {"GBN": "experiments/results/quadratic_V2/target_GBN_1024/quadratic_density_gradient.png"},
-    {"Ours": "experiments/results/quadratic_V2/target_CN_1024/quadratic_density_gradient.png"},
+    {"WVS": "experiments/outputs/images_results_metrics/quadratic_V2/target_WVS_1024/quadratic_density_gradient.npy"},
+    {"BNOT": "experiments/outputs/images_results_metrics/quadratic_V2/target_BNOT_1024/quadratic_density_gradient.npy"},
+    {"GBN": "experiments/outputs/images_results_metrics/quadratic_V2/target_GBN_1024/quadratic_density_gradient.npy"},
+    {"Ours": "experiments/outputs/images_results_metrics/quadratic_V2/target_CN_1024/quadratic_density_gradient.npy"},
 ]
 CLIP_TO_DOMAIN = False
 CAPACITY_TEST = True
 MARK_BEST = False  # Draws a red box around the capacity percentage closest to ground truth
 
 
-# DEFAULT_INPUT_IMAGE = "experiments/results/monkey/source/emoji-one_4_monkey.png"
+# DEFAULT_INPUT_IMAGE = "experiments/outputs/images_results_metrics/monkey/source/emoji-one_4_monkey.png"
+# DEFAULT_OUT_BASE = "experiments/outputs/images_results_metrics/monkey/results"
 # DEFAULT_COMPARE_LIST = [
-#     {"WVS": "experiments/results/monkey/target_WVS_1024/emoji-one_4_monkey.png"},
-#     {"BNOT": "experiments/results/monkey/target_BNOT_1024/emoji-one_4_monkey.png"},
-#     {"GBN": "experiments/results/monkey/target_GBN_1024/emoji-one_4_monkey.png"},
-#     {"Ours": "experiments/results/monkey/target_CN_1024/emoji-one_4_monkey.png"},
+#     {"WVS": "experiments/outputs/images_results_metrics/monkey/target_WVS_1024/emoji-one_4_monkey.npy"},
+#     {"BNOT": "experiments/outputs/images_results_metrics/monkey/target_BNOT_1024/emoji-one_4_monkey.npy"},
+#     {"GBN": "experiments/outputs/images_results_metrics/monkey/target_GBN_1024/emoji-one_4_monkey.npy"},
+#     {"Ours": "experiments/outputs/images_results_metrics/monkey/target_CN_1024/emoji-one_4_monkey.npy"},
 # ]
 # CLIP_TO_DOMAIN = True
 # CAPACITY_TEST = False
 # MARK_BEST = False 
 
 
-# DEFAULT_INPUT_IMAGE = "experiments/results/plant2/source/plant2_400x400.png"
+# DEFAULT_INPUT_IMAGE = "experiments/outputs/images_results_metrics/plant2/source/plant2_400x400.png"
+# DEFAULT_OUT_BASE = "experiments/outputs/images_results_metrics/plant2/results"
 # DEFAULT_COMPARE_LIST = [
-#     {"WVS": "experiments/results/plant2/target_WVS_1024/plant2_400x400.png"},
-#     {"BNOT": "experiments/results/plant2/target_BNOT_1024/plant2_400x400.png"},
-#     {"GBN": "experiments/results/plant2/target_GBN_1024/plant2_400x400.png"},
-#     {"Ours": "experiments/results/plant2/target_CN_1024/plant2_400x400.png"},
+#     {"WVS": "experiments/outputs/images_results_metrics/plant2/target_WVS_1024/plant2_400x400.npy"},
+#     {"BNOT": "experiments/outputs/images_results_metrics/plant2/target_BNOT_1024/plant2_400x400.npy"},
+#     {"GBN": "experiments/outputs/images_results_metrics/plant2/target_GBN_1024/plant2_400x400.npy"},
+#     {"Ours": "experiments/outputs/images_results_metrics/plant2/target_CN_1024/plant2_400x400.npy"},
 # ]
 # CLIP_TO_DOMAIN = True
 # CAPACITY_TEST = False
 # MARK_BEST = False 
 
-DEFAULT_SRC_BASE = "control_v4/sample_outputs_advance"
-DEFAULT_OUT_BASE = "experiments/outputs/advance_metrics"
 
 # Styling for CAPACITY_TEST vertical quarter guides in the points row.
 CAPACITY_GUIDE_COLOR = "deepskyblue"  # A bright, static light blue
@@ -133,7 +134,7 @@ def sanitize_name(name: str) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
 
 
-def collect_outputs(input_image_path: str, compare_list, src_base: str, out_base: str, mc_approx: bool = True):
+def collect_outputs(input_image_path: str, compare_list, out_base: str, mc_approx: bool = True):
     input_path = Path(input_image_path)
     stem = input_path.stem
     # New behavior: rebuild visuals and metrics from the provided prediction images.
@@ -149,7 +150,7 @@ def collect_outputs(input_image_path: str, compare_list, src_base: str, out_base
         print(f"Could not read input image: {input_path}")
         return 3
 
-    # determine n_points from grid_size flag if passed via src_base (legacy), else default to 32x32
+    # points-per-image budget (32x32 grid); each method is fit to this count for a fair compare
     grid_size = 32
     n_points = grid_size * grid_size
 
@@ -291,8 +292,8 @@ def save_sample_image(image_path, pts, out_png_path):
     cv2.imwrite(out_png_path, out_img)
 
 
-def extract_points_from_target(img_path, n_points):
-    """Detect dot centroids in a stippled target and return (N, 2) in [0, 1]."""
+def _detect_centroids_from_png(img_path):
+    """PNG fallback: detect dot centroids and return (N, 2) in [0, 1]."""
     img = Image.open(img_path).convert("L")
     img_np = np.array(img, dtype=np.uint8)
 
@@ -310,7 +311,22 @@ def extract_points_from_target(img_path, n_points):
         centroids = ndimage.center_of_mass(binary, labelled, range(1, n_labels + 1))
 
     h, w = img_np.shape
-    points = np.array([[cx / w, cy / h] for cy, cx in centroids], dtype=np.float64)
+    return np.array([[cx / w, cy / h] for cy, cx in centroids], dtype=np.float64)
+
+
+def extract_points_from_target(path, n_points):
+    """Return (N, 2) target points in [0, 1], read according to the PATH's extension.
+
+    A ``.npy`` path loads exact coordinates directly; any other (image) path detects
+    dot centroids from the PNG. Both share the [x/w, y/h], y-down convention, and the
+    result is fit to n_points so every method shares one budget.
+    """
+    if os.path.splitext(str(path))[1].lower() == ".npy":
+        points = np.load(path).astype(np.float64)
+        if points.ndim != 2 or points.shape[1] != 2:
+            raise ValueError(f"expected (N, 2) points in {path}, got {points.shape}")
+    else:
+        points = _detect_centroids_from_png(path)
 
     rng = np.random.RandomState(42)
     if len(points) > n_points:
@@ -518,6 +534,8 @@ def visualize_compare_panel(
         try:
             png_dir = Path(save_path).resolve().parent.parent / "png"
             png_dir.mkdir(parents=True, exist_ok=True)
+            pdf_dir = Path(save_path).resolve().parent.parent / "pdf"
+            pdf_dir.mkdir(parents=True, exist_ok=True)
             # Ensure renderer has drawn text so get_tightbbox works
             fig.canvas.draw()
             renderer = fig.canvas.get_renderer()
@@ -536,6 +554,7 @@ def visualize_compare_panel(
             bbox_inches = bbox.transformed(fig.dpi_scale_trans.inverted())
             outp = png_dir / "condition.png"
             fig.savefig(outp, bbox_inches=bbox_inches, pad_inches=0.02)
+            fig.savefig(pdf_dir / "condition.pdf", bbox_inches=bbox_inches, pad_inches=0.02)
 
             # Per-comparison columns
             for i, (label, _) in enumerate(compare_entries):
@@ -544,6 +563,7 @@ def visualize_compare_panel(
                 bbox_inches = bbox.transformed(fig.dpi_scale_trans.inverted())
                 outp = png_dir / f"{sanitize_name(label)}.png"
                 fig.savefig(outp, bbox_inches=bbox_inches, pad_inches=0.02)
+                fig.savefig(pdf_dir / f"{sanitize_name(label)}.pdf", bbox_inches=bbox_inches, pad_inches=0.02)
 
             # Restore titles if they were hidden
             if not SHOW_LABELS:
@@ -671,6 +691,7 @@ def visualize_compare_panel(
 
     os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.savefig(os.path.splitext(save_path)[0] + ".pdf", bbox_inches="tight")  # vector, high-quality
     plt.close()
     return save_path
 
@@ -808,6 +829,7 @@ def visualize_compare_panel_legacy(
     plt.tight_layout()
     os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.savefig(os.path.splitext(save_path)[0] + ".pdf", bbox_inches="tight")  # vector, high-quality
     plt.close()
     return save_path
 
@@ -819,11 +841,6 @@ def parse_args():
         "--compare-list",
         default=None,
         help=("JSON list literal of compare entries; if omitted, uses built-in example."),
-    )
-    p.add_argument(
-        "--src-base",
-        default=DEFAULT_SRC_BASE,
-        help="Base folder where sample outputs were written",
     )
     p.add_argument(
         "--out-base",
@@ -858,7 +875,7 @@ def main():
             print("--compare-list must be valid JSON list literal. Example: '[{\"WVS\":\"/path/to.png\"}]'")
             return 2
 
-    rc = collect_outputs(args.input, compare_list, args.src_base, args.out_base, mc_approx=args.mc_approx)
+    rc = collect_outputs(args.input, compare_list, args.out_base, mc_approx=args.mc_approx)
     return rc
 
 
