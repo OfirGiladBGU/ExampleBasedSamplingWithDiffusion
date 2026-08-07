@@ -336,6 +336,9 @@ def save_panel(save_path, condition_image_01, gt_points_batch, baseline_points_b
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=180, bbox_inches="tight")
+    # Also export a vector PDF of the same panel for high-detail / print quality
+    # (the point scatters stay crisp at any zoom, unlike the rasterised PNG).
+    plt.savefig(os.path.splitext(save_path)[0] + ".pdf", bbox_inches="tight")
     plt.close()
     return True
 
