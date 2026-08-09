@@ -108,3 +108,44 @@ def stem_map_for(directory, stems, exts=VALID_EXT):
                 out[stem] = p
                 break
     return out
+
+DEFAULT_WHITE_THRESHOLD = 255.0
+
+
+def drop_white_area_points(points, gray01, threshold=DEFAULT_WHITE_THRESHOLD, rng=None):
+    """Remove points sitting on background and restore the count by duplicating survivors.
+
+    Mirrors `control_v4/train_control.drop_white_area_points`. `threshold` is a SOURCE PIXEL VALUE
+    in 0-255 -- a point is dropped when the pixel beneath it is at least that bright -- because that
+    is the number you read off an image viewer when choosing it, unlike rho.
+
+    Returns (points, n_dropped), with len() unchanged: the offsets tensor has exactly G*G cells and
+    no empty-cell encoding, so the count cannot shrink.
+
+    Duplication rather than resampling from rho: a duplicate is MARKED (nearest-neighbour distance
+    exactly 0), so `descriptor_fields.drop_exact_duplicates` removes it and any measurement recovers
+    the true statistics. An invented position cannot be undone.
+
+    That last property is what makes offsets and descriptors agree without coordinating their RNG.
+    The KEEP MASK is a pure function of (points, gray, threshold) -- no randomness -- and only the
+    choice of which survivor to duplicate is random. Descriptors drop exact duplicates before
+    measuring, so they see the kept set regardless of that choice, while the offsets carry the
+    padding they need. Both therefore describe the same points even though only one has the padding.
+
+    Refuses to act if it would empty the set, so an all-white or mis-thresholded image fails loudly
+    downstream instead of silently producing G*G copies of one point.
+    """
+    rng = rng or np.random.RandomState(42)
+    gray255 = np.clip(np.asarray(gray01, dtype=np.float64) * 255.0, 0.0, 255.0)
+    h, w = gray255.shape
+    pts = np.asarray(points, dtype=np.float64)
+    ix = np.clip((pts[:, 0] * w).astype(np.int64), 0, w - 1)
+    iy = np.clip((pts[:, 1] * h).astype(np.int64), 0, h - 1)
+    keep = gray255[iy, ix] < threshold
+    n_dropped = int((~keep).sum())
+    if n_dropped == 0 or not keep.any():
+        return pts, 0
+    kept = pts[keep]
+    dup = kept[rng.choice(len(kept), n_dropped, replace=True)]
+    return np.vstack([kept, dup]), n_dropped
+

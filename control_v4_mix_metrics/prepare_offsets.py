@@ -7,7 +7,7 @@ process pool and then the trainer finds everything cached and starts immediately
 
 Two shortcuts, both safe:
 
-  REUSE.  `icons-50_512_{GBN,WVS}/processed_offsets` already hold offsets for exactly these targets
+  REUSE.  `Icons-50_1024_{GBN,WVS}/processed_offsets` already hold offsets for exactly these targets
           -- `build_oracles_dataset.py --stage link` HARDLINKED those PNGs, so they are the same
           inodes and the offsets are bit-identical to what we would recompute. They are hardlinked
           in rather than recomputed. NOTE: they were derived from PNG centroids, so once GBN/WVS are
@@ -42,8 +42,14 @@ import point_io as PIO  # noqa: E402
 DEFAULT_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_Oracles"
 DEFAULT_TRAIN_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training"
 DEFAULT_ORACLES = "gbn,wvs,bnot,fs,ordered,white,jitgrid"
-REUSE_FROM = {"gbn": "icons-50_512_GBN", "wvs": "icons-50_512_WVS", "bnot": "icons-50_512_BNOT"}
+REUSE_FROM = {"gbn": "Icons-50_1024_GBN", "wvs": "Icons-50_1024_WVS", "bnot": "Icons-50_1024_BNOT"}
 DEFAULT_N = 1024
+
+# Drop ground-truth points on (near-)white background and replace them with duplicates of
+# survivors. Must stay in lockstep with precompute_descriptors.py -- see point_io for why the
+# two agree without sharing an RNG. Threshold is a source pixel value in 0-255.
+DROP_WHITE_POINTS = True
+WHITE_THRESHOLD = 255
 
 
 def fit_to_n(points, n_points, seed=42):
@@ -79,13 +85,17 @@ def load_points(target_dir, stem, n_points, min_points):
 
 
 def _one(payload):
-    stem, target_dir, out_dir, n_points, min_points = payload
+    stem, target_dir, out_dir, n_points, min_points, src_path, drop_white, white_thr = payload
     from data.Transforms import to_image_optimal_transport
     dst = os.path.join(out_dir, stem + ".npy")
     try:
         pts, src = load_points(target_dir, stem, n_points, min_points)
         if pts is None:
             return stem, "missing", None
+        # After fit_to_n, so the set is exactly N going in; the drop preserves the count.
+        if drop_white and src_path:
+            pts, _ = PIO.drop_white_area_points(pts, PIO.load_gray01(src_path),
+                                                threshold=white_thr)
         offsets = to_image_optimal_transport(pts)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         tmp = dst + ".tmp"
@@ -127,19 +137,33 @@ def main():
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--reuse", action=argparse.BooleanOptionalAction, default=True,
-                    help="hardlink icons-50_512_*/processed_offsets where available")
+                    help="hardlink Icons-50_1024_*/processed_offsets where available")
     ap.add_argument("--force", action=argparse.BooleanOptionalAction, default=False)
+    ap.add_argument("--drop-white-points", action=argparse.BooleanOptionalAction,
+                    default=DROP_WHITE_POINTS,
+                    help="drop points on background and duplicate survivors to keep N "
+                         "(must match precompute_descriptors.py)")
+    ap.add_argument("--white-threshold", type=float, default=WHITE_THRESHOLD,
+                    help="source pixel value 0-255; >= this counts as background")
     args = ap.parse_args()
 
     source = args.source or os.path.join(args.root, "source")
     oracles = [m.strip() for m in args.oracles.split(",") if m.strip()]
-    stems = sorted(os.path.splitext(v)[0] for v in PIO.stem_map(source))
+    src_map = PIO.stem_map(source)
+    src_map = {os.path.splitext(k)[0]: v for k, v in src_map.items()}
+    stems = sorted(src_map)
     if args.limit:
         stems = stems[: args.limit]
     if not stems:
         raise SystemExit(f"no source images under {source}")
     print(f"root    : {args.root}\nicons   : {len(stems)}  N={args.n_points}\n"
           f"oracles : {oracles}")
+    if args.drop_white_points:
+        print(f"drop-white: ON (source pixel >= {args.white_threshold:g}/255 dropped, "
+              f"replaced by duplicates)")
+        print("            precompute_descriptors.py MUST run with the same setting.")
+    else:
+        print("drop-white: OFF")
 
     grand = time.time()
     for m in oracles:
@@ -151,7 +175,9 @@ def main():
         os.makedirs(out_dir, exist_ok=True)
 
         linked = 0
-        if args.reuse and not args.force and m in REUSE_FROM:
+        # Reuse is unsafe once we filter: those cached offsets were built by train_control
+        # under ITS own drop-white setting, which we cannot verify from here.
+        if args.reuse and not args.force and not args.drop_white_points and m in REUSE_FROM:
             src_dir = os.path.join(args.train_root, REUSE_FROM[m], "processed_offsets")
             if os.path.isdir(src_dir):
                 linked = link_existing(src_dir, out_dir, stems)
@@ -162,7 +188,9 @@ def main():
         if not todo:
             continue
 
-        tasks = [(s, target_dir, out_dir, args.n_points, args.min_points) for s in todo]
+        tasks = [(s, target_dir, out_dir, args.n_points, args.min_points,
+                  src_map.get(s), args.drop_white_points, args.white_threshold)
+                 for s in todo]
         t0, done, srcs, errs = time.time(), 0, defaultdict(int), []
         with ProcessPoolExecutor(max_workers=args.workers) as ex:
             for fut in as_completed([ex.submit(_one, t) for t in tasks]):

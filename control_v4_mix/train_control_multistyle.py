@@ -21,6 +21,7 @@ Usage (from project root):
 import os
 import sys
 import argparse
+import json
 import re
 from datetime import datetime
 
@@ -51,184 +52,67 @@ from control_v4_mix.DynamicControlNetMultiStyle import (
 )
 from control_v4_mix.MultiStyleStippleDataset import MultiStyleStippleDataset
 from control_v4_mix.data_split import source_train_val_split, split_from_manifest
+from control_v4_mix.oracles_config import ORACLES_DEFAULT, resolve_oracles
 from control_v4.smart_init import add_noise_at_t
 from control_v4.smart_init import build_smart_init_from_image
 from data.Transforms import to_image_optimal_transport, to_pointset_optimal_transport
 from utils.stippling_metrics import geometric_validation_score
 
-# default globals (edit here for quick experiments)
+# ── default globals (edit here for quick experiments) ───────────────
 
 # Paths and I/O
-WANDB_ENV = "/groups/asharf_group/ofirgila/projection-conditioned-point-cloud-diffusion/.env"
-
-BASE_CONFIG_PATH = "config/GBN/config.json"
-BASE_CKPT_PATH = "config/GBN/model.ckpt"
-
-# ICONS 1024 GBN
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/target"
-
-# OUTPUT_DIR = "control_v4/train_outputs_icons50_512_GBN"
-# FREEZE_DENOISER = True  # TODO: Add in the other scripts
-# RESAMPLE_JUMPS = 2
-
-OUTPUT_DIR = "control_v4_mix/train_outputs_multistyle"
-FREEZE_DENOISER = False  # TODO: Add in the other scripts
-RESAMPLE_JUMPS = 0
-
-GRID_SIZE = 32
-VAL_SPLIT = 0.1
-EPOCHS = 5000
-SAVE_EVERY = 10
-ENABLE_GECCO = True
-ENABLE_ADAPTIVE_GATE_INJECTION = True
-EVAL_TIMESTEPS = 1000
-TRAIN_TRUNCATION_RATIO = 1.00
-INFER_TRUNCATION_RATIO = 0.30
-SMART_INIT_FEATURES = False
-SDF_FEATURES = False
-BATCH_COORDS_FEATURES = False
-ENABLE_SMART_INIT_JITTER = False
-ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# ICONS 1024 WVS
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_WVS/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_WVS/target"
-OUTPUT_DIR = "control_v4/train_outputs_icons50_512_WVS_UNIFIED"
-FREEZE_DENOISER = False  # TODO: Add in the other scripts
-GRID_SIZE = 32
-VAL_SPLIT = 0.1
-EPOCHS = 10000
-SAVE_EVERY = 10
-ENABLE_GECCO = True
-ENABLE_ADAPTIVE_GATE_INJECTION = True
-EVAL_TIMESTEPS = 1000
-TRAIN_TRUNCATION_RATIO = 1.00
-INFER_TRUNCATION_RATIO = 0.30
-RESAMPLE_JUMPS = 2
-SMART_INIT_FEATURES = False
-SDF_FEATURES = False
-BATCH_COORDS_FEATURES = False
-ENABLE_SMART_INIT_JITTER = False
-ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# FACES 1024 GBN
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/data_celeba_5K_1024/target"
-# OUTPUT_DIR = "control_v4/train_outputs_data_celeba_5K_1024_no_random"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.1
-# EPOCHS = 10000
-# SAVE_EVERY = 10
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# ANIMALS 1024 GBN
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024/target"
-# OUTPUT_DIR = "control_v4/train_outputs_data_AM-2K_1024_no_random"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.1
-# EPOCHS = 20000
-# SAVE_EVERY = 10
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = False
-# SDF_FEATURES = False
-# BATCH_COORDS_FEATURES = False
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# Stress 1 1024
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/target"
-# OUTPUT_DIR = "control_v4/train_outputs_data_stress1_no_random"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.0
-# EPOCHS = 10000
-# SAVE_EVERY = 50
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = False    # NOTE
-# SDF_FEATURES = False           # NOTE
-# BATCH_COORDS_FEATURES = False  # NOTE
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# Stress 2 1024 V2
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/target"
-# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_V2_no_random"
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.0
-# EPOCHS = 10000
-# SAVE_EVERY = 50
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = False    # NOTE
-# SDF_FEATURES = False           # NOTE
-# BATCH_COORDS_FEATURES = False  # NOTE
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
-
-# # Stress 2 1024 V1 - IGNORE
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/target"
-# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_no_random"
-# GRID_SIZE = 32
-# VAL_SPLIT = 0.0
-# EPOCHS = 10000
-# SAVE_EVERY = 10
-# ENABLE_GECCO = True
-# ENABLE_ADAPTIVE_GATE_INJECTION = True
-# EVAL_TIMESTEPS = 1000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-# SMART_INIT_FEATURES = True    # NOTE
-# SDF_FEATURES = True           # NOTE
-# BATCH_COORDS_FEATURES = True  # NOTE
-# ENABLE_SMART_INIT_JITTER = False
-# ENABLE_SMART_INIT_SPLAT_SIGMA = False
-
+WANDB_ENV = ".env"
+BEST_WEIGHTS_FILENAME = "best_dynamic_ep{epoch}_score{score}_cv{cv}_clumped{clumped}.ckpt"
+WEIGTHS_FILENAME_FORMAT = "dynamic_ep{epoch}.ckpt"
+# Prefix/suffix derived from the periodic-checkpoint format, used to PARSE the epoch
+# number back out when resuming / pruning. Keep WEIGTHS_FILENAME_FORMAT of the form
+# "<prefix>{epoch}<suffix>".
+WEIGHTS_PREFIX, WEIGHTS_SUFFIX = WEIGTHS_FILENAME_FORMAT.split("{epoch}")
 
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
 OFFSETS_DIR = ""
-CACHE_DATA_DIR = ""
 
-# Multi-oracle style axis. Each oracle shares the SAME source images (same rho); training uses
-# ONE-HOT conditioning (WVS=[1,0,0], GBN=[0,1,0], DITHER=[0,0,1]) and hopes to interpolate convex
-# combinations like [0.5,0.5,0]. Per oracle: source/ + target/ stipple + processed_offsets/.
-from control_v4_mix.oracles_config import ORACLES_DEFAULT, resolve_oracles
+# Where ground-truth points come from when building offsets.
+#   "npy" -> prefer the exact coordinates written beside each target (<stem>.npy), fall back to
+#            centroid detection on the PNG for any stem that has no .npy yet.
+#   "png" -> always use centroid detection (the original behaviour).
+# The oracle generators write both files side by side (--export_type both), and the .npy is exact:
+# it holds the solver's own continuous coordinates, whereas the PNG has been quantised to the pixel
+# grid and loses any two points that landed in the same pixel.
+POINTS_SOURCE = "npy"
+
+# Drop ground-truth points that land on (near-)white background and replace them with duplicates of
+# surviving points, so the offsets target carries no background points at all.
+#
+# This DELIBERATELY falsifies the teacher's distribution, and the reason is a training dynamic
+# rather than a fidelity argument: shown a handful of background points the model appears to learn
+# that the background is permissible territory, and then places far more there than the teacher ever
+# did. One or two stray points in the target become ten in the sample. Removing the permission
+# entirely is cheaper than trying to teach the exact rate.
+#
+# The threshold is a SOURCE PIXEL VALUE in 0-255: a point is dropped when the source pixel under it
+# is at least this bright. 255 is pure white, 0 pure black.
+#
+# What it costs, measured over 150 icons. The rightmost column is what makes the choice:
+#
+#     threshold   equivalent rho   points dropped / 1024
+#       250          <= 0.020        gbn 5.8   wvs 1.8   bnot 2.2      (~0.4%)
+#       230          <= 0.098        gbn  26   wvs  33   bnot  26
+#       192          <= 0.247        gbn 177   wvs 217   bnot 200
+#
+# Only the first row is strays. Sources are LANCZOS-resized to 512, so edges carry a real
+# anti-aliased gradient where a density-following sampler legitimately belongs -- at 192 you would be
+# deleting the contour structure that GBN's banding signature is made of, not cleaning up noise.
+# ADOPTED: 255 -- drop ONLY pure white. That is the most conservative filter available: a
+# pixel at 255 carries no ink at all, so a point there cannot be following density under any
+# reading, and nothing anti-aliased is ever touched. It removes strictly fewer points than the
+# 250 row above (that row is the upper bound on what 255 removes), which is the point -- the
+# goal is to delete strays without taking on any risk of eroding contour structure.
+# Below ~240 this stops being a background filter at all.
+# DROP_WHITE_POINTS = False
+DROP_WHITE_POINTS = True
+WHITE_THRESHOLD = 255           # source pixel value >= this counts as background (0-255)
+CACHE_DATA_DIR = ""
 PRELOAD_RAM = False  # Preload all cached data to RAM (eliminates disk I/O per batch)
 VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
@@ -237,11 +121,27 @@ VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 # KEEP_EVERY. With SAVE_EVERY=10 and KEEP_EVERY=100, epochs 10..90 are pruned once epoch
 # 100 is saved, keeping 100, 200, ...  Set KEEP_EVERY=0 to disable. 'best_*' checkpoints
 # are never touched. KEEP_EVERY must be 0 or a multiple of SAVE_EVERY.
+SAVE_EVERY = 10
 KEEP_EVERY = 100
 
 # Model parameters
-# FREEZE_DENOISER = True  # TODO: Add in the other scripts
-# GRID_SIZE = 32
+BASE_CONFIG_PATH = "config/GBN/config.json"
+BASE_CKPT_PATH = ""  # clean training: base trains FROM SCRATCH (no pretrained GBN). Pretrained: "config/GBN/model.ckpt"
+FREEZE_DENOISER = True
+GRID_SIZE = 32
+VAL_SPLIT = 0.1
+EPOCHS = 5000
+ENABLE_GECCO = True
+ENABLE_ADAPTIVE_GATE_INJECTION = True
+EVAL_TIMESTEPS = 1000
+TRAIN_TRUNCATION_RATIO = 1.00
+INFER_TRUNCATION_RATIO = 0.50
+RESAMPLE_JUMPS = 0
+SMART_INIT_FEATURES = False
+SDF_FEATURES = False
+BATCH_COORDS_FEATURES = False
+ENABLE_SMART_INIT_JITTER = False
+ENABLE_SMART_INIT_SPLAT_SIGMA = False
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
 SMART_INIT_JITTER_PX = 0.5
@@ -260,13 +160,16 @@ LOGIT_NORMAL_S = 1.0
 #   point set to a low-res Gaussian density map, and penalises the difference. This
 #   directly matches the teacher's density field (capacity), which raw eps-MSE only
 #   matches indirectly. Weight 0.0 -> OFF (bit-exact original behaviour).
-DENSITY_LOSS_WEIGHT = 0.0
-DENSITY_KDE_GRID = 16          # KDE map resolution (coarser than GRID_SIZE = low-pass)
+# DENSITY_LOSS_WEIGHT = 0.0
+DENSITY_LOSS_WEIGHT = 0.8
+DENSITY_KDE_GRID = 32          # KDE map resolution (coarser than GRID_SIZE = low-pass)
 DENSITY_KDE_SIGMA_PX = 1.0     # Gaussian sigma, in KDE-grid pixels
 DENSITY_LOSS_T_FRAC = 0.4      # only apply where t < frac * eval_timesteps
 DENSITY_LOSS_T_SOFT = 0.0      # width of a soft ramp at that cutoff (0 = hard mask)
-DENSITY_LOSS_WARMUP_EPOCHS = 0 # linearly ramp the weight in over N epochs (0 = no ramp)
-DENSITY_LOSS_GRAD_LOG_EVERY = 0  # log ||grad L_main|| vs ||grad L_density|| every N steps
+# DENSITY_LOSS_WARMUP_EPOCHS = 0 # linearly ramp the weight in over N epochs (0 = no ramp)
+DENSITY_LOSS_WARMUP_EPOCHS = 5
+# DENSITY_LOSS_GRAD_LOG_EVERY = 0  # log ||grad L_main|| vs ||grad L_density|| every N steps
+DENSITY_LOSS_GRAD_LOG_EVERY = 20
 
 # Loss component weights
 MIN_SNR_GAMMA = 5.0
@@ -294,6 +197,126 @@ SHOW_SELECTED_PREDICT = True
 SHOW_SELECTED_GT_OFFSETS = True
 
 
+############################
+# CONFIGURATION PARAMETERS #
+############################
+
+# ICONS 1024 GBN
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
+
+OUTPUT_DIR = "control_v4_mix/train_outputs_multistyle"
+FREEZE_DENOISER = False  # NOTE
+BASE_CKPT_PATH = ""
+
+# OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_REGULAR"
+# FREEZE_DENOISER = False  # NOTE
+# BASE_CKPT_PATH = ""
+# DENSITY_LOSS_WEIGHT = 0.0
+# DENSITY_LOSS_WARMUP_EPOCHS = 0
+# DENSITY_LOSS_GRAD_LOG_EVERY = 0
+
+
+# OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_PRETRAINED"
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# ICONS 1024 WVS
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_WVS/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_WVS/target"
+
+# OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_WVS"
+# FREEZE_DENOISER = False  # NOTE
+# BASE_CKPT_PATH = ""
+
+# OUTPUT_DIR = "control_v4/train_outputs_Icons-50_1024_WVS_PRETRAINED"
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# FACES 1024 GBN
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_GBN/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_GBN/target"
+
+# OUTPUT_DIR = "control_v4/train_outputs_CelebA-5K_1024_GBN"
+# FREEZE_DENOISER = False  # NOTE
+# BASE_CKPT_PATH = ""
+
+# OUTPUT_DIR = "control_v4/train_outputs_CelebA-5K_1024_GBN_PRETRAINED"
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# ANIMALS 1024 GBN
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024_GBN/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/AM-2K_1024_GBN/target"
+
+# OUTPUT_DIR = "control_v4/train_outputs_AM-2K_1024_GBN"
+# FREEZE_DENOISER = False  # NOTE
+# BASE_CKPT_PATH = ""
+
+# OUTPUT_DIR = "control_v4/train_outputs_AM-2K_1024_GBN_PRETRAINED"
+# EPOCHS = 20000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# Stress 1 1024
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/target"
+# VAL_SPLIT = 0.0              # NOTE
+
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress1"
+# FREEZE_DENOISER = False  # NOTE
+# BASE_CKPT_PATH = ""
+
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress1_PRETRAINED"
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# Stress 2 1024 V2
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/target"
+# VAL_SPLIT = 0.0              # NOTE
+
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_V2"
+# FREEZE_DENOISER = False  # NOTE
+# BASE_CKPT_PATH = ""
+
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_V2_PRETRAINED"
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
+# Stress 2 1024 V1 - IGNORE
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/target"
+# VAL_SPLIT = 0.0              # NOTE
+
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress2"
+# FREEZE_DENOISER = False  # NOTE
+# BASE_CKPT_PATH = ""
+
+# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_PRETRAINED"
+# EPOCHS = 10000
+# TRAIN_TRUNCATION_RATIO = 0.30
+# INFER_TRUNCATION_RATIO = 0.30
+# RESAMPLE_JUMPS = 2
+
+
 def load_wandb_key():
     if os.path.exists(WANDB_ENV):
         with open(WANDB_ENV) as f:
@@ -305,7 +328,79 @@ def load_wandb_key():
     return False
 
 
-def extract_points_from_target(img_path, n_points):
+def _fit_points_to_n(points, n_points):
+    """Force a point set to exactly n_points, as the offsets tensor (2, G, G) requires.
+
+    Long -> subsample. Short -> DUPLICATE existing points, never uniform random.
+
+    Some repair is mandatory: the offsets tensor has G*G cells and no empty-cell encoding, so a
+    short set cannot be represented honestly. The question is only which repair.
+
+    Measured on a CVT-like set of 1024 points, effect on nn_cv of losing one point and repairing:
+
+        true 1023 (no repair possible)   -0.2%     <- the shortfall itself is harmless
+        +1 uniform random                +3.3%     <- and PERMANENT
+        +1 duplicate                     +7.3%
+        +1 duplicate, then de-duplicated -0.2%     <- fully recovered
+
+    Uniform padding looks gentler and is the worse choice, because an invented point is
+    indistinguishable from a real one -- nothing downstream can ever identify or undo it, and it
+    lands anywhere on the canvas including white background. A duplicate is MARKED: its
+    nearest-neighbour distance is exactly 0, so any consumer can detect and drop it and recover the
+    true statistics exactly (`descriptor_fields.drop_exact_duplicates` does this). It is also
+    visually free -- two points at identical coordinates rasterise to one dot.
+
+    Sources of a short set: centroid detection merging touching dots in a PNG, or a solver that
+    genuinely emitted fewer points (WVS loses ~0.8% of icons to Voronoi region filtering).
+    """
+    rng = np.random.RandomState(42)
+    if len(points) > n_points:
+        points = points[rng.choice(len(points), n_points, replace=False)]
+    elif len(points) < n_points:
+        if len(points) == 0:
+            raise ValueError("cannot fit an empty point set to n_points")
+        deficit = n_points - len(points)
+        dup_idx = rng.choice(len(points), deficit, replace=True)
+        points = np.vstack([points, points[dup_idx]])
+    return points
+
+
+def drop_white_area_points(points, gray01, threshold=250.0, rng=None):
+    """Remove points on background and restore the count by duplicating survivors.
+
+    `threshold` is a SOURCE PIXEL VALUE in 0-255: drop a point when the source pixel beneath it is
+    >= threshold (i.e. at least that close to white).
+
+    Returns (points, n_dropped). The count is preserved because the offsets tensor has exactly
+    G*G cells and no empty-cell encoding.
+
+    Duplication rather than resampling from rho: a duplicate is MARKED (nearest-neighbour distance
+    exactly 0), so `descriptor_fields.drop_exact_duplicates` can identify and remove it and any
+    measurement recovers the true statistics. An invented position cannot be undone. It is also
+    visually free -- two points at one coordinate rasterise to a single dot -- whereas the dropped
+    background point was a visible dot in the wrong place.
+
+    Refuses to act if it would empty the set, so an all-white or mis-thresholded image fails loudly
+    downstream instead of silently producing 1024 copies of one point.
+    """
+    rng = rng or np.random.RandomState(42)
+    # `threshold` is a source pixel value in 0-255 (255 = white), so a point is dropped when the
+    # pixel under it is at least that bright. Kept in the image's own units rather than rho because
+    # that is what you see in an image viewer when picking the value.
+    gray255 = np.clip(np.asarray(gray01, dtype=np.float64) * 255.0, 0.0, 255.0)
+    h, w = gray255.shape
+    ix = np.clip((points[:, 0] * w).astype(np.int64), 0, w - 1)
+    iy = np.clip((points[:, 1] * h).astype(np.int64), 0, h - 1)
+    keep = gray255[iy, ix] < threshold
+    n_dropped = int((~keep).sum())
+    if n_dropped == 0 or not keep.any():
+        return points, 0
+    kept = points[keep]
+    dup = kept[rng.choice(len(kept), n_dropped, replace=True)]
+    return np.vstack([kept, dup]), n_dropped
+
+
+def extract_points_from_png(img_path, n_points):
     """Detect dot centroids in a stippled target and return (N, 2) in [0, 1]."""
     img = Image.open(img_path).convert("L")
     img_np = np.array(img, dtype=np.uint8)
@@ -319,18 +414,37 @@ def extract_points_from_target(img_path, n_points):
 
     h, w = img_np.shape
     points = np.array([[cx / w, cy / h] for cy, cx in centroids], dtype=np.float64)
-
-    rng = np.random.RandomState(42)
-    if len(points) > n_points:
-        points = points[rng.choice(len(points), n_points, replace=False)]
-    elif len(points) < n_points:
-        deficit = n_points - len(points)
-        points = np.vstack([points, rng.rand(deficit, 2)])
-
-    return points
+    return _fit_points_to_n(points, n_points)
 
 
-def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
+def extract_points_from_npy(npy_path, n_points):
+    """Load exact ground-truth coordinates: (N, 2) float, x then y, in [0, 1], y down.
+
+    Same convention extract_points_from_png returns, so the two are interchangeable.
+    """
+    points = np.load(npy_path).astype(np.float64)
+    if points.ndim != 2 or points.shape[1] != 2:
+        raise ValueError(f"expected (N, 2) points in {npy_path}, got {points.shape}")
+    return _fit_points_to_n(points, n_points)
+
+
+def extract_points_from_target(img_path, n_points, points_source=None):
+    """Ground-truth points for one target, preferring exact coordinates over the rasterised PNG.
+
+    With points_source="npy" (the default) the sibling <stem>.npy is used when present and the PNG
+    is the fallback, so a partially-exported dataset still trains. Returns (points, source_used).
+    """
+    if points_source is None:
+        points_source = POINTS_SOURCE
+    if points_source == "npy":
+        npy_path = os.path.splitext(img_path)[0] + ".npy"
+        if os.path.exists(npy_path):
+            return extract_points_from_npy(npy_path, n_points), "npy"
+    return extract_points_from_png(img_path, n_points), "png"
+
+
+def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size, points_source=None,
+                       drop_white_points=False, white_threshold=WHITE_THRESHOLD):
     """Ensure offsets exist; auto-export from targets when missing/empty."""
     if offsets_dir and offsets_dir.strip():
         resolved_offsets_dir = offsets_dir
@@ -347,13 +461,14 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
             f"Offsets dir is empty and target dir was not found: {target_dir}"
         )
 
-    source_stems = set()
+    source_map = {}
     for root, _, files in os.walk(source_dir):
         for f in files:
             if os.path.splitext(f)[1].lower() not in VALID_EXT:
                 continue
             rel_path = os.path.relpath(os.path.join(root, f), source_dir)
-            source_stems.add(os.path.splitext(rel_path)[0])
+            source_map[os.path.splitext(rel_path)[0]] = os.path.join(root, f)
+    source_stems = set(source_map)
 
     # Build target stem -> filepath map for files that have matching source stems.
     target_map = {}
@@ -388,6 +503,10 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
             f"Offsets already complete: {len(expected_stems)} / {len(expected_stems)} "
             f"in {resolved_offsets_dir}"
         )
+        print(
+            "         (cached from a previous run -- the point source is baked in. To rebuild "
+            "from .npy, delete that directory or point --offsets at a new one.)"
+        )
         return resolved_offsets_dir
 
     print("Offsets export is incomplete. Resuming export from target images...")
@@ -414,8 +533,18 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
 
     n_points = grid_size ** 2
     exported = 0
+    src_counts = {"npy": 0, "png": 0}
+    n_white_dropped = n_white_icons = 0
     for stem in tqdm(export_stems, desc="Exporting offsets", unit="img"):
-        pts = extract_points_from_target(target_map[stem], n_points)
+        pts, used = extract_points_from_target(target_map[stem], n_points,
+                                               points_source=points_source)
+        src_counts[used] += 1
+        if drop_white_points:
+            gray = np.asarray(Image.open(source_map[stem]).convert("L"),
+                              dtype=np.float64) / 255.0
+            pts, n_dropped = drop_white_area_points(pts, gray, threshold=white_threshold)
+            n_white_dropped += n_dropped
+            n_white_icons += int(n_dropped > 0)
         offsets = to_image_optimal_transport(pts)
 
         # Write through a temporary file then atomically replace target file.
@@ -439,6 +568,16 @@ def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size):
             f"Offset export incomplete after resume: missing {len(final_missing)} files."
         )
 
+    if drop_white_points:
+        print(f"  -> dropped {n_white_dropped} background point(s) (source pixel >= "
+              f"{white_threshold:g}/255) "
+              f"across {n_white_icons} icon(s); replaced by duplicating surviving points")
+    resolved_src = points_source if points_source is not None else POINTS_SOURCE
+    print(f"  -> point source '{resolved_src}': {src_counts['npy']} from .npy, "
+          f"{src_counts['png']} from .png")
+    if resolved_src == "npy" and src_counts["png"]:
+        print(f"     NOTE: {src_counts['png']} stems had no .npy and fell back to centroid "
+              f"detection on the PNG (re-run the oracle generator with --export_type both).")
     print(
         f"  -> exported/re-exported {exported} files; "
         f"offsets complete: {len(expected_stems)} / {len(expected_stems)} in {resolved_offsets_dir}"
@@ -851,18 +990,35 @@ def main():
 
     # Paths and I/O
     parser.add_argument("--base_config_path", default=BASE_CONFIG_PATH)
-    parser.add_argument("--base_ckpt_path", default=BASE_CKPT_PATH)
+    parser.add_argument("--base_ckpt_path", "--base-ckpt-path", default=BASE_CKPT_PATH,
+                        help="Pretrained base diffusion checkpoint. Pass '' to train the "
+                             "base FROM SCRATCH (random init, no pretrained GBN bias); "
+                             "requires --no-freeze-denoiser.")
     parser.add_argument("--source",
                         default=SOURCE_DIR,
                         help="Dir of full-resolution grayscale source images")
     parser.add_argument("--target",
                         default=TARGET_DIR,
                         help="Dir of stippled target images (used to auto-export offsets if needed)")
+    parser.add_argument("--drop-white-points", action=argparse.BooleanOptionalAction,
+                        default=DROP_WHITE_POINTS,
+                        help="Drop ground-truth points on background (rho < --white-threshold) and "
+                             "replace them by duplicating surviving points. Changes the OFFSETS, "
+                             "which are cached: use a fresh --offsets dir or delete the old one.")
+    parser.add_argument("--white-threshold", type=float, default=WHITE_THRESHOLD,
+                        help="Source pixel value 0-255; a point is dropped when the pixel under it "
+                             "is >= this (default %(default)s, i.e. near-white). Lowering it much "
+                             "below ~240 deletes genuine anti-aliased edge points, not strays.")
+    parser.add_argument("--points-source", dest="points_source",
+                        choices=("npy", "png"), default=POINTS_SOURCE,
+                        help="npy: use the exact <stem>.npy beside each target, falling back to "
+                             "PNG centroid detection when absent (default). png: always detect "
+                             "centroids in the PNG.")
     parser.add_argument("--offsets",
                         default=OFFSETS_DIR,
                         help="Dir of .npy offset files; if empty/missing, offsets are exported from --target")
     parser.add_argument("--oracles", default=ORACLES_DEFAULT,
-                        help="';'-separated NAME:root list; each root has source/,target/,processed_offsets/")
+                        help="';'-separated oracle NAMES (paths from oracles_config.py), or NAME:/root")
     parser.add_argument("--val-manifest", default="control_v4_mix/validation_manifest.json",
                         help="JSON list of val image basenames; if present, defines the EXACT val set")
     parser.add_argument("--cache-data-dir", default=CACHE_DATA_DIR,
@@ -1102,10 +1258,10 @@ def main():
     run(args=args)
 
 
-def prune_intermediate_saves(epoch_label, keep_every, checkpoints_dir, out_dir, ckpt_prefix):
+def prune_intermediate_saves(epoch_label, keep_every, checkpoints_dir, out_dir, ckpt_prefix, ckpt_suffix=".pt"):
     """Free disk once ``epoch_label`` is a multiple of ``keep_every``.
 
-    Deletes every periodic checkpoint ``{ckpt_prefix}{N}.pt`` (and its train/val panels
+    Deletes every periodic checkpoint ``{ckpt_prefix}{N}{ckpt_suffix}`` (and its train/val panels
     ``{train,val}_panel_ep{N}.png`` in ``out_dir``) for which N < epoch_label and
     N % keep_every != 0. Multiples of keep_every and the current/future epochs are kept, and
     the pattern deliberately does NOT match ``best_*`` checkpoints. No-op when keep_every <= 0
@@ -1114,7 +1270,7 @@ def prune_intermediate_saves(epoch_label, keep_every, checkpoints_dir, out_dir, 
     if keep_every <= 0 or epoch_label % keep_every != 0:
         return
     removed = 0
-    ckpt_re = re.compile(r"^" + re.escape(ckpt_prefix) + r"(\d+)\.pt$")
+    ckpt_re = re.compile(r"^" + re.escape(ckpt_prefix) + r"(\d+)" + re.escape(ckpt_suffix) + r"$")
     if os.path.isdir(checkpoints_dir):
         for fname in os.listdir(checkpoints_dir):
             m = ckpt_re.match(fname)
@@ -1166,12 +1322,15 @@ def run(args):
         raise ValueError("--infer-truncation-ratio must be in (0, 1]")
     if not (args.show_selected_inputs or args.show_selected_gt or args.show_selected_predict or args.show_selected_gt_offsets):
         raise ValueError("At least one of --show-selected-inputs, --show-selected-gt, --show-selected-predict, or --show-selected-gt-offsets must be enabled")
-    # Multi-oracle: parse --oracles, ensure each oracle offsets exist; first oracle source is the
-    # shared rho input (all oracles share source content).
+    # Multi-oracle: names -> paths via oracles_config; ensure each oracle offsets exist WITH the
+    # new export flags (npy priority + white-point drop); first oracle source is the shared rho.
     oracle_names, oracle_offsets, first_root = [], {}, None
     for name, root in resolve_oracles(args.oracles):
         odir = ensure_offsets_dir(os.path.join(root, "source"), os.path.join(root, "target"),
-                                  os.path.join(root, "processed_offsets"), args.grid_size)
+                                  os.path.join(root, "processed_offsets"), args.grid_size,
+                                  points_source=args.points_source,
+                                  drop_white_points=args.drop_white_points,
+                                  white_threshold=args.white_threshold)
         oracle_names.append(name)
         oracle_offsets[name] = odir
         if first_root is None:
@@ -1182,7 +1341,16 @@ def run(args):
     device = torch.device(args.device)
     os.makedirs(args.out, exist_ok=True)
 
-    # wandb
+    # Export the run parameters (the same dict wandb records as its config) to the
+    # output root, next to the train/val panels, so every run is self-documenting
+    # even without wandb.
+    run_params_path = os.path.join(args.out, "run_params.json")
+    with open(run_params_path, "w", encoding="utf-8") as _pf:
+        json.dump({"run_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), **vars(args)},
+                  _pf, indent=2, default=str)
+    print(f"  -> wrote run parameters: {run_params_path}")
+
+    # ── wandb ────────────────────────────────────────────────────────
     use_wandb = WANDB_ACTIVE
     if use_wandb:
         try:
@@ -1207,9 +1375,20 @@ def run(args):
             print("wandb not installed, logging disabled")
             use_wandb = False
 
-    # load pretrained diffusion + build Dynamic ControlNet V4
+    # ── load pretrained diffusion + build Dynamic ControlNet V4 ──────
     diffusion = ParseSampleConfig(args.base_config_path, device=device)
-    diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"], strict=False)
+    if args.base_ckpt_path:
+        diffusion.load_state_dict(torch.load(args.base_ckpt_path, map_location="cpu")["diffu"], strict=False)
+    else:
+        # Empty base_ckpt_path -> keep the random ParseSampleConfig init and train the base
+        # FROM SCRATCH (no pretrained GBN bias). Only meaningful with an unfrozen base.
+        if args.freeze_denoiser:
+            raise ValueError(
+                "--base_ckpt_path '' (train from scratch) requires --no-freeze-denoiser: "
+                "a frozen random base cannot be trained."
+            )
+        print("  -> base_ckpt_path is empty: training the denoiser FROM SCRATCH "
+              "(random init, no pretrained GBN weights).")
     diffusion.to(device)
     diffusion.eval()
 
@@ -1272,7 +1451,7 @@ def run(args):
     print(f"Smart Init jitter enabled            : {args.enable_smart_init_jitter}")
     print(f"Smart Init splat-sigma enabled       : {args.enable_smart_init_splat_sigma}")
 
-    # dataset
+    # ── dataset ──────────────────────────────────────────────────────
     cache_data_dir = args.cache_data_dir
     if not (args.smart_init_features or args.sdf_features):
         cache_data_dir = None
@@ -1288,9 +1467,7 @@ def run(args):
         )
     print(f"Multi-style dataset: {len(dataset)} samples over {len(dataset.filenames)} icons; "
           f"K={dataset.K} oracles={oracle_names}; per-oracle counts = {dataset.oracle_counts()}")
-    # Held-out val set. Prefer an explicit manifest of val basenames (EXACTLY reproduces the
-    # reference control_v4 split regardless of source-folder structure); else fall back to the
-    # source-folder split.
+    # Held-out val set: prefer the manifest (exact reference split), else the source-folder split.
     if args.val_manifest and os.path.isfile(args.val_manifest):
         train_filenames, val_filenames = split_from_manifest(args.source, args.val_manifest)
         print(f"Val set from manifest {args.val_manifest}: {len(val_filenames)} val icons "
@@ -1339,14 +1516,14 @@ def run(args):
         if density_loss_enabled else None
     )
 
-    # optimizer
+    # ── optimizer ────────────────────────────────────────────────────
     if args.freeze_denoiser:
         optimizer = torch.optim.AdamW(control_net.parameters(), lr=args.lr)
     else:
         all_params = list(control_net.parameters()) + list(denoiser.parameters())
         optimizer = torch.optim.AdamW(all_params, lr=args.lr)
 
-    # optional resume from latest checkpoint
+    # ── optional resume from latest checkpoint ───────────────────────
     start_epoch = 0
     global_step = 0
     best_geom_score = float("inf")
@@ -1358,7 +1535,7 @@ def run(args):
     train_epoch_history = []
     val_epoch_history = []
     if args.resume_latest:
-        ckpt_re = re.compile(r"^dynamic_controlnet_v4_ep(\d+)\.pt$")
+        ckpt_re = re.compile(r"^" + re.escape(WEIGHTS_PREFIX) + r"(\d+)" + re.escape(WEIGHTS_SUFFIX) + r"$")
         latest_path = None
         latest_epoch_num = -1
         for fname in os.listdir(checkpoints_dir):
@@ -1389,14 +1566,14 @@ def run(args):
                 f"start_epoch={start_epoch} | global_step={global_step}"
             )
 
-    # training loop
+    # ── training loop ────────────────────────────────────────────────
     # On (re)start: if a previous prune was interrupted mid-deletion (e.g. the process was
     # killed while deleting epochs 10..90 after saving epoch 100), finish it now. Re-run the
     # pruner at the highest keep-boundary already on disk so leftover intermediates are removed
     # rather than lingering until the next boundary. Idempotent -- a clean run is a no-op.
     if args.keep_every > 0 and os.path.isdir(checkpoints_dir):
-        _keep_prefix = "dynamic_controlnet_v4_ep"
-        _keep_re = re.compile(r"^" + re.escape(_keep_prefix) + r"(\d+)\.pt$")
+        _keep_prefix = WEIGHTS_PREFIX
+        _keep_re = re.compile(r"^" + re.escape(_keep_prefix) + r"(\d+)" + re.escape(WEIGHTS_SUFFIX) + r"$")
         _keep_eps = []
         for _keep_fname in os.listdir(checkpoints_dir):
             _keep_m = _keep_re.match(_keep_fname)
@@ -1407,7 +1584,7 @@ def run(args):
             if _keep_boundary >= args.keep_every:
                 print(f"  -> KEEP_EVERY: startup catch-up prune at boundary {_keep_boundary}")
                 prune_intermediate_saves(
-                    _keep_boundary, args.keep_every, checkpoints_dir, args.out, _keep_prefix,
+                    _keep_boundary, args.keep_every, checkpoints_dir, args.out, _keep_prefix, WEIGHTS_SUFFIX,
                 )
 
     for epoch in range(start_epoch, args.epochs):
@@ -1773,11 +1950,11 @@ def run(args):
 
                 if cv_ok and clump_ok and geom_score < best_geom_score:
                     best_geom_score = geom_score
-                    best_name = (
-                        f"best_controlnet_ep{epoch+1:04d}"
-                        f"_score{best_geom_score:.3f}"
-                        f"_cv{geom['cv']:.3f}"
-                        f"_clumped{geom['clumped_pct']:.2f}.pt"
+                    best_name = BEST_WEIGHTS_FILENAME.format(
+                        epoch=f"{epoch+1:04d}",
+                        score=f"{best_geom_score:.3f}",
+                        cv=f"{geom['cv']:.3f}",
+                        clumped=f"{geom['clumped_pct']:.2f}",
                     )
                     new_best_path = os.path.join(checkpoints_dir, best_name)
                     best_payload = {
@@ -1845,7 +2022,7 @@ def run(args):
             print(f"Epoch {epoch:>4d}  |  train loss = {avg_loss:.6f}  |  val loss = {val_avg_loss:.6f}")
 
         if should_save_epoch:
-            save_path = os.path.join(checkpoints_dir, f"dynamic_controlnet_v4_ep{epoch+1}.pt")
+            save_path = os.path.join(checkpoints_dir, WEIGTHS_FILENAME_FORMAT.format(epoch=epoch+1))
             torch.save({
                 "control_net": control_net.state_dict(),
                 # When the base is unfrozen its trained weights live only in `denoiser`
@@ -1863,7 +2040,7 @@ def run(args):
             }, save_path)
             print(f"  -> saved {save_path}")
             prune_intermediate_saves(
-                epoch + 1, args.keep_every, checkpoints_dir, args.out, "dynamic_controlnet_v4_ep",
+                epoch + 1, args.keep_every, checkpoints_dir, args.out, WEIGHTS_PREFIX, WEIGHTS_SUFFIX,
             )
 
     if use_wandb:

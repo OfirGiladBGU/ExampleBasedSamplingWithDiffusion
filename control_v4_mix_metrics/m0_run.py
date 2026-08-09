@@ -49,7 +49,7 @@ import oracles as O
 import point_io as PIO
 
 DEFAULT_TRAIN_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training"
-DISK_DIRS = {"gbn": "icons-50_512_GBN", "wvs": "icons-50_512_WVS", "bnot": "icons-50_512_BNOT"}
+DISK_DIRS = {"gbn": "Icons-50_1024_GBN", "wvs": "Icons-50_1024_WVS", "bnot": "Icons-50_1024_BNOT"}
 DEFAULT_N = 1024
 
 REDUNDANCY_THRESHOLD = 0.90
@@ -432,9 +432,9 @@ def main():
     ap.add_argument("--gen-root", required=True, help="output root of gen_oracles.py")
     ap.add_argument("--out", default="control_v4_mix_metrics/m0_outputs")
     ap.add_argument("--train-root", default=DEFAULT_TRAIN_ROOT,
-                    help="parent of icons-50_512_{GBN,WVS,BNOT}")
+                    help="parent of Icons-50_1024_{GBN,WVS,BNOT}")
     ap.add_argument("--source", default=None,
-                    help="shared source dir (default: <train-root>/icons-50_512_GBN/source)")
+                    help="shared source dir (default: <train-root>/Icons-50_1024_GBN/source)")
     ap.add_argument("--oracles", default="gbn,wvs,bnot,fs,ordered,white,jitgrid")
     ap.add_argument("--n-points", type=int, default=DEFAULT_N)
     ap.add_argument("--min-points", type=int, default=256,

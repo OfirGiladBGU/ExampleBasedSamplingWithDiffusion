@@ -57,6 +57,12 @@ DEFAULT_METHODS = "gbn,wvs,bnot,fs,ordered,white,jitgrid"
 DEFAULT_N = 1024
 STATS_NAME = "DESCRIPTOR_STATS.json"
 
+# Must match prepare_offsets.py. Descriptors measure the set AFTER duplicates are removed
+# (descriptor_fields.drop_exact_duplicates), so they see exactly the kept points while the
+# offsets carry the padding -- the two agree without sharing an RNG.
+DROP_WHITE_POINTS = True
+WHITE_THRESHOLD = 255
+
 KEYS = list(DF.CONDITIONING_KEYS)          # ("nn_cv","cap_cv","edge_align","aniso","pcf_peak")
 
 
@@ -76,7 +82,8 @@ def load_points_for(target_dir, stem, n_points, min_points):
 
 
 def _one(payload):
-    (stem, src_path, out_root, methods, G, window, n_points, min_points, force) = payload
+    (stem, src_path, out_root, methods, G, window, n_points, min_points, force,
+     drop_white, white_thr) = payload
     try:
         gray = None
         grad = None
@@ -89,10 +96,12 @@ def _one(payload):
                                        n_points, min_points)
             used[m] = src
             if pts is None:
-                continue                      # e.g. the 36 BNOT icons that never generated
+                continue                      # e.g. an icon its generator never produced
             if gray is None:                  # shared across oracles for this icon
                 gray = PIO.load_gray01(src_path)
                 grad = DF.gradient_magnitude(gray)
+            if drop_white:
+                pts, _ = PIO.drop_white_area_points(pts, gray, threshold=white_thr)
             fields, _diag = DF.descriptor_fields(pts, gray, G=G, window=window, grad=grad)
             stack = np.stack([fields[k] for k in KEYS] + [fields["valid"].astype(np.float64)])
             os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -107,7 +116,8 @@ def _one(payload):
 
 def stage_compute(args, stems, src_map, out_root):
     tasks = [(s, src_map[s], out_root, args.methods, args.grid, args.window,
-              args.n_points, args.min_points, args.force) for s in stems]
+              args.n_points, args.min_points, args.force,
+              args.drop_white_points, args.white_threshold) for s in stems]
     t0, done, errors = time.time(), 0, []
     srcs = defaultdict(lambda: defaultdict(int))
     if args.workers > 1:
@@ -238,6 +248,12 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--drop-white-points", action=argparse.BooleanOptionalAction,
+                    default=DROP_WHITE_POINTS,
+                    help="drop points on background before measuring "
+                         "(must match prepare_offsets.py)")
+    ap.add_argument("--white-threshold", type=float, default=WHITE_THRESHOLD,
+                    help="source pixel value 0-255; >= this counts as background")
     args = ap.parse_args()
 
     out_root = args.out_root or os.path.join(args.train_root, args.dataset)
@@ -258,6 +274,8 @@ def main():
     print(f"dataset : {out_root}")
     print(f"icons   : {len(stems)}   oracles: {args.methods}")
     print(f"fields  : {len(KEYS)} descriptors {KEYS} + valid, at G={args.grid} window={args.window}")
+    print(f"drop-white: {'ON (>= %g/255)' % args.white_threshold if args.drop_white_points else 'OFF'}"
+          "   -- prepare_offsets.py MUST use the same setting")
 
     rc = 0
     if args.stage in ("all", "compute"):

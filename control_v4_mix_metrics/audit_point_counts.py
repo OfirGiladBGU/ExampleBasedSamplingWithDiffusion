@@ -20,7 +20,7 @@ A row where black_px == N but components < N is pixel adjacency (harmless, expec
 oracles). A row where black_px < N is a genuinely short point set.
 
     python control_v4_mix_metrics/audit_point_counts.py \
-        --dir /groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_WVS/target
+        --dir /groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_WVS/target
 """
 
 import argparse

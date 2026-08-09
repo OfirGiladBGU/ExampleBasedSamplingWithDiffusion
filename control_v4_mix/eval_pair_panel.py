@@ -27,7 +27,7 @@ from control_v4_mix.oracles_config import resolve_oracles
 from control_v4_mix.train_control_multistyle import dynamic_collate, ensure_offsets_dir, sample_eval_batch
 
 DEFAULT_CKPT = ("control_v4_mix/train_outputs_multistyle_wvs_gbn_dither/checkpoints/"
-                "dynamic_controlnet_v4_ep700.pt")
+                "dynamic_controlnet_v4_ep1000.pt")
 DEFAULT_ICONS = ("microsoft_4_airplane.png,emoji-one_4_monkey.png,"
                  "samsung_2_volleyball.png,emoji-one_0_factory.png")
 PAIRS = [("WVS", "DITHER"), ("GBN", "DITHER")]
@@ -45,7 +45,9 @@ def main():
     ap.add_argument("--resample-jumps", type=int, default=0)
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--size", type=int, default=256)
-    ap.add_argument("--radius", type=int, default=1)
+    ap.add_argument("--radius", type=int, default=1)  # (unused; kept for compatibility)
+    ap.add_argument("--dot-size", type=float, default=2.0,
+                    help="vector scatter marker size in points^2 (crisp at any zoom)")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out", default="control_v4_mix/eval_pair_panel_out")
     args = ap.parse_args()
@@ -121,8 +123,13 @@ def main():
     for i, it in enumerate(items):
         for jc, (_, col_label, v) in enumerate(col_specs):
             axc = axes[i][jc]
-            axc.imshow(render_dots(preds[v][i], args.size, args.radius),
-                       cmap="gray", vmin=0, vmax=255, interpolation="nearest")
+            _pts = preds[v][i]
+            # Vector scatter (not a rasterized bitmap) so the PDF stays crisp on zoom.
+            # y is flipped to keep image orientation (top-left origin).
+            axc.scatter(_pts[:, 0], 1.0 - _pts[:, 1], s=args.dot_size, c="black",
+                        marker="o", linewidths=0, edgecolors="none")
+            axc.set_xlim(0, 1); axc.set_ylim(0, 1); axc.set_aspect("equal")
+            axc.set_facecolor("white")
             if i == 0:
                 axc.set_title(col_label, fontsize=8)
             if jc == 0:

@@ -24,7 +24,7 @@ the same convention `train_control.extract_points_from_target` returns, so it is
 replacement for centroid detection.
 
 Rendering is ONE PIXEL PER POINT, not an antialiased disc. Measured on
-`icons-50_512_{GBN,WVS,BNOT}`, mean connected-component area is exactly 1.00 px, so that is the
+`Icons-50_1024_{GBN,WVS,BNOT}`, mean connected-component area is exactly 1.00 px, so that is the
 dataset convention; and a 5 px disc was measured to lose 157 points/icon for white noise and 48 for
 the jittered grid, because their minimum spacing (a ~4 px halftone raster, or arbitrarily tight
 clumps) sits at or below the dot diameter and adjacent dots merge into one blob. Residual pixel
@@ -56,10 +56,22 @@ import point_io as PIO
 
 DEFAULT_TRAIN_ROOT = "/groups/asharf_group/ofirgila/ControlNet/training"
 DEFAULT_OUT_NAME = "Icons-50_1024_Oracles"
-DEFAULT_SOURCE_DS = "icons-50_512_GBN"          # shared source images (rho) live here
+DEFAULT_SOURCE_DS = "Icons-50_1024_GBN"          # shared source images (rho) live here
 GEN_METHODS = ("fs", "ordered", "white", "jitgrid")
 # Datasets whose targets can be hardlinked in once their own generators finish.
-LINK_DATASETS = {"gbn": "icons-50_512_GBN", "wvs": "icons-50_512_WVS", "bnot": "icons-50_512_BNOT"}
+#
+# These are the 1024-point runs that export BOTH .png and exact .npy. The older
+# icons-50_512_* datasets are PNG-only, so linking those silently gives the dataset
+# pixel-quantised targets and no exact coordinates -- which is what produced
+# target_gbn/wvs/bnot with 10000 png and 0 npy.
+#
+# Source-image caveat: Icons-50_1024_WVS and Icons-50_1024_BNOT were solved against a
+# source variant that differs from Icons-50_1024_GBN (== the Oracles source) by at most
+# 7/255, mean 0.28/255, over ~25% of pixels -- a resampling difference, not different
+# artwork. Their points therefore follow a rho ~0.1% away from the one the model is
+# conditioned on. Far below the oracle separation M0 measured (|d| > 4), but it is a
+# cross-oracle asymmetry, so it belongs in any writeup of the descriptor comparison.
+LINK_DATASETS = {"gbn": "Icons-50_1024_GBN", "wvs": "Icons-50_1024_WVS", "bnot": "Icons-50_1024_BNOT"}
 DEFAULT_N = 1024                                 # = control_v4 GRID_SIZE ** 2
 
 
@@ -146,11 +158,33 @@ def _place(src, dst, use_copy, force=False):
     return "copy"
 
 
-def stage_link(args, stems, train_root, out_root):
-    """Hardlink source/ and the stippler targets into the dataset.
+def _index_by_stem(src_dir, exts):
+    """stem -> {ext: path}, from ONE os.walk.
 
-    Deliberately links whatever EXISTS, per extension. A dataset that currently has only `.png`
-    (its generator has not been re-run with --export_npy yet) links its PNGs and reports the
+    The obvious loop -- probe os.path.exists(stem + ext) for every stem and every extension --
+    costs len(stems) * len(exts) stat calls: ~60k for the source directory alone, on a network
+    filesystem, before a single file is placed. A walk lists the same information in one pass.
+    """
+    out = defaultdict(dict)
+    exts = {e.lower() for e in exts}
+    for root, _, files in os.walk(src_dir):
+        for f in files:
+            ext = os.path.splitext(f)[1].lower()
+            if ext not in exts:
+                continue
+            rel = os.path.relpath(os.path.join(root, f), src_dir)
+            out[os.path.splitext(rel)[0].replace("\\", "/")][ext] = os.path.join(root, f)
+    return out
+
+
+def stage_link(args, stems, train_root, out_root):
+    """Place source/ and the stippler targets into the dataset.
+
+    Hardlinks by default (instant, no extra space, and the data is read-only); --copy writes real
+    independent files instead.
+
+    Deliberately places whatever EXISTS, per extension. A dataset that currently has only `.png`
+    (its generator has not been re-run with --export_npy yet) places its PNGs and reports the
     missing NPYs; it is not an error. Re-run later with --force to pick the NPYs up.
     """
     jobs = []
@@ -159,21 +193,33 @@ def stage_link(args, stems, train_root, out_root):
     for m, ds in args.link_existing:
         jobs.append((f"target_{m}", os.path.join(train_root, ds, "target"), ds))
 
+    mode = "copying" if args.copy else "hardlinking"
     for name, src_dir, ds in jobs:
         if not os.path.isdir(src_dir):
             print(f"  SKIP {name}: not found ({src_dir})")
             continue
         is_target = name.startswith("target_")
         exts = (".png", ".npy") if is_target else tuple(PIO.VALID_EXT)
+
+        print(f"  {name:16s} {mode} <- {src_dir}", flush=True)
+        print(f"  {'':16s} indexing source tree ...", flush=True)
+        index = _index_by_stem(src_dir, exts)
+        print(f"  {'':16s} {len(index)} stems found; placing {len(stems)} ...", flush=True)
+
         counts = defaultdict(int)
         found = defaultdict(int)
-        for stem in stems:
-            for ext in exts:
-                sp = os.path.join(src_dir, stem + ext)
-                if os.path.exists(sp):
-                    found[ext] += 1
-                    counts[_place(sp, os.path.join(out_root, name, stem + ext),
-                                  args.copy, force=args.force)] += 1
+        t0 = time.time()
+        for i, stem in enumerate(stems, 1):
+            for ext, sp in index.get(stem, {}).items():
+                found[ext] += 1
+                counts[_place(sp, os.path.join(out_root, name, stem + ext),
+                              args.copy, force=args.force)] += 1
+            if i % 1000 == 0 or i == len(stems):
+                el = time.time() - t0
+                rate = i / max(el, 1e-9)
+                eta = (len(stems) - i) / max(rate, 1e-9)
+                print(f"  {'':16s} {i}/{len(stems)}  {el:.0f}s  ({rate:.0f} stem/s"
+                      f", eta {eta:.0f}s)  {dict(counts)}", flush=True)
         src_note = f"  <- {ds}" if ds else ""
         print(f"  {name:16s} {dict(counts)}{src_note}")
         if is_target:
@@ -302,7 +348,7 @@ READING THIS TABLE
   never do (GBN measured 1023/1024, WVS 1024/1024). Nothing to fix -- it is why the .npy exists.
   Read target_<m>/<stem>.npy wherever the count matters; the PNG is for visibility and for tools
   that expect an image.
-  'dot px' is the mean blob area, and should sit at ~1.00 to match icons-50_512_{GBN,WVS,BNOT}.""")
+  'dot px' is the mean blob area, and should sit at ~1.00 to match Icons-50_1024_{GBN,WVS,BNOT}.""")
     with open(os.path.join(out_root, "N_REPORT.json"), "w") as fh:
         json.dump(report, fh, indent=2)
     print(f"\nwrote {os.path.join(out_root, 'N_REPORT.json')}")

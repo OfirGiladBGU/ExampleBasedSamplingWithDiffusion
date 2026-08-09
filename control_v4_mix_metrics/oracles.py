@@ -3,7 +3,7 @@
 Why these exist
 ---------------
 The descriptor plan needs oracles that STRETCH descriptor space, not oracles that are good.
-`icons-50_512_{GBN,WVS,BNOT}` already exist on disk and all three are spacing-optimised samplers
+`Icons-50_1024_{GBN,WVS,BNOT}` already exist on disk and all three are spacing-optimised samplers
 that live near the "regular" end of the axis. Nothing on disk occupies the low-regularity or
 hard-structure corners, so with only those three the axis is short and every intermediate is
 subtle. This module adds the cheap extremes:
@@ -378,7 +378,7 @@ DISK_ORACLES = ("gbn", "wvs", "bnot")
 def render_points_pixels(points, size=512, resolve_collisions=True):
     """Render points as SINGLE BLACK PIXELS on white -- the convention the existing targets use.
 
-    Measured on `icons-50_512_{GBN,WVS,BNOT}`: mean connected-component area is exactly 1.00 px, so
+    Measured on `Icons-50_1024_{GBN,WVS,BNOT}`: mean connected-component area is exactly 1.00 px, so
     every dot in those datasets is one pixel. Matching that matters for two independent reasons.
 
     Consistency: a new oracle rendered as a 5 px antialiased disc is not rasterised comparably to a

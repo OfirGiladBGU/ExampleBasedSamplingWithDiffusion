@@ -96,7 +96,12 @@ POINTS_SOURCE = "npy"
 # Only the first row is strays. Sources are LANCZOS-resized to 512, so edges carry a real
 # anti-aliased gradient where a density-following sampler legitimately belongs -- at 192 you would be
 # deleting the contour structure that GBN's banding signature is made of, not cleaning up noise.
-# Stay at or near 250; below ~240 this stops being a background filter.
+# ADOPTED: 255 -- drop ONLY pure white. That is the most conservative filter available: a
+# pixel at 255 carries no ink at all, so a point there cannot be following density under any
+# reading, and nothing anti-aliased is ever touched. It removes strictly fewer points than the
+# 250 row above (that row is the upper bound on what 255 removes), which is the point -- the
+# goal is to delete strays without taking on any risk of eroding contour structure.
+# Below ~240 this stops being a background filter at all.
 # DROP_WHITE_POINTS = False
 DROP_WHITE_POINTS = True
 WHITE_THRESHOLD = 255           # source pixel value >= this counts as background (0-255)

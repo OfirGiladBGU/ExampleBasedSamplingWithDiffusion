@@ -8,10 +8,11 @@ Each root must contain source/, target/ (stipple ~1024 dots), and processed_offs
 """
 
 ORACLES = [
-    ("WVS", "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_WVS"),
-    ("GBN", "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN"),
+    ("WVS", "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_WVS"),
+    ("BNOT", "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_BNOT"),
+    ("GBN", "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN"),
     ("DITHER", "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_DITHER"),
-    # ("BNOT", "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_BNOT"),
+    ("FS", "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_FS"),
 ]
 ORACLES_MAP = dict(ORACLES)
 # Default is NAMES only, so the CLI stays path-free.

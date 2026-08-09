@@ -62,6 +62,12 @@ from utils.stippling_metrics import geometric_validation_score
 
 # Paths and I/O
 WANDB_ENV = ".env"
+BEST_WEIGHTS_FILENAME = "best_dynamic_ep{epoch}_score{score}_cv{cv}_clumped{clumped}.ckpt"
+WEIGTHS_FILENAME_FORMAT = "dynamic_ep{epoch}.ckpt"
+# Prefix/suffix derived from the periodic-checkpoint format, used to PARSE the epoch
+# number back out when resuming / pruning. Keep WEIGTHS_FILENAME_FORMAT of the form
+# "<prefix>{epoch}<suffix>".
+WEIGHTS_PREFIX, WEIGHTS_SUFFIX = WEIGTHS_FILENAME_FORMAT.split("{epoch}")
 
 # If empty, offsets are auto-exported (if needed) to a default processed_offsets folder.
 OFFSETS_DIR = ""
@@ -130,13 +136,13 @@ LOGIT_NORMAL_S = 1.0
 #   point set to a low-res Gaussian density map, and penalises the difference. This
 #   directly matches the teacher's density field (capacity), which raw eps-MSE only
 #   matches indirectly. Weight 0.0 -> OFF (bit-exact original behaviour).
-DENSITY_LOSS_WEIGHT = 0.0
-DENSITY_KDE_GRID = 16          # KDE map resolution (coarser than GRID_SIZE = low-pass)
+DENSITY_LOSS_WEIGHT = 0.8
+DENSITY_KDE_GRID = 32          # KDE map resolution (coarser than GRID_SIZE = low-pass)
 DENSITY_KDE_SIGMA_PX = 1.0     # Gaussian sigma, in KDE-grid pixels
 DENSITY_LOSS_T_FRAC = 0.4      # only apply where t < frac * eval_timesteps
 DENSITY_LOSS_T_SOFT = 0.0      # width of a soft ramp at that cutoff (0 = hard mask)
-DENSITY_LOSS_WARMUP_EPOCHS = 0 # linearly ramp the weight in over N epochs (0 = no ramp)
-DENSITY_LOSS_GRAD_LOG_EVERY = 0  # log ||grad L_main|| vs ||grad L_density|| every N steps
+DENSITY_LOSS_WARMUP_EPOCHS = 5 # linearly ramp the weight in over N epochs (0 = no ramp)
+DENSITY_LOSS_GRAD_LOG_EVERY = 20  # log ||grad L_main|| vs ||grad L_density|| every N steps
 
 # Loss component weights
 MIN_SNR_GAMMA = 5.0
@@ -169,8 +175,8 @@ SHOW_SELECTED_GT_OFFSETS = True
 ############################
 
 # ICONS 1024 GBN
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/target"
+SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
+TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 
 OUTPUT_DIR = "control_v4/train_outputs_icons50_512_GBN_UNIFIED"
 FREEZE_DENOISER = False  # NOTE
@@ -184,8 +190,8 @@ BASE_CKPT_PATH = ""
 
 
 # ICONS 1024 WVS
-# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_WVS/source"
-# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_WVS/target"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_WVS/source"
+# TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_WVS/target"
 
 # OUTPUT_DIR = "control_v4/train_outputs_icons50_512_WVS_UNIFIED"
 # FREEZE_DENOISER = False  # NOTE
@@ -1157,10 +1163,10 @@ def main():
     run(args=args)
 
 
-def prune_intermediate_saves(epoch_label, keep_every, checkpoints_dir, out_dir, ckpt_prefix):
+def prune_intermediate_saves(epoch_label, keep_every, checkpoints_dir, out_dir, ckpt_prefix, ckpt_suffix=".pt"):
     """Free disk once ``epoch_label`` is a multiple of ``keep_every``.
 
-    Deletes every periodic checkpoint ``{ckpt_prefix}{N}.pt`` (and its train/val panels
+    Deletes every periodic checkpoint ``{ckpt_prefix}{N}{ckpt_suffix}`` (and its train/val panels
     ``{train,val}_panel_ep{N}.png`` in ``out_dir``) for which N < epoch_label and
     N % keep_every != 0. Multiples of keep_every and the current/future epochs are kept, and
     the pattern deliberately does NOT match ``best_*`` checkpoints. No-op when keep_every <= 0
@@ -1169,7 +1175,7 @@ def prune_intermediate_saves(epoch_label, keep_every, checkpoints_dir, out_dir, 
     if keep_every <= 0 or epoch_label % keep_every != 0:
         return
     removed = 0
-    ckpt_re = re.compile(r"^" + re.escape(ckpt_prefix) + r"(\d+)\.pt$")
+    ckpt_re = re.compile(r"^" + re.escape(ckpt_prefix) + r"(\d+)" + re.escape(ckpt_suffix) + r"$")
     if os.path.isdir(checkpoints_dir):
         for fname in os.listdir(checkpoints_dir):
             m = ckpt_re.match(fname)
@@ -1453,7 +1459,7 @@ def run(args):
     train_epoch_history = []
     val_epoch_history = []
     if args.resume_latest:
-        ckpt_re = re.compile(r"^dynamic_controlnet_v4_ep(\d+)\.pt$")
+        ckpt_re = re.compile(r"^" + re.escape(WEIGHTS_PREFIX) + r"(\d+)" + re.escape(WEIGHTS_SUFFIX) + r"$")
         latest_path = None
         latest_epoch_num = -1
         for fname in os.listdir(checkpoints_dir):
@@ -1490,8 +1496,8 @@ def run(args):
     # pruner at the highest keep-boundary already on disk so leftover intermediates are removed
     # rather than lingering until the next boundary. Idempotent -- a clean run is a no-op.
     if args.keep_every > 0 and os.path.isdir(checkpoints_dir):
-        _keep_prefix = "dynamic_controlnet_v4_ep"
-        _keep_re = re.compile(r"^" + re.escape(_keep_prefix) + r"(\d+)\.pt$")
+        _keep_prefix = WEIGHTS_PREFIX
+        _keep_re = re.compile(r"^" + re.escape(_keep_prefix) + r"(\d+)" + re.escape(WEIGHTS_SUFFIX) + r"$")
         _keep_eps = []
         for _keep_fname in os.listdir(checkpoints_dir):
             _keep_m = _keep_re.match(_keep_fname)
@@ -1502,7 +1508,7 @@ def run(args):
             if _keep_boundary >= args.keep_every:
                 print(f"  -> KEEP_EVERY: startup catch-up prune at boundary {_keep_boundary}")
                 prune_intermediate_saves(
-                    _keep_boundary, args.keep_every, checkpoints_dir, args.out, _keep_prefix,
+                    _keep_boundary, args.keep_every, checkpoints_dir, args.out, _keep_prefix, WEIGHTS_SUFFIX,
                 )
 
     for epoch in range(start_epoch, args.epochs):
@@ -1877,11 +1883,11 @@ def run(args):
 
                 if cv_ok and clump_ok and geom_score < best_geom_score:
                     best_geom_score = geom_score
-                    best_name = (
-                        f"best_controlnet_ep{epoch+1:04d}"
-                        f"_score{best_geom_score:.3f}"
-                        f"_cv{geom['cv']:.3f}"
-                        f"_clumped{geom['clumped_pct']:.2f}.pt"
+                    best_name = BEST_WEIGHTS_FILENAME.format(
+                        epoch=f"{epoch+1:04d}",
+                        score=f"{best_geom_score:.3f}",
+                        cv=f"{geom['cv']:.3f}",
+                        clumped=f"{geom['clumped_pct']:.2f}",
                     )
                     new_best_path = os.path.join(checkpoints_dir, best_name)
                     best_payload = {
@@ -1967,7 +1973,7 @@ def run(args):
                 print(f"            |  film_activity failed: {type(exc).__name__}: {exc}")
 
         if should_save_epoch:
-            save_path = os.path.join(checkpoints_dir, f"dynamic_controlnet_v4_ep{epoch+1}.pt")
+            save_path = os.path.join(checkpoints_dir, WEIGTHS_FILENAME_FORMAT.format(epoch=epoch+1))
             torch.save({
                 "control_net": control_net.state_dict(),
                 # When the base is unfrozen its trained weights live only in `denoiser`
@@ -1985,7 +1991,7 @@ def run(args):
             }, save_path)
             print(f"  -> saved {save_path}")
             prune_intermediate_saves(
-                epoch + 1, args.keep_every, checkpoints_dir, args.out, "dynamic_controlnet_v4_ep",
+                epoch + 1, args.keep_every, checkpoints_dir, args.out, WEIGHTS_PREFIX, WEIGHTS_SUFFIX,
             )
 
     if use_wandb:

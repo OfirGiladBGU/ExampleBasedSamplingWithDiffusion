@@ -4,6 +4,14 @@ Status: **PASSED.** 396 class-stratified icons, **21/21 oracle pairs separated**
 confirmed by inspection. Conditioning stack settled at **5 descriptors**
 (`descriptor_fields.CONDITIONING_KEYS`).
 
+> **Note (2026-08-09).** These results were produced on the `icons-50_512_*` targets, from PNG
+> centroids, and BEFORE background points were filtered out of the ground truth
+> (`--drop-white-points`, now default in `prepare_offsets.py` and
+> `precompute_descriptors.py`). The separation it establishes is therefore about a slightly
+> different point set than the one M2 trains on. The margins are large (|d| > 4 on all 21
+> pairs) and the filter removes ~0.4% of points, so the conclusion is not in question — but
+> re-run M0 before quoting these exact numbers alongside M2 results.
+
 Plan: `descriptor_control_plan.md`. Baseline: `control_v4` (the adopted **C2clean** recipe —
 unfrozen denoiser, C2 density-match KDE loss, full-schedule training, sigmoid
 `AdaptiveGateInjection`; see `control_v4/ddpm_imitation_improvements.md`, "Currently adopted in V4").
@@ -26,7 +34,7 @@ unfrozen denoiser, C2 density-match KDE loss, full-schedule training, sigmoid
 python control_v4_mix_metrics/descriptor_selftest.py          # must PASS before anything else
 
 python control_v4_mix_metrics/gen_oracles.py \
-    --source <train>/icons-50_512_GBN/source \
+    --source <train>/Icons-50_1024_GBN/source \
     --out <gen_root> --workers 16                             # add --stems-file for a subset
 
 python control_v4_mix_metrics/m0_run.py \

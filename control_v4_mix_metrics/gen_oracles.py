@@ -1,6 +1,6 @@
 """Generate the cheap "extreme" oracles over the icon set at matched N (plan milestone M0/M1.1).
 
-`icons-50_512_{GBN,WVS,BNOT}` already exist as rendered target PNGs. This adds Floyd-Steinberg,
+`Icons-50_1024_{GBN,WVS,BNOT}` already exist as rendered target PNGs. This adds Floyd-Steinberg,
 ordered/Bayer dither, white noise and a jittered grid, computed from the SHARED source images so
 every oracle sees identical rho and identical N -- "same rho, same budget, same everything except
 the oracle".
@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import oracles as O
 import point_io as PIO
 
-DEFAULT_SOURCE = "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512_GBN/source"
+DEFAULT_SOURCE = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
 DEFAULT_N = 1024  # = control_v4 GRID_SIZE ** 2
 
 
