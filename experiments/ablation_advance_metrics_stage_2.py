@@ -95,25 +95,34 @@ RESULTS_DIR = "vanilla"
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e400_b50_1024"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e500_b50_1024"
 
 MIN_SNR_GAMMA = 5.0
 SPLIT_SEED = 42
 VAL_SPLIT = 0.1
 # NUM_SAMPLES = -1
 NUM_SAMPLES = 50
-# NUM_EPOCHS = -1
-NUM_EPOCHS = 400
+# EVERY_EPOCH = -1  # Keep all checkpoints by default
+EVERY_EPOCH = 500
+
+# Component-2 (density-match KDE) loss constants -- mirror control_v4/train_control.py.
+DENSITY_LOSS_WEIGHT = 0.8
+DENSITY_KDE_GRID = 32
+DENSITY_KDE_SIGMA_PX = 1.0
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
+# M6_minsnr_loss        = Component-1 proxy only (MinSNR-weighted density MSE).
+# M6_v2_minsnr_kde_loss = full training-loss proxy: Component 1 + w * Component-2 KDE loss.
 METRIC_ORDER = [
     "M1_cvt_energy",
     "M2_voronoi_mass_cv",
+    "M2_v2_power_cell_cap_cv",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
     "M6_minsnr_loss",
+    "M6_v2_minsnr_kde_loss",
 ]
 
 
@@ -127,14 +136,20 @@ def parse_args():
                         help="Number of validation samples to score in order; -1 means use all")
     parser.add_argument("--seed", type=int, default=SPLIT_SEED, help="Deterministic seed for split")
     parser.add_argument("--epochs", default="all", help="'all' or comma-separated substrings matching epoch dir names")
-    parser.add_argument("--num-epochs", type=int, default=NUM_EPOCHS,
-                        help="Number of epoch directories to process in sorted order; -1 means use all")
+    parser.add_argument("--every-epoch", type=int, default=EVERY_EPOCH,
+                        help="Keep only checkpoints whose epoch (from '*ep{N}') is a multiple of this; 0 = all")
     parser.add_argument("--dry-run", action="store_true", help="Only show what would be processed")
     parser.add_argument("--config", default=CONFIG_PATH)
     parser.add_argument("--base-ckpt", default=CKPT_PATH)
     parser.add_argument("--timesteps", type=int, default=EVAL_TIMESTEPS)
     parser.add_argument("--grid-size", type=int, default=GRID_SIZE)
     parser.add_argument("--min-snr-gamma", type=float, default=MIN_SNR_GAMMA)
+    parser.add_argument("--density-loss-weight", type=float, default=DENSITY_LOSS_WEIGHT,
+                        help="Component-2 weight in the M6_v2 composite (mirrors training DENSITY_LOSS_WEIGHT)")
+    parser.add_argument("--density-kde-grid", type=int, default=DENSITY_KDE_GRID,
+                        help="KDE map resolution for the M6_v2 density-match term")
+    parser.add_argument("--density-kde-sigma-px", type=float, default=DENSITY_KDE_SIGMA_PX,
+                        help="Gaussian sigma (in KDE-grid pixels) for the M6_v2 density-match term")
     parser.add_argument("--mc-approx", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--samples-per-image", type=int, default=1,
                         help="Number of MinSNR timestep samples per validation image (MC approximation)")
@@ -170,10 +185,21 @@ def limit_validation_images(val_names, num_samples):
     return val_names[: int(num_samples)]
 
 
-def limit_checkpoints(ckpts, num_epochs):
-    if int(num_epochs) < 0:
-        return ckpts
-    return ckpts[: int(num_epochs)]
+def filter_by_every_epoch(epoch_dirs, every):
+    """Keep only epoch dirs whose epoch (parsed from 'epoch_{N}_npy') is a multiple of `every`.
+
+    every <= 0 disables the filter (keeps all). NOTE: stage_2 filters epoch DIRECTORIES
+    (epoch_500_npy, ...), so the epoch is parsed with the 'epoch_' prefix -- not the '*ep' prefix
+    used on checkpoint files in stage_1.
+    """
+    if int(every) <= 0:
+        return epoch_dirs
+    kept = []
+    for d in epoch_dirs:
+        m = re.search(r"epoch_(\d+)", os.path.basename(str(d)))
+        if m and int(m.group(1)) % int(every) == 0:
+            kept.append(d)
+    return kept
 
 
 def _build_name_map(root_dir):
@@ -375,6 +401,48 @@ def compute_minsnr_proxy(pred_points, target_image_u8, diffusion, args, timestep
     return float(total / max(1, count))
 
 
+def gaussian_kde_map_np(points, kde_grid, sigma_px):
+    """Numpy port of train_control.gaussian_kde_map for a single point set.
+
+    Splats (N,2) normalized [x,y] coords onto a (K,K) map indexed [y,x] with a
+    Gaussian of sigma = sigma_px / K, summed over points, then normalised to
+    *mean 1* (sum = K*K) -- exactly the convention the training KDE loss uses.
+    """
+    K = int(kde_grid)
+    pts = np.asarray(points, dtype=np.float64)
+    if pts.size == 0:
+        return np.ones((K, K), dtype=np.float64)
+    lin = (np.arange(K, dtype=np.float64) + 0.5) / float(K)
+    cx, cy = np.meshgrid(lin, lin)                 # cx[r,c]=lin[c] (x), cy[r,c]=lin[r] (y)
+    centers = np.stack([cx.ravel(), cy.ravel()], axis=-1)      # (K*K, 2), row-major [y,x]
+    sigma = max(float(sigma_px), 1e-4) / float(K)
+    d2 = ((pts[:, None, :] - centers[None, :, :]) ** 2).sum(axis=-1)   # (N, K*K)
+    density = np.exp(-d2 / (2.0 * sigma * sigma)).sum(axis=0)          # (K*K,)
+    s = density.sum()
+    if s <= 1e-8:
+        return np.ones((K, K), dtype=np.float64)
+    density = density * (density.size / s)
+    return density.reshape(K, K)
+
+
+def compute_kde_proxy(pred_points, target_image_u8, args):
+    """Component-2 (density-match) proxy, already scaled by density_loss_weight:
+    density_loss_weight * MSE between the mean-1 KDE of the predicted points and the
+    mean-1 target density from the target image. Mirrors the  density_w * d_loss  term
+    of train_control.density_match_loss (same kernel + mean-1 normalisation), with the
+    teacher point set replaced by the target-image density field (no GT points here).
+
+    M6_v2_minsnr_kde_loss = M6_minsnr_loss + compute_kde_proxy(...).
+    """
+    K = int(args.density_kde_grid)
+    kde_pred = gaussian_kde_map_np(pred_points, K, args.density_kde_sigma_px)   # mean 1
+    tgt = image_to_density(target_image_u8, K)          # sum = 1 (or zeros)
+    s = tgt.sum()
+    kde_true = tgt * (tgt.size / s) if s > 1e-8 else np.ones((K, K), dtype=np.float64)
+    kde_mse = float(np.mean((kde_pred - kde_true) ** 2))
+    return float(args.density_loss_weight) * kde_mse
+
+
 def serialize_metrics(metrics):
     ordered = {}
     for key in METRIC_ORDER:
@@ -424,7 +492,10 @@ def score_epoch_dir(epoch_dir, output_epoch_dir, val_names, source_backup_dir, t
         ts = None
         if timesteps_map is not None:
             ts = timesteps_map.get(name)
-        payload["M6_minsnr_loss"] = compute_minsnr_proxy(pred_points, target_img, diffusion, args, timesteps=ts)
+        minsnr_loss = compute_minsnr_proxy(pred_points, target_img, diffusion, args, timesteps=ts)
+        kde_loss = compute_kde_proxy(pred_points, target_img, args)
+        payload["M6_minsnr_loss"] = minsnr_loss
+        payload["M6_v2_minsnr_kde_loss"] = minsnr_loss + kde_loss
 
         out_json = output_epoch_dir / f"{stem}.json"
         out_json.write_text(json.dumps(payload, indent=2))
@@ -455,8 +526,8 @@ def main():
         print(f"No epoch_*_npy directories found in {model_root}")
         return 2
 
-    # Apply numeric epoch limiting if requested (NUM_EPOCHS < 0 => use all)
-    epoch_dirs = limit_checkpoints(epoch_dirs, args.num_epochs)
+    # Keep only epoch dirs at multiples of --every-epoch (0/negative => all)
+    epoch_dirs = filter_by_every_epoch(epoch_dirs, args.every_epoch)
 
     print(f"Model {RESULTS_DIR}: found {len(epoch_dirs)} epoch directories")
     if args.dry_run:

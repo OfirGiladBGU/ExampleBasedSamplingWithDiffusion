@@ -12,7 +12,7 @@ ADDITIONAL_ARGS = None
 # Modify this list to change which grid sizes to test
 GRID_SIZES = [16, 32, 48, 64, 80, 96, 112]
 # Path to sample_control.py
-SCRIPT_PATH = Path(__file__).parent / "sample_control.py"
+SCRIPT_PATH = Path(__file__).parent.parent / "control_v4" / "sample_control.py"
 
 
 # CPU tracking
@@ -22,7 +22,7 @@ ADDITIONAL_ARGS = [
     "--no-track_time_full",
     "--no-profile_trace",
 ]
-OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_cpu"
+OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_cpu"
 
 
 # # GPU 6000 tracking (no profiler trace)
@@ -31,7 +31,7 @@ OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_cpu"
 #     "--track_time",
 #     "--track_time_full",
 # ]
-# OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_gpu_6000_reg"
+# OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_gpu_6000_reg"
 
 
 # # GPU 3090 tracking (no profiler trace)
@@ -40,7 +40,7 @@ OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_cpu"
 #     "--track_time",
 #     "--track_time_full",
 # ]
-# OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_gpu_3090_reg"
+# OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_gpu_3090_reg"
 
 
 # # GPU 6000 tracking (with profiler trace)
@@ -50,7 +50,7 @@ OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_cpu"
 #     "--track_time_full",
 #     "--profile_trace",
 # ]
-# OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_gpu_6000"
+# OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_gpu_6000"
 
 
 # # GPU 3090 tracking (with profiler trace)
@@ -60,7 +60,7 @@ OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_cpu"
 #     "--track_time_full",
 #     "--profile_trace",
 # ]
-# OUTPUT_DIR_FORMAT = "control_v4/sample_outputs_{}_gpu_3090"
+# OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_gpu_3090"
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────

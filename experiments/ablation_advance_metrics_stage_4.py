@@ -44,7 +44,7 @@ RESULT_DIR_LIST = [
 
 # Default folders
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e400_b50_1024"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e500_b50_1024"
 
 # Default metrics file name
 METRICS_FILE = "metrics_avg.json"
@@ -57,11 +57,12 @@ FIG_DPI = 100
 
 METRIC_ORDER = [
     "M1_cvt_energy",
-    "M2_voronoi_mass_cv",
+    # "M2_voronoi_mass_cv",
+    "M2_v2_power_cell_cap_cv",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
-    "M6_minsnr_loss",
+    "M6_v2_minsnr_kde_loss",
 ]
 
 # Human-friendly metric titles for plot headers
@@ -69,14 +70,20 @@ METRIC_LABELS = {
     # Each metric can map to either a string (used for both title and ylabel)
     # or a dict with explicit `title` and `ylabel` fields.
     "M1_cvt_energy": {"title": "M1: CVT Energy", "ylabel": "Energy", "exclude_result_dirs": []},
-    "M2_voronoi_mass_cv": {"title": "M2: Capacity Constraint Fulfillment", "ylabel": "Voronoi Mass", "exclude_result_dirs": []},
+    # "M2_voronoi_mass_cv": {"title": "M2: Capacity Constraint Fulfillment", "ylabel": "Voronoi Mass", "exclude_result_dirs": []},
+    "M2_v2_power_cell_cap_cv": {"title": "M2: Power Cell", "ylabel": "Power Cell Capacity", "exclude_result_dirs": []},    
     "M3_emd_distance": {"title": "M3: EMD Distance", "ylabel": "Distance", "exclude_result_dirs": []},
     "M4_sinkhorn_ot_cost": {"title": "M4: Sinkhorn OT Cost", "ylabel": "Cost", "exclude_result_dirs": []},
     "M5_spatial_measure_rho_mean": {"title": "M5: Spatial Measure ρ Mean", "ylabel": "ρ Mean", "exclude_result_dirs": []},
-    "M6_minsnr_loss": {
-        "title": "M6: MinSNR Loss",
+    # "M6_minsnr_loss": {
+    #     "title": "M6: MinSNR Loss",
+    #     "ylabel": "Loss",
+    #     "exclude_result_dirs": ["sdedit"],
+    # },
+    "M6_v2_minsnr_kde_loss": {
+        "title": "M6: MinSNR + KDE Loss",
         "ylabel": "Loss",
-        "exclude_result_dirs": ["sdedit", "sdedit_resample"],
+        "exclude_result_dirs": ["sdedit"],
     },
 }
 

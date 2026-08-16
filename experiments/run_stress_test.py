@@ -32,7 +32,7 @@ from utils.stippling_metrics import compute_spacing_quality, visualize_overfit_m
 
 # Stress 1:
 DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1"
-OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs_stress1")
+OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs", "stress1_results")
 # Baseline configuration
 BASELINE_CONFIG_PATH = "config_trained/GBN_stress1/config.json"
 BASELINE_CKPT_PATH = "config_trained/GBN_stress1/model.ckpt"
@@ -40,11 +40,12 @@ BASELINE_CKPT_PATH = "config_trained/GBN_stress1/model.ckpt"
 CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
 CONTROL_BASE_CKPT_PATH = ""
-CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynamic_ep10000.ckpt"
+CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynamic_ep5000.ckpt"
+
 
 # Stress 2 - SKIP:
 # DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2"
-# OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs_stress2")
+# OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs", "stress2_results")
 # # Baseline configuration
 # BASELINE_CONFIG_PATH = "config_trained/GBN_stress2/config.json"
 # BASELINE_CKPT_PATH = "config_trained/GBN_stress2/model.ckpt"
@@ -52,12 +53,12 @@ CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynami
 # CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 # # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
 # CONTROL_BASE_CKPT_PATH = ""
-# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2/checkpoints/dynamic_ep10000.ckpt"
+# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2/checkpoints/dynamic_ep5000.ckpt"
 
 
 # Stress V2:
 # DATA_ROOT_DIR = r"/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2"
-# OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs_stress2_V2")
+# OUTPUT_ROOT_DIR = os.path.join("experiments", "outputs", "stress2_V2_results")
 # # Baseline configuration
 # BASELINE_CONFIG_PATH = "config_trained/GBN_stress2_V2/config.json"
 # BASELINE_CKPT_PATH = "config_trained/GBN_stress2_V2/model.ckpt"
@@ -65,7 +66,8 @@ CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress1/checkpoints/dynami
 # CONTROL_BASE_CONFIG_PATH = "config/GBN/config.json"
 # # CONTROL_BASE_CKPT_PATH = "config/GBN/model.ckpt"
 # CONTROL_BASE_CKPT_PATH = ""
-# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2_V2/checkpoints/dynamic_ep10000.ckpt"
+# CONTROLNET_CKPT_PATH = "control_v4/train_outputs_data_stress2_V2/checkpoints/dynamic_ep5000.ckpt"
+
 
 # Common settings
 DEVICE = "cuda"
@@ -76,12 +78,12 @@ TIMESTEPS = 1000
 # Baseline
 BASELINE_INFER_TRUNCATION_RATIO = 1.0
 
-# Control V4
+# Control
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 EVAL_TIMESTEPS = 1000
-INFER_TRUNCATION_RATIO = 0.30
-RESAMPLE_JUMPS = 2
+INFER_TRUNCATION_RATIO = 0.5
+RESAMPLE_JUMPS = 0
 SMART_INIT_FEATURES = False    # NOTE
 SDF_FEATURES = False           # NOTE
 BATCH_COORDS_FEATURES = False  # NOTE
@@ -425,7 +427,7 @@ def main():
     np.random.seed(42)
 
     baseline_ckpt_path = _resolve_ckpt_path(args.baseline_ckpt)
-    control_base_ckpt_path = _resolve_ckpt_path(args.control_base_ckpt)
+    control_base_ckpt_path = _resolve_ckpt_path(args.control_base_ckpt) if args.control_base_ckpt else ""
 
     baseline_diffusion = ParseSampleConfig(args.baseline_config)
     baseline_diffusion.load_state_dict(torch.load(baseline_ckpt_path, map_location="cpu")["diffu"])
@@ -436,7 +438,12 @@ def main():
         param.requires_grad = False
 
     control_diffusion = ParseSampleConfig(args.control_base_config)
-    control_diffusion.load_state_dict(torch.load(control_base_ckpt_path, map_location="cpu")["diffu"])
+    if control_base_ckpt_path:
+        control_diffusion.load_state_dict(torch.load(control_base_ckpt_path, map_location="cpu")["diffu"])
+    else:
+        # Empty control-base ckpt: FROM-SCRATCH model -- keep the random ParseSampleConfig init;
+        # the trained base is restored below from the control checkpoint's "denoiser".
+        print("  -> control_base_ckpt is empty: skipping pretrained base load (from-scratch model).")
     control_diffusion.to(device)
     control_backbone = control_diffusion.model
     control_backbone.eval()
@@ -458,6 +465,11 @@ def main():
     if isinstance(state, dict) and state.get("denoiser") is not None:
         control_backbone.load_state_dict(state["denoiser"], strict=False)
         print("Loaded trained (unfrozen) base denoiser from control checkpoint")
+    elif not control_base_ckpt_path:
+        raise ValueError(
+            "control_base_ckpt is empty (from-scratch) but the control checkpoint has no "
+            "'denoiser' weights -- the control base would be random/untrained."
+        )
     control_net.eval()
 
     condition_images_01 = []

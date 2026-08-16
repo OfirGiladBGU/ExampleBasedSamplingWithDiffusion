@@ -34,15 +34,15 @@ def main() -> int:
     ENABLE_GECCO = True
     ENABLE_ADAPTIVE_GATE_INJECTION = True
     EVAL_TIMESTEPS = 1000
-    INFER_TRUNCATION_RATIO = 0.30
-    RESAMPLE_JUMPS = 2
+    INFER_TRUNCATION_RATIO = 0.50
+    RESAMPLE_JUMPS = 0
     SMART_INIT_FEATURES = False
     SDF_FEATURES = False
     BATCH_COORDS_FEATURES = False
     # ENABLE_SMART_INIT_JITTER = False
     ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
-    FREEZE_DENOISER = True  # TODO: Add in the other scripts
+    FREEZE_DENOISER = False  # TODO: Add in the other scripts
     # GRID_SIZE = 32
     SMART_INIT_SEED = 42
     SDF_TRUNCATE_PX = 8.0
@@ -64,38 +64,38 @@ def main() -> int:
     ############################
 
     # Quadratic Sample
-    CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
     DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic_V2"
     GRID_SIZE = 32
     TRACK_TIME = False
 
     # Monkey Sample
-    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
     # DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/monkey"
     # GRID_SIZE = 32
     # TRACK_TIME = False
 
     # Plant Sample
-    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
     # DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/plant2"
     # GRID_SIZE = 32
     # TRACK_TIME = False
 
 
     # Faces Set Sample
-    # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_GBN/checkpoints/dynamic_ep5000.ckpt"
     # DATA_PATH = "experiments/outputs/faces_results_compare"
     # GRID_SIZE = 32
     # TRACK_TIME = False
 
     # Icons-50 - METRICS
-    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
     # DATA_PATH = "experiments/outputs/quantitative_advance_metrics"
     # GRID_SIZE = 32
     # TRACK_TIME = False
 
     # Icons-50 - TIMES - V1
-    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep10000.ckpt"
     # DATA_PATH = "experiments/outputs/icons_results_runtimes"
     # GRID_SIZE = 24
     # GRID_SIZE = 32

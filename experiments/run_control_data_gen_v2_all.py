@@ -18,7 +18,7 @@ SCRIPT_PATH = Path(__file__).parent / "control_data_gen.py"
 
 DATA_PATH = Path(
     "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion"
-    "/experiments/outputs/icons_results_runtimes"
+    "/experiments/outputs/icons_results_runtimes_cn"
 )
 
 # Full ICONS - TIMES - V2 parameter set (passed explicitly; do not assume the
@@ -26,11 +26,11 @@ DATA_PATH = Path(
 BASE_CONFIG_PATH = "config/GBN/config.json"
 # BASE_CKPT_PATH = "config/GBN/model.ckpt"
 BASE_CKPT_PATH = ""
-CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
 
 EVAL_TIMESTEPS = 1000
-INFER_TRUNCATION_RATIO = 0.30
-RESAMPLE_JUMPS = 2
+INFER_TRUNCATION_RATIO = 0.50
+RESAMPLE_JUMPS = 0
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 SMART_INIT_FEATURES = False

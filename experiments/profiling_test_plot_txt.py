@@ -13,70 +13,70 @@ DEFAULT_X_AXIS_MODE = "grid"
 DEVICE_MODE = "CPU"  # Set to "CPU" or "GPU"
 SOURCE_TXT_LIST = None
 TXT_FILES = [
-    "control_v4/sample_outputs_16_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-    "control_v4/sample_outputs_32_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-    "control_v4/sample_outputs_48_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-    "control_v4/sample_outputs_64_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-    "control_v4/sample_outputs_80_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-    "control_v4/sample_outputs_96_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-    "control_v4/sample_outputs_112_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+    "outputs/profiling_test/sample_outputs_16_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+    "outputs/profiling_test/sample_outputs_32_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+    "outputs/profiling_test/sample_outputs_48_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+    "outputs/profiling_test/sample_outputs_64_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+    "outputs/profiling_test/sample_outputs_80_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+    "outputs/profiling_test/sample_outputs_96_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+    "outputs/profiling_test/sample_outputs_112_cpu/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
 ]
 DEFAULT_X_AXIS_MODE = "grid"
-PLOT_NAME = "control_v4/z_runtime_outputs_plots/cpu_denoising_time_grid.png"
+PLOT_NAME = "outputs/profiling_test/z_runtime_outputs_plots/cpu_denoising_time_grid.png"
 # DEFAULT_X_AXIS_MODE = "points"
-# PLOT_NAME = "control_v4/z_runtime_outputs_plots/cpu_denoising_time_points.png"
+# PLOT_NAME = "outputs/profiling_test/z_runtime_outputs_plots/cpu_denoising_time_points.png"
 
 
 # GPU 6000 mode: List of profiler summary txt files
 # DEVICE_MODE = "GPU"  # Set to "CPU" or "GPU"
 # SOURCE_TXT_LIST = [
-#     "control_v4/sample_outputs_16_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_32_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_48_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_64_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_80_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_96_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_112_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_16_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_32_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_48_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_64_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_80_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_96_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_112_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
 # ]
 # TXT_FILES = [
-#     "control_v4/sample_outputs_16_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_32_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_48_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_64_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_80_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_96_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_112_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_16_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_32_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_48_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_64_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_80_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_96_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_112_gpu_6000/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
 # ]
 # DEFAULT_X_AXIS_MODE = "grid"
-# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_6000_profiler_times_grid.png"
+# PLOT_NAME = "outputs/profiling_test/z_runtime_outputs_plots/gpu_6000_profiler_times_grid.png"
 # DEFAULT_X_AXIS_MODE = "points"
-# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_6000_profiler_times_points.png"
+# PLOT_NAME = "outputs/profiling_test/z_runtime_outputs_plots/gpu_6000_profiler_times_points.png"
 
 
 # GPU 3090 mode: List of profiler summary txt files
 # DEVICE_MODE = "GPU"  # Set to "CPU" or "GPU"
 # SOURCE_TXT_LIST = [
-#     "control_v4/sample_outputs_16_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_32_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_48_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_64_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_80_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_96_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
-#     "control_v4/sample_outputs_112_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_16_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_32_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_48_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_64_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_80_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_96_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
+#     "outputs/profiling_test/sample_outputs_112_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey.txt",
 # ]
 # TXT_FILES = [
-#     "control_v4/sample_outputs_16_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_32_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_48_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_64_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_80_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_96_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
-#     "control_v4/sample_outputs_112_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_16_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_32_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_48_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_64_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_80_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_96_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
+#     "outputs/profiling_test/sample_outputs_112_gpu_3090/emoji-one_4_monkey/timestamps/emoji-one_4_monkey_profiler_summary.txt",
 # ]
 # DEFAULT_X_AXIS_MODE = "grid"
-# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_3090_profiler_times_grid.png"
+# PLOT_NAME = "outputs/profiling_test/z_runtime_outputs_plots/gpu_3090_profiler_times_grid.png"
 # DEFAULT_X_AXIS_MODE = "points"
-# PLOT_NAME = "control_v4/z_runtime_outputs_plots/gpu_3090_profiler_times_points.png"
+# PLOT_NAME = "outputs/profiling_test/z_runtime_outputs_plots/gpu_3090_profiler_times_points.png"
 
 
 # --- 2. Parsing Functions ---
@@ -210,6 +210,7 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
     ax.grid(True, which="minor", ls=":", alpha=0.3)
 
     plt.tight_layout()
+    Path(plot_name).parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(plot_name, dpi=300)
     print(f"Saved plot to {plot_name}")
 
@@ -287,6 +288,7 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
     ax.grid(True, which="minor", ls=":", alpha=0.3)
 
     plt.tight_layout()
+    Path(plot_name).parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(plot_name, dpi=300)
     print(f"Saved plot to {plot_name}")
 

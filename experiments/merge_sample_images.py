@@ -54,7 +54,7 @@ IMAGE_PATHS = [
         {"4096":   "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_64/stress_test_density/npy/stress_test_density.npy"},
     ],
 ]
-OUTPUT_PATH = "control_v4/pointcount_generalization.pdf"
+OUTPUT_PATH = "experiments/outputs/grid_size_results/pointcount_generalization.pdf"
 
 # Labels (the dict keys) rendered in bold.
 BOLD_LABELS = ["Target", "1024"]

@@ -253,7 +253,94 @@ def power_cell_areas(pts, weights=None, n_probe=48, rng=None):
     return counts / max(m, 1)
 
 
-def compute_m2_v2_power_cell(points, image_01=None, rng=None, n_probe=48, k=8):
+def _clip_polygon_halfplane(poly, a0, a1, b):
+    """Sutherland-Hodgman clip of polygon `poly` (list of (x, y)) by the half-plane
+    a0*x + a1*y <= b. Returns the clipped vertex list (possibly empty).
+    """
+    out = []
+    n = len(poly)
+    if n == 0:
+        return out
+    for i in range(n):
+        S = poly[i - 1]
+        E = poly[i]
+        sd = a0 * S[0] + a1 * S[1] - b
+        ed = a0 * E[0] + a1 * E[1] - b
+        s_in = sd <= 0.0
+        e_in = ed <= 0.0
+        if e_in:
+            if not s_in:
+                t = sd / (sd - ed)
+                out.append((S[0] + t * (E[0] - S[0]), S[1] + t * (E[1] - S[1])))
+            out.append(E)
+        elif s_in:
+            t = sd / (sd - ed)
+            out.append((S[0] + t * (E[0] - S[0]), S[1] + t * (E[1] - S[1])))
+    return out
+
+
+def _polygon_area(poly):
+    """Shoelace area of a polygon given as a list of (x, y) vertices."""
+    n = len(poly)
+    if n < 3:
+        return 0.0
+    acc = 0.0
+    for i in range(n):
+        x1, y1 = poly[i - 1]
+        x2, y2 = poly[i]
+        acc += x1 * y2 - x2 * y1
+    return abs(acc) * 0.5
+
+
+def power_cell_areas_exact(pts, weights=None, domain=(0.0, 1.0, 0.0, 1.0)):
+    """Exact POWER (Laguerre) cell areas on a rectangular domain, normalised to sum 1.
+
+    The exact counterpart of `power_cell_areas` (used when mc_approx=False). Each cell
+        V_i = { x : ||x - p_i||^2 - w_i <= ||x - p_j||^2 - w_j  for all j }
+    is a convex polygon, because every pairwise power inequality is linear in x:
+        2 (p_j - p_i) . x  <=  |p_j|^2 - |p_i|^2 + w_i - w_j.
+    So the cell is the domain rectangle clipped by all those half-planes -- no Monte-
+    Carlo. Sites are visited nearest-first and half-planes that do not cut the current
+    polygon are skipped (exact prune); worst case is O(n^2). A point with a large enough
+    weight can legitimately own an empty cell (area 0), as in the power-diagram paper.
+    """
+    pts = np.asarray(pts, dtype=np.float64)
+    n = len(pts)
+    if n == 0:
+        return np.zeros(0, dtype=np.float64)
+    if weights is None:
+        weights = np.zeros(n)
+    weights = np.asarray(weights, dtype=np.float64)
+    x0, x1, y0, y1 = domain
+    sq = (pts ** 2).sum(axis=1)                       # |p_i|^2
+    rect = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    areas = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        # nearest-first: the polygon shrinks fast so most far half-planes get pruned
+        order = np.argsort(((pts - pts[i]) ** 2).sum(axis=1))
+        a0 = 2.0 * (pts[:, 0] - pts[i, 0])
+        a1 = 2.0 * (pts[:, 1] - pts[i, 1])
+        bb = sq - sq[i] + weights[i] - weights
+        poly = list(rect)
+        for j in order:
+            if j == i:
+                continue
+            aj0 = a0[j]; aj1 = a1[j]; bj = bb[j]
+            # skip planes that leave the whole current polygon on site i's side
+            if all(aj0 * vx + aj1 * vy - bj <= 1e-15 for (vx, vy) in poly):
+                continue
+            poly = _clip_polygon_halfplane(poly, aj0, aj1, bj)
+            if len(poly) < 3:
+                poly = []
+                break
+        areas[i] = _polygon_area(poly)
+    total = areas.sum()
+    if total > 1e-15:
+        areas = areas / total
+    return areas
+
+
+def compute_m2_v2_power_cell(points, image_01=None, rng=None, n_probe=48, k=8, mc_approx=True):
     """M2_v2 -- capacity constraint via POWER (Laguerre) cells instead of plain Voronoi.
 
     Same capacity idea as M2, but the cells are power cells whose weights come from the local
@@ -280,7 +367,10 @@ def compute_m2_v2_power_cell(points, image_01=None, rng=None, n_probe=48, k=8):
         lam = k_eff / (np.pi * np.maximum(dk, eps) ** 2)          # local intensity
         w = (1.0 / np.maximum(lam, eps)) / np.pi                   # r^2-scale weight
         w = w - w.mean()
-        areas = power_cell_areas(pts, weights=w, n_probe=n_probe, rng=rs)
+        if mc_approx:
+            areas = power_cell_areas(pts, weights=w, n_probe=n_probe, rng=rs)
+        else:
+            areas = power_cell_areas_exact(pts, weights=w)
         expect = 1.0 / np.maximum(lam, eps)
         expect_n = expect / max(expect.sum(), eps)
         ratio = areas / np.maximum(expect_n, eps)
@@ -503,7 +593,7 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_appro
     result.update({f"M1_{k}": v for k, v in m1.items()})
     m2 = compute_m2_capacity_constraint(points, image_01, rng=np.random.default_rng(42), mc_approx=mc_approx)
     result.update({f"M2_{k}": v for k, v in m2.items()})
-    m2v2 = compute_m2_v2_power_cell(points, image_01, rng=np.random.RandomState(45))
+    m2v2 = compute_m2_v2_power_cell(points, image_01, rng=np.random.RandomState(45), mc_approx=mc_approx)
     result.update({f"M2_v2_{k}": v for k, v in m2v2.items()})
     m3 = compute_m3_emd(points, None, image_01, rng=np.random.default_rng(43), mc_approx=mc_approx)
     result.update({f"M3_{k}": v for k, v in m3.items()})

@@ -38,7 +38,8 @@ from utils.Config import ParseSampleConfig
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 EVAL_TIMESTEPS = 1000
-INFER_TRUNCATION_RATIO = 1.00
+# INFER_TRUNCATION_RATIO = 1.0
+INFER_TRUNCATION_RATIO = 0.5
 RESAMPLE_JUMPS = 0
 SMART_INIT_FEATURES = False
 SDF_FEATURES = False
@@ -71,8 +72,10 @@ SHOW_DENOISING = False
 
 # Editable defaults 
 BASE_CONFIG_PATH = "config/GBN/config.json"
-BASE_CKPT_PATH = "config/GBN/model.ckpt"
-CONTROL_CKPT_PATH = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+# BASE_CKPT_PATH = "config/GBN/model.ckpt"
+BASE_CKPT_PATH = ""
+# CONTROL_CKPT_PATH = "control_v4/train_outputs_Icons-50_1024_GBN/checkpoints/dynamic_ep10000.ckpt"
+CONTROL_CKPT_PATH = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
 
 # Samples Compare
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/results/monkey/source/emoji-one_4_monkey.png"
@@ -87,17 +90,16 @@ INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/original/stress_test_density.png"
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2_V2/original/plant4h_V2.png"
 # GRID_SIZE = 8
-# GRID_SIZE = 16
+# GRID_SIZE = 16  # NOTE
 # GRID_SIZE = 24  # NOTE
 GRID_SIZE = 32  # NOTE
 # GRID_SIZE = 48  # NOTE
-# GRID_SIZE = 64
+# GRID_SIZE = 64  # NOTE
 # GRID_SIZE = 80
 # GRID_SIZE = 96  
 # GRID_SIZE = 112
 OUTPUT_DIR = f"control_v4/sample_outputs_{GRID_SIZE}"
 EVAL_TIMESTEPS = 1000
-INFER_TRUNCATION_RATIO = 0.30
 
 
 # Teaser
@@ -327,7 +329,12 @@ def load_pipeline(base_config_path, base_ckpt_path, control_ckpt_path, grid_size
     """Loads the U-Net and ControlNet into VRAM once."""
     # ── load pretrained diffusion + build Dynamic ControlNet V4 ──────
     diffusion = ParseSampleConfig(base_config_path, device=device)
-    diffusion.load_state_dict(torch.load(base_ckpt_path, map_location="cpu")["diffu"], strict=False)
+    if base_ckpt_path:
+        diffusion.load_state_dict(torch.load(base_ckpt_path, map_location="cpu")["diffu"], strict=False)
+    else:
+        # Empty base_ckpt_path: FROM-SCRATCH model -- keep the random ParseSampleConfig
+        # init; the trained base is restored below from the control checkpoint's "denoiser".
+        print("  -> base_ckpt_path is empty: skipping pretrained base load (from-scratch model).")
     diffusion.to(device)
 
     # NOTE: torch.compile was removed to avoid experimental overheads
@@ -352,6 +359,12 @@ def load_pipeline(base_config_path, base_ckpt_path, control_ckpt_path, grid_size
     if isinstance(state, dict) and state.get("denoiser") is not None:
         denoiser.load_state_dict(state["denoiser"], strict=False)
         print("Loaded trained (unfrozen) base denoiser from control checkpoint")
+    elif not base_ckpt_path:
+        raise ValueError(
+            "base_ckpt_path is empty (from-scratch) but the control checkpoint has no "
+            "'denoiser' weights -- the base would be random/untrained. Provide a base "
+            "checkpoint, or use a checkpoint trained with --no-freeze-denoiser."
+        )
     control_net.eval()
     
     return diffusion, control_net

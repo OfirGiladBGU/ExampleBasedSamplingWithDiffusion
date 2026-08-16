@@ -43,7 +43,6 @@ METRIC_ORDER = [
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
-    "M6_minsnr_loss",
 ]
 
 

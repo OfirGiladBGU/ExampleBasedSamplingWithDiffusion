@@ -90,7 +90,7 @@ RESULTS_DIR = "vanilla"
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e400_b50_1024"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e500_b50_1024"
 
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
@@ -101,9 +101,8 @@ SPLIT_SEED = 42
 VAL_SPLIT = 0.1
 # NUM_SAMPLES = -1  # Use all validation samples by default
 NUM_SAMPLES = 50
-# NUM_EPOCHS = -1  # Use all checkpoints by default
-NUM_EPOCHS = 400
-# NOTE: 40 is epoch 1K
+# EVERY_EPOCH = -1  # Keep all checkpoints by default
+EVERY_EPOCH = 500
 
 def parse_args():
     p = argparse.ArgumentParser(description="Export ablation predictions to .npy per epoch")
@@ -113,8 +112,8 @@ def parse_args():
     p.add_argument("--val-split", type=float, default=VAL_SPLIT, help="Fraction for validation split")
     p.add_argument("--num-samples", type=int, default=NUM_SAMPLES,
                    help="Number of validation samples to use in order after selection; -1 means use all")
-    p.add_argument("--num-epochs", type=int, default=NUM_EPOCHS,
-                   help="Number of sorted checkpoints/epochs to export; -1 means use all")
+    p.add_argument("--every-epoch", type=int, default=EVERY_EPOCH,
+                   help="Keep only checkpoints whose epoch (from '*ep{N}') is a multiple of this; 0 = all")
     p.add_argument("--seed", type=int, default=SPLIT_SEED, help="Deterministic seed for split")
     p.add_argument("--checkpoints", default="all", help="'all' or comma-separated filename substrings")
     p.add_argument("--dry-run", action="store_true", help="Only show what would be done")
@@ -148,10 +147,19 @@ def limit_validation_images(val_images, num_samples):
     return val_images[: int(num_samples)]
 
 
-def limit_checkpoints(ckpts, num_epochs):
-    if int(num_epochs) < 0:
+def filter_by_every_epoch(ckpts, every):
+    """Keep only checkpoints whose epoch (parsed from '*ep{N}') is a multiple of `every`.
+
+    every <= 0 disables the filter (keeps all).
+    """
+    if int(every) <= 0:
         return ckpts
-    return ckpts[: int(num_epochs)]
+    kept = []
+    for c in ckpts:
+        m = re.search(r"ep(\d+)", os.path.basename(str(c)))
+        if m and int(m.group(1)) % int(every) == 0:
+            kept.append(c)
+    return kept
 
 
 def backup_validation_images(val_images, out_base, target_dir):
@@ -260,7 +268,7 @@ def main():
         val_images = [str(source_backup_dir / Path(img).name) for img in val_images]
 
     ckpts = find_checkpoints(WEIGHTS_DIR, pattern_filter=args.checkpoints)
-    ckpts = limit_checkpoints(ckpts, args.num_epochs)
+    ckpts = filter_by_every_epoch(ckpts, args.every_epoch)
     if len(ckpts) == 0:
         print(f"No checkpoints found in {WEIGHTS_DIR}")
         return 2

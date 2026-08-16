@@ -33,20 +33,22 @@ RESULTS_DIR = "vanilla"
 
 # Default folders
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
-OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e400_b50_1024"
+OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e500_b50_1024"
 
 # NUM_SAMPLES = -1
 NUM_SAMPLES = 50
-# NUM_EPOCHS = -1
-NUM_EPOCHS = 400
+# EVERY_EPOCH = -1  # Keep all checkpoints by default
+EVERY_EPOCH = 500
 
 METRIC_ORDER = [
     "M1_cvt_energy",
     "M2_voronoi_mass_cv",
+    "M2_v2_power_cell_cap_cv",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
     "M6_minsnr_loss",
+    "M6_v2_minsnr_kde_loss",
 ]
 
 
@@ -55,8 +57,8 @@ def parse_args():
     p.add_argument("--output", default=OUTPUT_DIR, help="Base output folder used by stages 1/2")
     p.add_argument("--results-dir", default=RESULTS_DIR, help="Subfolder for model results (RESULTS_DIR)")
     p.add_argument("--epochs", default="all", help="'all' or comma-separated substrings to match epoch dirs")
-    p.add_argument("--num-epochs", type=int, default=NUM_EPOCHS,
-                   help=f"Number of epoch directories to process in sorted order; -1 means use all (default: {NUM_EPOCHS})")
+    p.add_argument("--every-epoch", type=int, default=EVERY_EPOCH,
+                   help="Keep only epoch dirs whose epoch (from 'epoch_{N}_json') is a multiple of this; 0 = all")
     p.add_argument("--num-samples", type=int, default=NUM_SAMPLES,
                    help=f"Limit number of examples per epoch to aggregate; -1 means use all (default: {NUM_SAMPLES})")
     p.add_argument("--write-per-epoch", action="store_true", help="Also write per-epoch epoch_{id}_metrics.json files")
@@ -71,10 +73,19 @@ def limit_validation_images(val_images, num_samples):
     return val_images[: int(num_samples)]
 
 
-def limit_checkpoints(ckpts, num_epochs):
-    if int(num_epochs) < 0:
-        return ckpts
-    return ckpts[: int(num_epochs)]
+def filter_by_every_epoch(epoch_dirs, every):
+    """Keep only epoch dirs whose epoch (from 'epoch_{N}_json') is a multiple of `every`.
+
+    every <= 0 disables the filter (keeps all).
+    """
+    if int(every) <= 0:
+        return epoch_dirs
+    kept = []
+    for d in epoch_dirs:
+        m = re.search(r"epoch_(\d+)", Path(d).name)
+        if m and int(m.group(1)) % int(every) == 0:
+            kept.append(d)
+    return kept
 
 
 def find_epoch_json_dirs(model_root, pattern_filter=None):
@@ -181,8 +192,8 @@ def main():
             print(p)
         return 0
 
-    # Apply numeric epoch limiting if requested
-    epoch_dirs = limit_checkpoints(epoch_dirs, getattr(args, "num_epochs", -1))
+    # Keep only epoch dirs at multiples of --every-epoch (0/negative => all)
+    epoch_dirs = filter_by_every_epoch(epoch_dirs, args.every_epoch)
     
     # Load manifest to enforce correct ordering of examples
     manifest = load_manifest_order(out_base)
