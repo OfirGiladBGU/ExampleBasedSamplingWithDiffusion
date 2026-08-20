@@ -305,7 +305,7 @@ def save_panel(save_path, condition_image_01, gt_points_batch, baseline_points_b
     fig, axes = plt.subplots(3, n_cols, figsize=(3.2 * n_cols, 8.6), dpi=180)
 
     axes[0, 0].imshow(condition_image_01, cmap="gray", vmin=0.0, vmax=1.0)
-    axes[0, 0].set_title("Condition", fontsize=15)
+    axes[0, 0].set_title("Target", fontsize=15)
     axes[0, 0].axis("off")
 
     axes[1, 0].axis("off")

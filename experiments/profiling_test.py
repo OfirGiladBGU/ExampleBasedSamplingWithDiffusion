@@ -13,6 +13,8 @@ ADDITIONAL_ARGS = None
 GRID_SIZES = [16, 32, 48, 64, 80, 96, 112]
 # Path to sample_control.py
 SCRIPT_PATH = Path(__file__).parent.parent / "control_v4" / "sample_control.py"
+# Single input image to profile (passed to sample_control.py as --image_path).
+INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source/Icons-50/monkey/emoji-one_4_monkey.png"
 
 
 # CPU tracking
@@ -22,7 +24,7 @@ ADDITIONAL_ARGS = [
     "--no-track_time_full",
     "--no-profile_trace",
 ]
-OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_cpu"
+OUTPUT_DIR_FORMAT = "experiments/outputs/profiling_test/sample_outputs_{}_cpu"
 
 
 # # GPU 6000 tracking (no profiler trace)
@@ -31,7 +33,7 @@ OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_cpu"
 #     "--track_time",
 #     "--track_time_full",
 # ]
-# OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_gpu_6000_reg"
+# OUTPUT_DIR_FORMAT = "experiments/outputs/profiling_test/sample_outputs_{}_gpu_6000_reg"
 
 
 # # GPU 3090 tracking (no profiler trace)
@@ -40,7 +42,7 @@ OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_cpu"
 #     "--track_time",
 #     "--track_time_full",
 # ]
-# OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_gpu_3090_reg"
+# OUTPUT_DIR_FORMAT = "experiments/outputs/profiling_test/sample_outputs_{}_gpu_3090_reg"
 
 
 # # GPU 6000 tracking (with profiler trace)
@@ -50,7 +52,7 @@ OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_cpu"
 #     "--track_time_full",
 #     "--profile_trace",
 # ]
-# OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_gpu_6000"
+# OUTPUT_DIR_FORMAT = "experiments/outputs/profiling_test/sample_outputs_{}_gpu_6000"
 
 
 # # GPU 3090 tracking (with profiler trace)
@@ -60,12 +62,12 @@ OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_cpu"
 #     "--track_time_full",
 #     "--profile_trace",
 # ]
-# OUTPUT_DIR_FORMAT = "outputs/profiling_test/sample_outputs_{}_gpu_3090"
+# OUTPUT_DIR_FORMAT = "experiments/outputs/profiling_test/sample_outputs_{}_gpu_3090"
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def run_grid_sizes(script_path, grid_sizes, output_dir_format, additional_args=None):
+def run_grid_sizes(script_path, grid_sizes, output_dir_format, additional_args=None, input_image_path=None):
     """Run sample_control.py for each grid size."""
     if additional_args is None:
         additional_args = []
@@ -88,8 +90,11 @@ def run_grid_sizes(script_path, grid_sizes, output_dir_format, additional_args=N
             sys.executable,
             str(script_path),
             "--grid_size", str(grid_size),
-            "--output_dir", output_dir
-        ] + additional_args
+            "--output_dir", output_dir,
+        ]
+        if input_image_path:
+            cmd += ["--image_path", str(input_image_path)]
+        cmd += additional_args
 
         print(f"Command: {' '.join(cmd)}\n")
 
@@ -105,4 +110,4 @@ def run_grid_sizes(script_path, grid_sizes, output_dir_format, additional_args=N
 
 
 if __name__ == "__main__":
-    run_grid_sizes(SCRIPT_PATH, GRID_SIZES, OUTPUT_DIR_FORMAT, ADDITIONAL_ARGS)
+    run_grid_sizes(SCRIPT_PATH, GRID_SIZES, OUTPUT_DIR_FORMAT, ADDITIONAL_ARGS, INPUT_IMAGE_PATH)

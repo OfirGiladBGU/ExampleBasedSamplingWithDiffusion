@@ -35,6 +35,9 @@ RESULTS_DIR = "vanilla"
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
 OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e500_b50_1024"
 
+# Default metrics file name
+METRICS_FILE = "metrics_avg.json"
+
 # NUM_SAMPLES = -1
 NUM_SAMPLES = 50
 # EVERY_EPOCH = -1  # Keep all checkpoints by default
@@ -44,6 +47,7 @@ METRIC_ORDER = [
     "M1_cvt_energy",
     "M2_voronoi_mass_cv",
     "M2_v2_power_cell_cap_cv",
+    "M2_v3_power_cell_cap_cv_masked",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
@@ -62,7 +66,7 @@ def parse_args():
     p.add_argument("--num-samples", type=int, default=NUM_SAMPLES,
                    help=f"Limit number of examples per epoch to aggregate; -1 means use all (default: {NUM_SAMPLES})")
     p.add_argument("--write-per-epoch", action="store_true", help="Also write per-epoch epoch_{id}_metrics.json files")
-    p.add_argument("--metrics-file", default="metrics_avg.json", help="Name of the aggregated metrics file to write in model root")
+    p.add_argument("--metrics-file", default=METRICS_FILE, help="Name of the aggregated metrics file to write in model root")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
 

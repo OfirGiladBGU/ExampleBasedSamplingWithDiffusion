@@ -226,7 +226,7 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
         return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
 
 
-def power_cell_areas(pts, weights=None, n_probe=48, rng=None):
+def power_cell_areas(pts, weights=None, n_probe=48, rng=None, mask=None):
     """Monte-Carlo POWER (Laguerre) cell areas (they sum to 1). Ported from
     control_v4_mix_metrics/descriptor_fields.py. Power distance is |x - p|^2 - w; each probe is
     assigned to its min-power owner via a Euclidean shortlist re-ranked by power distance, which
@@ -240,7 +240,16 @@ def power_cell_areas(pts, weights=None, n_probe=48, rng=None):
         weights = np.zeros(n)
     weights = np.asarray(weights, dtype=np.float64)
     m = int(n_probe * n)
-    probe = rng.rand(m, 2)
+    if mask is None:
+        probe = rng.rand(m, 2)
+    else:
+        ys, xs = np.nonzero(mask)
+        if len(ys) == 0:
+            return np.zeros(n, dtype=np.float64)
+        H, W = mask.shape
+        sel = rng.randint(0, len(ys), size=m)
+        probe = np.stack([(xs[sel] + rng.rand(m)) / float(W),
+                          (ys[sel] + rng.rand(m)) / float(H)], axis=1)
     tree = cKDTree(pts)
     kq = min(n, 16)
     dd, ii = tree.query(probe, k=kq)
@@ -340,48 +349,122 @@ def power_cell_areas_exact(pts, weights=None, domain=(0.0, 1.0, 0.0, 1.0)):
     return areas
 
 
+# Masked M2_v3: pixel value (0..255). The mask keeps pixels strictly BELOW this, so 255
+# ignores only PURE-white background when restricting the power-cell probes to the stipple support.
+MASK_THRESHOLD = 255
+
+
+def power_cell_areas_masked_full(pts, weights=None, mask=None):
+    """Deterministic masked power-cell areas: assign EVERY non-white pixel centre to its power
+    owner (no Monte-Carlo), so it uses the full masked support with no sampling noise. This is the
+    exact (mc_approx=False) counterpart of the masked MC path -- the mask *is* the domain, so
+    enumerating its pixels needs no polygon clipping. Areas are fractions of the mask (sum to 1);
+    owner lookup uses the same 16-NN power-distance shortlist as power_cell_areas.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.asarray(pts, dtype=np.float64)
+    n = len(pts)
+    if weights is None:
+        weights = np.zeros(n)
+    weights = np.asarray(weights, dtype=np.float64)
+    ys, xs = np.nonzero(mask)
+    if len(ys) == 0:
+        return np.zeros(n, dtype=np.float64)
+    H, W = mask.shape
+    probe = np.stack([(xs + 0.5) / float(W), (ys + 0.5) / float(H)], axis=1)
+    tree = cKDTree(pts)
+    kq = min(n, 16)
+    dd, ii = tree.query(probe, k=kq)
+    if kq == 1:
+        dd = dd[:, None]
+        ii = ii[:, None]
+    pw = dd ** 2 - weights[ii]
+    owners = ii[np.arange(len(probe)), np.argmin(pw, axis=1)]
+    counts = np.bincount(owners, minlength=n).astype(np.float64)
+    return counts / max(len(probe), 1)
+
+
+def _power_cell_cap_cv(points, rng=None, n_probe=48, k=8, mc_approx=True, mask=None):
+    """Shared core for M2_v2 (mask=None) and M2_v3 (mask given). Returns (cap_cv, ratio_std).
+
+    Power (Laguerre) cells with weights from the local density lam = k/(pi r_k^2); each cell area
+    is compared to what that density predicts (1/lam) and cap_cv is the squared CV of the ratio
+    (0 = perfect capacity). A `mask` restricts the MC probes to a support region, so the empty
+    background can no longer inflate outline cells (mask forces the MC path).
+    """
+    from scipy.spatial import cKDTree
+    eps = 1e-12
+    pts = np.asarray(points, dtype=np.float64)
+    n = len(pts)
+    if n < k + 2:
+        return 0.0, 0.0
+    rs = rng if isinstance(rng, np.random.RandomState) else np.random.RandomState(45)
+    tree = cKDTree(pts)
+    k_eff = min(k, n - 1)
+    dists, _ = tree.query(pts, k=k_eff + 1)
+    dk = dists[:, k_eff]
+    lam = k_eff / (np.pi * np.maximum(dk, eps) ** 2)          # local intensity
+    w = (1.0 / np.maximum(lam, eps)) / np.pi                   # r^2-scale weight
+    w = w - w.mean()
+    if mask is not None:
+        if mc_approx:
+            areas = power_cell_areas(pts, weights=w, n_probe=n_probe, rng=rs, mask=mask)
+        else:
+            areas = power_cell_areas_masked_full(pts, weights=w, mask=mask)
+    elif mc_approx:
+        areas = power_cell_areas(pts, weights=w, n_probe=n_probe, rng=rs)
+    else:
+        areas = power_cell_areas_exact(pts, weights=w)
+    expect = 1.0 / np.maximum(lam, eps)
+    expect_n = expect / max(expect.sum(), eps)
+    ratio = areas / np.maximum(expect_n, eps)
+    r_star = ratio.mean()
+    if r_star < eps:
+        return 0.0, 0.0
+    delta = float(np.mean((ratio / r_star - 1.0) ** 2))       # squared CV, like M2 delta_c
+    return float(np.clip(delta, 0, 10)), float(ratio.std())
+
+
 def compute_m2_v2_power_cell(points, image_01=None, rng=None, n_probe=48, k=8, mc_approx=True):
-    """M2_v2 -- capacity constraint via POWER (Laguerre) cells instead of plain Voronoi.
+    """M2_v2 -- capacity via POWER (Laguerre) cells over the FULL [0,1]^2 domain.
 
-    Same capacity idea as M2, but the cells are power cells whose weights come from the local
-    point density lam = k / (pi r_k^2): a point in a dense region legitimately owns a smaller cell
-    and the power weight encodes that. Each cell area is compared to what the local density
-    predicts (1/lam), so the CV reads capacity DISORDER, not the density gradient -- the R4
-    objection to the Voronoi-based M2. Mirrors descriptor_fields.cap_cv (global version here).
-
-    Returns {"power_cell_cap_cv": delta, ...} where delta = mean((ratio/mean - 1)^2) is the squared
-    CV, matching M2's delta_c convention (0 = perfect capacity).
+    Weights come from the local density (a point in a dense region owns a smaller cell), and
+    the cell area is compared to the density prediction 1/lam. NOTE: on a bounded stipple this
+    is inflated by outline cells spilling into the empty background -- see the masked M2_v3.
     """
     try:
-        from scipy.spatial import cKDTree
-        eps = 1e-12
-        pts = np.asarray(points, dtype=np.float64)
-        n = len(pts)
-        if n < k + 2:
-            return {"power_cell_cap_cv": 0.0, "power_cell_cap_std": 0.0}
-        rs = rng if isinstance(rng, np.random.RandomState) else np.random.RandomState(45)
-        tree = cKDTree(pts)
-        k_eff = min(k, n - 1)
-        dists, _ = tree.query(pts, k=k_eff + 1)
-        dk = dists[:, k_eff]
-        lam = k_eff / (np.pi * np.maximum(dk, eps) ** 2)          # local intensity
-        w = (1.0 / np.maximum(lam, eps)) / np.pi                   # r^2-scale weight
-        w = w - w.mean()
-        if mc_approx:
-            areas = power_cell_areas(pts, weights=w, n_probe=n_probe, rng=rs)
-        else:
-            areas = power_cell_areas_exact(pts, weights=w)
-        expect = 1.0 / np.maximum(lam, eps)
-        expect_n = expect / max(expect.sum(), eps)
-        ratio = areas / np.maximum(expect_n, eps)
-        r_star = ratio.mean()
-        if r_star < eps:
-            return {"power_cell_cap_cv": 0.0, "power_cell_cap_std": 0.0}
-        delta = float(np.mean((ratio / r_star - 1.0) ** 2))       # squared CV, like M2 delta_c
-        return {"power_cell_cap_cv": float(np.clip(delta, 0, 10)),
-                "power_cell_cap_std": float(ratio.std())}
+        cv, std = _power_cell_cap_cv(points, rng=rng, n_probe=n_probe, k=k, mc_approx=mc_approx, mask=None)
+        return {"power_cell_cap_cv": cv, "power_cell_cap_std": std}
     except Exception:
         return {"power_cell_cap_cv": 0.0, "power_cell_cap_std": 0.0}
+
+
+def compute_m2_v3_power_cell_masked(points, image_01=None, rng=None, n_probe=48, k=8,
+                                    mc_approx=True, mask_threshold=MASK_THRESHOLD):
+    """M2_v3 -- masked power-cell capacity: same as M2_v2 but the power-cell probes are restricted
+    to the non-white support of image_01 (pixels < mask_threshold/255), so outline cells no longer
+    spill into the empty background. mask_threshold is a pixel value (0..255); 255 keeps everything
+    except pure white.
+
+    mc_approx=True samples the mask with Monte-Carlo probes; mc_approx=False uses EVERY non-white
+    pixel (deterministic, no sampling noise). Raises ValueError if image_01 is None or the mask is
+    empty (a fully-white image) -- those are misconfigurations, not silently-zero results.
+    """
+    if image_01 is None:
+        raise ValueError("compute_m2_v3_power_cell_masked requires image_01 (source grayscale in "
+                         "[0,1]); got None.")
+    img = np.asarray(image_01, dtype=np.float64)
+    if img.ndim == 3:
+        img = img[..., :3].mean(axis=-1)
+    mask = img < (float(mask_threshold) / 255.0)
+    if not mask.any():
+        raise ValueError(f"compute_m2_v3_power_cell_masked: mask empty (image all >= "
+                         f"{mask_threshold}/255, i.e. pure white); no support to measure.")
+    try:
+        cv, std = _power_cell_cap_cv(points, rng=rng, n_probe=n_probe, k=k, mc_approx=mc_approx, mask=mask)
+        return {"power_cell_cap_cv_masked": cv, "power_cell_cap_std_masked": std}
+    except Exception:
+        return {"power_cell_cap_cv_masked": 0.0, "power_cell_cap_std_masked": 0.0}
 
 
 def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.01):
@@ -595,6 +678,8 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_appro
     result.update({f"M2_{k}": v for k, v in m2.items()})
     m2v2 = compute_m2_v2_power_cell(points, image_01, rng=np.random.RandomState(45), mc_approx=mc_approx)
     result.update({f"M2_v2_{k}": v for k, v in m2v2.items()})
+    m2v3 = compute_m2_v3_power_cell_masked(points, image_01, rng=np.random.RandomState(45), mc_approx=mc_approx)
+    result.update({f"M2_v3_{k}": v for k, v in m2v3.items()})
     m3 = compute_m3_emd(points, None, image_01, rng=np.random.default_rng(43), mc_approx=mc_approx)
     result.update({f"M3_{k}": v for k, v in m3.items()})
     m4 = compute_m4_sinkhorn(points, image_01, rng=np.random.default_rng(44))

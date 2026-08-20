@@ -39,8 +39,8 @@ GROUPS = [
     ["sdedit"],                                          # inference-based
 ]
 COL_LABELS = {
-    "Target": "Target", "vanilla": "VANILLA", "unfrozen": "UNFROZEN",
-    "gecco": "GECCO", "agi": "GATED", "full": "FULL", "sdedit": "SDEdit",
+    "Target": "Target", "vanilla": "Vanilla", "unfrozen": "Unfrozen",
+    "gecco": "GECCO", "agi": "Gated", "full": "Full", "sdedit": "SDEdit",
 }
 
 # Which samples to show, as split_index values from selection.json. None -> all stage-1 samples.

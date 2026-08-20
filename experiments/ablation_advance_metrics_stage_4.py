@@ -40,6 +40,14 @@ RESULT_DIR_LIST = [
     "full",
     "sdedit",
 ]
+DIR_TO_LABEL_MAP = {
+    "vanilla": "Vanilla",
+    "unfrozen": "Unfrozen",
+    "gecco": "GECCO",
+    "agi": "Gated",
+    "full": "Full",
+    "sdedit": "SDEdit",
+}
 
 
 # Default folders
@@ -58,7 +66,8 @@ FIG_DPI = 100
 METRIC_ORDER = [
     "M1_cvt_energy",
     # "M2_voronoi_mass_cv",
-    "M2_v2_power_cell_cap_cv",
+    # "M2_v2_power_cell_cap_cv",
+    "M2_v3_power_cell_cap_cv_masked",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
@@ -71,7 +80,8 @@ METRIC_LABELS = {
     # or a dict with explicit `title` and `ylabel` fields.
     "M1_cvt_energy": {"title": "M1: CVT Energy", "ylabel": "Energy", "exclude_result_dirs": []},
     # "M2_voronoi_mass_cv": {"title": "M2: Capacity Constraint Fulfillment", "ylabel": "Voronoi Mass", "exclude_result_dirs": []},
-    "M2_v2_power_cell_cap_cv": {"title": "M2: Power Cell", "ylabel": "Power Cell Capacity", "exclude_result_dirs": []},    
+    # "M2_v2_power_cell_cap_cv": {"title": "M2: Power Cell", "ylabel": "Power Cell Capacity", "exclude_result_dirs": []},    
+    "M2_v3_power_cell_cap_cv_masked": {"title": "M2: Power Cell (masked)", "ylabel": "Power Cell Capacity", "exclude_result_dirs": []},
     "M3_emd_distance": {"title": "M3: EMD Distance", "ylabel": "Distance", "exclude_result_dirs": []},
     "M4_sinkhorn_ot_cost": {"title": "M4: Sinkhorn OT Cost", "ylabel": "Cost", "exclude_result_dirs": []},
     "M5_spatial_measure_rho_mean": {"title": "M5: Spatial Measure ρ Mean", "ylabel": "ρ Mean", "exclude_result_dirs": []},
@@ -114,12 +124,10 @@ def load_metrics_for_model(model_dir: Path, metrics_file: str):
 
 
 def write_combined_metrics(out_base: Path, model_metrics: dict):
+    # Data dump keyed by DIRECTORY name. DIR_TO_LABEL_MAP is a display-only map
+    # (plot legends), so it is intentionally NOT applied here.
     combined_path = out_base / METRICS_FILE
-    combined = {
-        model_name: metrics
-        for model_name, metrics in model_metrics.items()
-    }
-    combined_path.write_text(json.dumps(combined, indent=2, sort_keys=True))
+    combined_path.write_text(json.dumps(model_metrics, indent=2, sort_keys=True))
     print(f"Wrote combined metrics to {combined_path}")
 
 
@@ -138,16 +146,14 @@ def make_plots(out_base: Path, model_names, metrics_file, fig_width_px: int, fig
 
     write_combined_metrics(out_base, model_metrics)
 
-    # Create consistent color mapping across runs (keep mapping stable)
+    # Consistent color PER MODEL, keyed by directory name and ordered by RESULT_DIR_LIST,
+    # so e.g. vanilla keeps the same color across every plot. Labels never affect color.
     colors = plt.cm.tab10.colors
-    color_map = {}
-    for idx, name in enumerate(RESULT_DIR_LIST):
-        color_map[name] = colors[idx % len(colors)]
-    # assign colors for any additional models not in RESULT_DIR_LIST
+    color_map = {name: colors[idx % len(colors)] for idx, name in enumerate(RESULT_DIR_LIST)}
     next_idx = len(RESULT_DIR_LIST)
-    for m in model_metrics.keys():
-        if m not in color_map:
-            color_map[m] = colors[next_idx % len(colors)]
+    for name in model_metrics:
+        if name not in color_map:
+            color_map[name] = colors[next_idx % len(colors)]
             next_idx += 1
 
     plots_dir = out_base / "plots"
@@ -162,20 +168,20 @@ def make_plots(out_base: Path, model_names, metrics_file, fig_width_px: int, fig
         metric_include = metric_cfg.get("include_result_dirs", []) if isinstance(metric_cfg, dict) else []
         metric_exclude = metric_cfg.get("exclude_result_dirs", []) if isinstance(metric_cfg, dict) else []
 
-        for mname in model_names:
-            if mname not in model_metrics:
+        for name in model_names:                       # name = the directory (data lookup key)
+            if name not in model_metrics:
                 continue
-            if metric_include and mname not in metric_include:
+            if metric_include and name not in metric_include:
                 continue
-            if metric_exclude and mname in metric_exclude:
+            if metric_exclude and name in metric_exclude:
                 continue
-            metrics = model_metrics[mname]
-            series = metrics.get(metric, {})
+            series = model_metrics[name].get(metric, {})
             if not series:
                 continue
             epochs = np.array(sorted(series.keys()), dtype=int)
             values = np.array([series[e] for e in epochs], dtype=float)
-            ax.plot(epochs, values, label=mname, color=color_map.get(mname))
+            label = DIR_TO_LABEL_MAP.get(name, name)   # DIR_TO_LABEL_MAP: legend text ONLY
+            ax.plot(epochs, values, label=label, color=color_map.get(name))
 
         lab = METRIC_LABELS.get(metric, None)
         if isinstance(lab, dict):
