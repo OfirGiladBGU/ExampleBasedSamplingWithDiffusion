@@ -52,7 +52,7 @@ SHOW_COLORBAR = True
 CAPACITY_IGNORE_WHITE = True
 HAS_MPL = True
 ENABLE_ADAPTIVE_SAMPLING_DENSITY_MAP = False
-MC_APPROX = True
+MC_APPROX = False  # exact/deterministic quadrature; set True for the legacy estimator
 
 # ---------------------------------------------------------------------------
 # Layout flags for visualize_compare_panel
@@ -134,7 +134,7 @@ def sanitize_name(name: str) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
 
 
-def collect_outputs(input_image_path: str, compare_list, out_base: str, mc_approx: bool = True):
+def collect_outputs(input_image_path: str, compare_list, out_base: str, mc_approx: bool = False):
     input_path = Path(input_image_path)
     stem = input_path.stem
     # New behavior: rebuild visuals and metrics from the provided prediction images.
@@ -238,7 +238,7 @@ def _serialize_advanced_metrics(metrics_dict):
         "M1_cvt_energy",
         "M2_voronoi_mass_cv",
         "M2_v2_power_cell_cap_cv",
-        "M2_v3_power_cell_cap_cv_masked",
+        "M2_v3_cap_capacity_delta_c",
         "M3_emd_distance",
         "M4_sinkhorn_ot_cost",
         "M5_spatial_measure_rho_mean",

@@ -46,11 +46,12 @@ METRIC_ORDER = [
     "M1_cvt_energy",
     "M2_voronoi_mass_cv",
     "M2_v2_power_cell_cap_cv",
-    "M2_v3_power_cell_cap_cv_masked",
+    "M2_v3_cap_capacity_delta_c",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
 ]
+MC_APPROX = False  # default to exact/deterministic quadrature for M1-M5
 
 
 def parse_args():
@@ -76,8 +77,8 @@ def parse_args():
     p.add_argument(
         "--mc-approx",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Use Monte Carlo approximation for advanced metrics (default: True)",
+        default=MC_APPROX,
+        help="Use the legacy Monte Carlo approximation for the advanced metrics. Default is now exact/deterministic quadrature; pass --mc-approx only to reproduce previously published approximate numbers.",
     )
     p.add_argument(
         "--dry-run",
@@ -210,7 +211,7 @@ def serialize_metrics(metrics):
     return ordered
 
 
-def process_images(target_folder, source_folder, output_folder, mc_approx=True, dry_run=False, points_source="npy"):
+def process_images(target_folder, source_folder, output_folder, mc_approx=False, dry_run=False, points_source="npy"):
     """Score every target dot image against its matching grayscale source density."""
     target_path = Path(target_folder)
     source_path_dir = Path(source_folder)

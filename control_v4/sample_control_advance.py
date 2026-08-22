@@ -64,7 +64,7 @@ COMPARE_IMAGE_LIST = [
     {"ControlNet": 0},
 ]
 CLIP_TO_DOMAIN = True
-MC_APPROX = True
+MC_APPROX = False  # exact/deterministic quadrature; True = legacy estimator
 
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_data/sample_with_GT_GBN/original/gradient0deg.png"
 # COMPARE_IMAGE_LIST = [
@@ -73,7 +73,7 @@ MC_APPROX = True
 #     {"ControlNet": 0},
 # ]
 # CLIP_TO_DOMAIN = False
-# MC_APPROX = True
+# MC_APPROX = False
 
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/source/quadratic_density_gradient.png"
 # COMPARE_IMAGE_LIST = [
@@ -82,7 +82,7 @@ MC_APPROX = True
 #     {"ControlNet": "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic_V2/target_CN_1024/quadratic_density_gradient.png"},
 # ]
 # CLIP_TO_DOMAIN = False
-# MC_APPROX = True
+# MC_APPROX = False
 
 # INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic/source/quadratic_density_gradient.png"
 # COMPARE_IMAGE_LIST = [

@@ -50,6 +50,7 @@ def _format_advanced_text(metrics):
         f"M1 CVT Energy         : {metrics.get('M1_cvt_energy', 0.0):.4f}\n"
         f"M2 Capacity Constraint: {metrics.get('M2_voronoi_mass_cv', 0.0):.4f}\n"
         f"M2v2 Power Cell Cap CV: {metrics.get('M2_v2_power_cell_cap_cv', 0.0):.4f}\n"
+        f"M2v3 Capacity delta_c : {metrics.get('M2_v3_cap_capacity_delta_c', 0.0):.4f}\n"
         f"M3 EMD                : {metrics.get('M3_emd_distance', 0.0):.4f}\n"
         f"M4 Sinkhorn Distance  : {metrics.get('M4_sinkhorn_ot_cost', 0.0):.4f}\n"
         f"M5 Spatial Measure    : {metrics.get('M5_spatial_measure_rho_mean', 0.0):.4f}"
@@ -142,6 +143,20 @@ def _render_advanced_metrics_row(axes_row, points_list, labels, image_01, metric
 
 # ── Advanced Metrics M1-M5 ──────────────────────────────────────────
 
+def _warn_metric_failure(metric, exc):
+    """Announce a swallowed metric failure instead of silently reporting 0.0.
+
+    The handlers below return zeros so long-running callers keep going, but 0.0 is a PERFECT
+    score for every lower-is-better metric here, so a silent failure would bias a batch mean
+    downwards invisibly. `compute_all_advanced_metrics` omits keys instead (see `_collect`);
+    these warnings cover the direct callers that still rely on the zero fallback.
+    """
+    import warnings
+    warnings.warn(f"{metric} failed ({type(exc).__name__}: {exc}); reporting 0.0 for this "
+                  f"sample -- treat it as MISSING, not as a perfect score",
+                  RuntimeWarning, stacklevel=3)
+
+
 def _to_density(image_01):
     """Convert a raw grayscale image (white=1, dark=0) into a target density
     rho(x) where dark regions carry HIGH mass (more stipples).
@@ -156,11 +171,30 @@ def _to_density(image_01):
 
 
 def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
+    """M2_v1 (legacy) -- capacity deviation over VORONOI cells, kept as the original metric.
+
+    Retained deliberately as a backup/continuity column. Note two things when reading it:
+
+    * With mc_approx=True (this function's own default, so standalone callers keep their
+      historical behaviour) it reproduces the previously published numbers exactly, using
+      <=50 bbox-rejection probes per cell. That estimator is noisy and biased high -- on the
+      real Icons-50 outputs it overstates the deviation by roughly 3-8x.
+    * With mc_approx=False it measures the same quantity as
+      `compute_m2_v3_cap_capacity_deviation` with weight_mode="none" -- the two agree to
+      corr = 0.99988 (mean relative difference 2.9%, pure quadrature). Prefer M2_v3 there:
+      it enumerates pixels directly instead of clipping polygons, so it is both exact and
+      faster.
+
+    `compute_all_advanced_metrics` propagates its own `mc_approx` here, so the reported
+    battery is internally consistent.
+    """
     try:
         from scipy.spatial import Voronoi
-        import warnings
-        warnings.filterwarnings("ignore")
 
+        # NOTE: this used to call warnings.filterwarnings("ignore") with no scope, which
+        # permanently silenced EVERY warning in the process as a side effect of computing one
+        # metric -- including numpy/scipy numerical warnings from unrelated code later in the
+        # run. Qhull's chatter is suppressed locally instead.
         if rng is None:
             rng = np.random.default_rng(42)
 
@@ -174,7 +208,10 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
 
         pts_clip = np.clip(points, 1e-6, 1 - 1e-6)
         try:
-            vor = Voronoi(pts_clip)
+            import warnings as _w
+            with _w.catch_warnings():
+                _w.simplefilter("ignore")          # scoped: Qhull chatter only
+                vor = Voronoi(pts_clip)
         except Exception:
             return dict(zero)
 
@@ -222,7 +259,8 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
             "voronoi_mass_std": float(c.std()),
             "voronoi_mass_mean": float(c_star),
         }
-    except Exception:
+    except Exception as exc:
+        _warn_metric_failure("M2_v1 compute_m2_capacity_constraint", exc)
         return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
 
 
@@ -384,90 +422,227 @@ def power_cell_areas_masked_full(pts, weights=None, mask=None):
     return counts / max(len(probe), 1)
 
 
-def _power_cell_cap_cv(points, rng=None, n_probe=48, k=8, mc_approx=True, mask=None):
-    """Shared core for M2_v2 (mask=None) and M2_v3 (mask given). Returns (cap_cv, ratio_std).
+def _power_cell_cap_cv(points, rho, k=8, shortlist=32):
+    """Shared core for M2_v2. Returns (cap_cv, ratio_std).
 
-    Power (Laguerre) cells with weights from the local density lam = k/(pi r_k^2); each cell area
-    is compared to what that density predicts (1/lam) and cap_cv is the squared CV of the ratio
-    (0 = perfect capacity). A `mask` restricts the MC probes to a support region, so the empty
-    background can no longer inflate outline cells (mask forces the MC path).
+    Power (Laguerre) cells with weights from the local spacing (w_i = r_k^2/k); each cell's
+    integrated MASS is compared against the mass that the local density predicts, and cap_cv
+    is the squared CV of that ratio.
+
+    Previously this compared cell AREA rather than mass, which never read rho at all: a black,
+    mid-grey and ramped interior all produced byte-identical scores. It also needed a support
+    mask, because empty background inflated the outline cells' areas (3.26 -> 0.16). Both
+    problems disappear once mass is integrated -- white background carries rho = 0 and so
+    contributes nothing -- which is why the masked variant is gone (see module note on M2_v3).
     """
-    from scipy.spatial import cKDTree
-    eps = 1e-12
     pts = np.asarray(points, dtype=np.float64)
     n = len(pts)
     if n < k + 2:
         return 0.0, 0.0
-    rs = rng if isinstance(rng, np.random.RandomState) else np.random.RandomState(45)
-    tree = cKDTree(pts)
+    from scipy.spatial import cKDTree
+    eps = 1e-12
     k_eff = min(k, n - 1)
-    dists, _ = tree.query(pts, k=k_eff + 1)
-    dk = dists[:, k_eff]
-    lam = k_eff / (np.pi * np.maximum(dk, eps) ** 2)          # local intensity
-    w = (1.0 / np.maximum(lam, eps)) / np.pi                   # r^2-scale weight
+    dk = cKDTree(pts).query(pts, k=k_eff + 1)[0][:, k_eff]
+    lam = k_eff / (np.pi * np.maximum(dk, eps) ** 2)     # local intensity
+    w = (1.0 / np.maximum(lam, eps)) / np.pi             # r^2-scale weight
     w = w - w.mean()
-    if mask is not None:
-        if mc_approx:
-            areas = power_cell_areas(pts, weights=w, n_probe=n_probe, rng=rs, mask=mask)
-        else:
-            areas = power_cell_areas_masked_full(pts, weights=w, mask=mask)
-    elif mc_approx:
-        areas = power_cell_areas(pts, weights=w, n_probe=n_probe, rng=rs)
-    else:
-        areas = power_cell_areas_exact(pts, weights=w)
+
+    masses = _power_cell_masses(pts, rho, w, shortlist=shortlist)
+    total = masses.sum()
+    if total <= eps:
+        return 0.0, 0.0
     expect = 1.0 / np.maximum(lam, eps)
     expect_n = expect / max(expect.sum(), eps)
-    ratio = areas / np.maximum(expect_n, eps)
+    ratio = (masses / total) / np.maximum(expect_n, eps)
     r_star = ratio.mean()
     if r_star < eps:
         return 0.0, 0.0
-    delta = float(np.mean((ratio / r_star - 1.0) ** 2))       # squared CV, like M2 delta_c
+    delta = float(np.mean((ratio / r_star - 1.0) ** 2))
     return float(np.clip(delta, 0, 10)), float(ratio.std())
 
 
-def compute_m2_v2_power_cell(points, image_01=None, rng=None, n_probe=48, k=8, mc_approx=True):
-    """M2_v2 -- capacity via POWER (Laguerre) cells over the FULL [0,1]^2 domain.
+def compute_m2_v2_power_cell(points, image_01=None, k=8, **mc_args):
+    """M2_v2 -- power-cell mass against the LOCALLY predicted mass.
 
-    Weights come from the local density (a point in a dense region owns a smaller cell), and
-    the cell area is compared to the density prediction 1/lam. NOTE: on a bounded stipple this
-    is inflated by outline cells spilling into the empty background -- see the masked M2_v3.
-    """
-    try:
-        cv, std = _power_cell_cap_cv(points, rng=rng, n_probe=n_probe, k=k, mc_approx=mc_approx, mask=None)
-        return {"power_cell_cap_cv": cv, "power_cell_cap_std": std}
-    except Exception:
-        return {"power_cell_cap_cv": 0.0, "power_cell_cap_std": 0.0}
+    Merges the former M2_v2 (unmasked) and M2_v3 (masked) paths. They are provably the same
+    measurement once mass replaces area: across 100 real Icons-50 images x 4 methods, the
+    masked and unmasked values differed by exactly 0.0 (max |diff| = 0.000e+00), because the
+    mask only ever removed pixels whose density was already zero.
 
+    Interpretation, and why this is NOT the capacity metric: the yardstick here is per-point
+    (each cell is judged against its own kNN density estimate), so this quantity is largely a
+    measure of local partition regularity and is a weak discriminator between samplers --
+    across the same 100 images its between-method spread is ~0.23x its within-method scatter.
+    Use `compute_m2_v3_cap_capacity_deviation` for capacity adherence proper (separation 3.2x).
 
-def compute_m2_v3_power_cell_masked(points, image_01=None, rng=None, n_probe=48, k=8,
-                                    mc_approx=True, mask_threshold=MASK_THRESHOLD):
-    """M2_v3 -- masked power-cell capacity: same as M2_v2 but the power-cell probes are restricted
-    to the non-white support of image_01 (pixels < mask_threshold/255), so outline cells no longer
-    spill into the empty background. mask_threshold is a pixel value (0..255); 255 keeps everything
-    except pure white.
-
-    mc_approx=True samples the mask with Monte-Carlo probes; mc_approx=False uses EVERY non-white
-    pixel (deterministic, no sampling noise). Raises ValueError if image_01 is None or the mask is
-    empty (a fully-white image) -- those are misconfigurations, not silently-zero results.
+    `**mc_args` swallows the retired `rng` / `n_probe` / `mc_approx` arguments so old call
+    sites keep working; the computation is now always exact.
     """
     if image_01 is None:
-        raise ValueError("compute_m2_v3_power_cell_masked requires image_01 (source grayscale in "
-                         "[0,1]); got None.")
-    img = np.asarray(image_01, dtype=np.float64)
-    if img.ndim == 3:
-        img = img[..., :3].mean(axis=-1)
-    mask = img < (float(mask_threshold) / 255.0)
-    if not mask.any():
-        raise ValueError(f"compute_m2_v3_power_cell_masked: mask empty (image all >= "
-                         f"{mask_threshold}/255, i.e. pure white); no support to measure.")
-    try:
-        cv, std = _power_cell_cap_cv(points, rng=rng, n_probe=n_probe, k=k, mc_approx=mc_approx, mask=mask)
-        return {"power_cell_cap_cv_masked": cv, "power_cell_cap_std_masked": std}
-    except Exception:
-        return {"power_cell_cap_cv_masked": 0.0, "power_cell_cap_std_masked": 0.0}
+        raise ValueError("compute_m2_v2_power_cell requires image_01 (grayscale in [0,1]); "
+                         "the metric integrates the target density and cannot be computed "
+                         "from points alone.")
+    rho = _to_density(image_01)
+    if rho.sum() <= 1e-12:
+        # A blank target is a misconfiguration, not a perfect score. Raise rather than
+        # return 0.0, matching compute_m2_v3_cap_capacity_deviation; batch callers isolate
+        # this via _collect and simply omit the key.
+        raise ValueError("compute_m2_v2_power_cell: target density carries no mass "
+                         "(pure-white image); there is nothing to distribute.")
+    cv, std = _power_cell_cap_cv(points, rho, k=k)
+    return {"power_cell_cap_cv": cv, "power_cell_cap_std": std}
 
 
-def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.01):
+# ── M2: capacity deviation, per BNOT [de Goes et al. 2012] ───────────────────────
+#
+# The partition is the POWER (Laguerre) diagram already built above -- unchanged. What is
+# measured on it follows BNOT directly:
+#
+#   Eq. (1):  m_i = \int_{V_i^w} rho(x) dx            (mass / "ink" carried by point i)
+#   Sec. 4.4: m   = (1/n) \int_Omega rho(x) dx        (ONE global constant: sum of the
+#                                                      density values times pixel area, / n)
+#   delta_c   = (1/n) sum_i (m_i/m - 1)^2             (squared coefficient of variation)
+#
+# It differs from M2_v2 above in the YARDSTICK, not the partition. M2_v2 judges each cell
+# against its own kNN density estimate (a per-point reference), which makes it largely a
+# local-regularity measure. M2_v3 uses the single global constant m, which is what BNOT
+# actually constrains -- and on 100 real Icons-50 images that is the difference between a
+# metric that separates the samplers (spread 3.2x the within-method scatter) and one that
+# does not (0.23x). See tests/test_m2_capacity.py and experiments/validate_m2_metric.py.
+#
+# Historically BOTH were area-based and never read rho at all, so a black, mid-grey and
+# ramped interior scored identically and a point set ignoring the target could outscore one
+# matching it. Integrating rho fixed that for both.
+#
+# The support mask is deliberately NOT used here. It was a workaround for the area measure,
+# where empty white background inflated outline cells (delta 3.26 -> 0.16). Under the mass
+# integral it is a measured no-op to floating-point equality, because white background has
+# rho = 0 and contributes nothing. Dropping it removes a free parameter (MASK_THRESHOLD)
+# rather than leaving an unjustified one in the metric.
+
+def _power_cell_masses(pts, rho, weights, shortlist=32):
+    """m_i = \\int_{V_i^w} rho dx for every power cell, by exact pixel enumeration.
+
+    Every pixel centre of the domain is assigned to its power-cell owner (the site
+    minimising ||x - x_i||^2 - w_i, exactly the definition in BNOT Sec. 2.3) and contributes
+    rho(pixel) * pixel_area. Deterministic: no Monte-Carlo, which matters because the old
+    Voronoi M2 drew at most 50 bbox-rejection probes per cell and that sampling noise alone
+    inflated delta_c.
+
+    Owner lookup re-ranks a Euclidean k-NN shortlist by power distance (O(m log n)). That is
+    exact for equal weights and for the small weight spreads produced by `_knn_power_weights`;
+    `shortlist` bounds the error for larger spreads.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.asarray(pts, dtype=np.float64)
+    rho = np.asarray(rho, dtype=np.float64)
+    n = len(pts)
+    H, W = rho.shape
+    ys, xs = np.mgrid[0:H, 0:W]
+    ys = ys.ravel()
+    xs = xs.ravel()
+    probe = np.stack([(xs + 0.5) / float(W), (ys + 0.5) / float(H)], axis=1)
+    kq = int(min(n, shortlist))
+    dd, ii = cKDTree(pts).query(probe, k=kq)
+    if kq == 1:
+        dd = dd[:, None]
+        ii = ii[:, None]
+    pw = dd ** 2 - np.asarray(weights, dtype=np.float64)[ii]
+    owners = ii[np.arange(len(probe)), np.argmin(pw, axis=1)]
+    pixel_area = 1.0 / float(H * W)
+    return np.bincount(owners, weights=rho[ys, xs], minlength=n).astype(np.float64) * pixel_area
+
+
+def _knn_power_weights(pts, k=8):
+    """Power weights from the local point spacing: w_i = r_k^2 / k, mean-centred.
+
+    Derived from the kNN intensity estimate lambda_i = k / (pi r_k^2) as w_i = (1/lambda_i)/pi,
+    i.e. the weight rule used by the earlier M2_v2 / M2_v3 code path. Weights carry units of
+    length^2, as the power distance requires. Mean-centring is free: the power diagram is
+    invariant to adding a constant to every weight.
+
+    NOT the default -- this rule carries a boundary bias. A point on the edge of the support
+    has neighbours on one side only, so its r_k is inflated and it receives a spuriously large
+    weight. On a perfect lattice over a uniform density (where the true answer is exactly 0)
+    this rule reports delta_c = 5.4e-3, with border points contributing 55% of the error while
+    making up 12% of the set; interior weights have std exactly 0, border weights do not. On
+    icon silhouettes every contour pixel is such a boundary. See `weight_mode="none"`, which
+    is exact on that configuration, and tests/test_m2_capacity.py.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.asarray(pts, dtype=np.float64)
+    n = len(pts)
+    k_eff = int(min(k, n - 1))
+    if k_eff < 1:
+        return np.zeros(n, dtype=np.float64)
+    dk = cKDTree(pts).query(pts, k=k_eff + 1)[0][:, k_eff]
+    w = np.maximum(dk, 1e-12) ** 2 / float(k_eff)
+    return w - w.mean()
+
+
+def compute_m2_v3_cap_capacity_deviation(points, image_01, weight_mode="none", k=8):
+    """M2_v3 -- capacity deviation delta_c on power cells, per BNOT Eq. (1) and Sec. 4.4.
+
+    weight_mode:
+      "none"  (default) w = 0. All weights equal, so the power diagram coincides with the
+              ordinary Voronoi diagram (BNOT Sec. 2.3) and delta_c reduces to Balzer et al.'s
+              capacity deviation verbatim. Exact on the analytic ground truth (a regular
+              lattice over a uniform density scores exactly 0), free of tuning parameters,
+              and free of the boundary bias described in `_knn_power_weights`.
+      "knn"   power weights w_i = r_k^2/k from the local point spacing -- the rule the
+              superseded M2_v2/M2_v3 path used. Tracks "none" within ~15% but is not exact
+              on ground truth; kept for reproducing the earlier cell model.
+
+    A note for interpreting the comparison: BNOT SOLVES for weights that equalise its own
+    capacities, reaching a residual of ~1e-12 by construction (BNOT Sec. 4.2). Those weights
+    are part of BNOT's output, and WVS / GBN / a learned sampler produce none. Scoring each
+    method under its own optimal weights would therefore compare a different quantity per
+    column, and measurably washes out the differences the metric exists to show. This function
+    applies one disclosed rule identically to every method; BNOT's number must be read with
+    the caveat that it is not the partition BNOT optimises.
+
+    Returns delta_c, the raw std of the cell masses, and the global mean capacity m.
+    """
+    zero = {"capacity_delta_c": 0.0, "capacity_std": 0.0, "capacity_mean": 0.0}
+    pts = np.asarray(points, dtype=np.float64)
+    n = len(pts)
+    if n < 3:
+        return dict(zero)
+    rho = _to_density(image_01)
+    if rho.ndim != 2:
+        raise ValueError(f"compute_m2_v3_cap_capacity_deviation: expected a 2-D density, got {rho.shape}")
+    if rho.sum() <= 1e-12:
+        raise ValueError("compute_m2_v3_cap_capacity_deviation: target density carries no mass "
+                         "(pure-white image); there is nothing to distribute.")
+
+    if weight_mode == "knn":
+        w = _knn_power_weights(pts, k=k)
+    elif weight_mode == "none":
+        w = np.zeros(n, dtype=np.float64)
+    else:
+        raise ValueError(f"weight_mode must be 'knn' or 'none'; got {weight_mode!r}")
+
+    m = _power_cell_masses(pts, rho, w)
+    # The cells partition the domain, so mean(m_i) == (1/n) * total mass == BNOT's m (Sec. 4.4).
+    m_bar = m.mean()
+    if m_bar <= 1e-15:
+        return dict(zero)
+    delta_c = float(np.mean((m / m_bar - 1.0) ** 2))
+    return {
+        "capacity_delta_c": float(np.clip(delta_c, 0, 10)),
+        "capacity_std": float(m.std()),
+        "capacity_mean": float(m_bar),
+    }
+
+
+def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.01,
+                        mc_approx=False, **mc_args):
+    """M4 -- entropy-regularised Sinkhorn distance to the target density.
+
+    Exact and deterministic by default: the target is built by mass-preserving block
+    coarsening. Set mc_approx=True for the legacy estimator (10k random draws with
+    probability proportional to rho, uniform weights), which depends on `rng`.
+    """
     try:
         import ot
         if rng is None:
@@ -481,23 +656,37 @@ def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.0
         H, W = image_01.shape
         if N == 0:
             return {"sinkhorn_ot_cost": 0.0, "sinkhorn_transport_cost": 0.0}
-        yy, xx = np.mgrid[0:H, 0:W]
-        grid_points = np.column_stack([(xx.ravel() + 0.5) / W, (yy.ravel() + 0.5) / H])
-        density_weights = target_density.ravel() / (target_density.sum() + 1e-8)
-        density_weights = np.maximum(density_weights, 1e-10)
-        density_weights /= density_weights.sum()
-        if len(grid_points) > 10000:
-            idx = rng.choice(len(grid_points), 10000, p=density_weights)
-            target_pts = grid_points[idx]
-            target_w = np.ones(len(target_pts)) / len(target_pts)
+        if mc_approx:
+            # Legacy estimator: 10k random draws with p ~ rho, then uniform weights.
+            yy, xx = np.mgrid[0:H, 0:W]
+            grid_points = np.column_stack([(xx.ravel() + 0.5) / W, (yy.ravel() + 0.5) / H])
+            density_weights = target_density.ravel() / (target_density.sum() + 1e-8)
+            density_weights = np.maximum(density_weights, 1e-10)
+            density_weights /= density_weights.sum()
+            if len(grid_points) > 10000:
+                idx = rng.choice(len(grid_points), 10000, p=density_weights)
+                target_pts = grid_points[idx]
+                target_w = np.ones(len(target_pts)) / len(target_pts)
+            else:
+                target_pts = grid_points
+                target_w = density_weights
         else:
-            target_pts = grid_points
-            target_w = density_weights
+            # Deterministic mass-preserving quadrature.
+            target_pts, target_mass = _coarsen_density(target_density, budget=8000)
+            target_w = target_mass / target_mass.sum()
         source_w = np.ones(N) / N
         # W_2-consistent ground cost: squared Euclidean.
         M = ot.dist(points, target_pts, metric="sqeuclidean")
         try:
-            P = ot.sinkhorn(source_w, target_w, M, reg=reg, numItermax=200)
+            # numItermax was 200, which tripped POT's "did not converge" warning on ~73% of
+            # real samples. That warning was previously invisible because M2_v1 globally
+            # disabled warnings as a side effect. It is not an accuracy problem: at 200
+            # iterations the plan already matches its marginals to ~2e-16 (source) and ~1e-7
+            # (target), and the reported cost is identical to 6 decimals at 200, 2000 and
+            # 50000 iterations, and under log-domain stabilisation. 2000 clears POT's
+            # iteration-delta threshold for ~0.1s more per call, so the run log stays clean
+            # and a genuine warning is not lost in the noise.
+            P = ot.sinkhorn(source_w, target_w, M, reg=reg, numItermax=2000)
             transport_cost = float(np.sum(P * M))
             # d_lambda = <P, M> - lambda * H(P), with H(P) = -sum P log P
             # (Cuturi 2013). lambda is the regularization weight `reg`.
@@ -516,7 +705,8 @@ def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.0
             "sinkhorn_transport_cost": float(np.clip(transport_cost, 0, 100)),
             "sinkhorn_d_lambda": float(np.clip(d_lambda, -100, 100)),
         }
-    except Exception:
+    except Exception as exc:
+        _warn_metric_failure("M4 compute_m4_sinkhorn", exc)
         return {"sinkhorn_ot_cost": 0.0, "sinkhorn_transport_cost": 0.0}
 
 
@@ -577,7 +767,49 @@ def compute_m5_spatial_measure(points, image_01):
         }
 
 
-def compute_m1_cvt_energy(points, image_01, rng=None, mc_approx=True):
+# ── Deterministic quadrature shared by M1/M3/M4 ──────────────────────────────────
+#
+# The metrics used to approximate the continuous target by drawing a few thousand random
+# grid points with probability proportional to rho and then giving them UNIFORM weights.
+# That is unbiased but noisy and irreproducible across seeds. Worse, the non-random
+# ("exact") branch of M3 kept the uniform weights while switching to a REGULAR stride
+# subsample, so rho was silently dropped and the metric measured transport to a uniform
+# rectangle -- a ~14x error on real icons.
+#
+# Both are replaced by mass-preserving block coarsening: sum rho over b x b pixel blocks
+# and place the total at the block centre. Total mass is preserved exactly, the result is
+# deterministic, and empty blocks (rho = 0 background) drop out for free.
+
+def _coarsen_density(rho, budget=8000):
+    """Block-sum `rho` down to at most `budget` non-empty cells.
+
+    Returns (centres, masses) with centres in [0,1]^2 and masses summing to the total mass
+    of `rho` times the pixel area, i.e. \\int rho dx. Empty cells are dropped.
+    """
+    rho = np.asarray(rho, dtype=np.float64)
+    H, W = rho.shape
+    pixel_area = 1.0 / float(H * W)
+    for b in (1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64):
+        Hc = int(np.ceil(H / b))
+        Wc = int(np.ceil(W / b))
+        pad = np.zeros((Hc * b, Wc * b), dtype=np.float64)
+        pad[:H, :W] = rho
+        blocks = pad.reshape(Hc, b, Wc, b).sum(axis=(1, 3)) * pixel_area
+        nz = blocks > 0
+        if int(nz.sum()) <= budget or b == 64:
+            iy, ix = np.nonzero(nz)
+            # centre of each block, in image coordinates, clipped to the true image extent
+            cx = np.minimum((ix + 0.5) * b, W) / float(W)
+            cy = np.minimum((iy + 0.5) * b, H) / float(H)
+            return np.stack([cx, cy], axis=1), blocks[iy, ix]
+    raise AssertionError("unreachable")
+
+
+def _cvt_energy_mc(points, image_01, rng=None):
+    """Legacy Monte-Carlo CVT energy: scipy Voronoi, polygons clipped to the unit
+    square, <=50 bbox-rejection probes per cell. Retained so the previously published
+    approximate numbers can be reproduced; `compute_m1_cvt_energy` is exact by default.
+    """
     try:
         from scipy.spatial import Voronoi
         if rng is None:
@@ -601,14 +833,14 @@ def compute_m1_cvt_energy(points, image_01, rng=None, mc_approx=True):
                 if poly.shape[0] < 3:
                     continue
                 point = points[pt_idx]
-                sample = _polygon_sample_points(poly, (H, W), mc_approx=mc_approx, rng=rng)
+                sample = _polygon_sample_points(poly, (H, W), mc_approx=True, rng=rng)
                 if sample is None:
                     continue
                 points_inside, px, py = sample
                 area = _polygon_area(poly)
                 n_in = len(points_inside)
                 dist_sq = (points_inside[:, 0] - point[0]) ** 2 + (points_inside[:, 1] - point[1]) ** 2
-                if mc_approx:
+                if True:
                     # MC estimate of  integral_cell rho * ||x - s||^2 dx
                     # = area * mean( rho(x) * ||x - s||^2 ) over uniform samples.
                     contrib = area * float(np.mean(rho[py, px] * dist_sq)) if n_in > 0 else 0.0
@@ -619,13 +851,62 @@ def compute_m1_cvt_energy(points, image_01, rng=None, mc_approx=True):
             except Exception:
                 continue
         return {"cvt_energy": float(np.clip(total_energy, 0, 1000))}
-    except Exception:
+    except Exception as exc:
+        _warn_metric_failure("M1 compute_m1_cvt_energy", exc)
         return {"cvt_energy": 0.0}
 
 
-def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_approx=True):
+
+def compute_m1_cvt_energy(points, image_01, rng=None, mc_approx=False, **mc_args):
+    """M1 -- density-weighted CVT energy, E = sum_i \\int_{V_i} rho(x) ||x - s_i||^2 dx.
+
+    Computed exactly by pixel quadrature: a Voronoi cell is by definition the set of points
+    closest to its site, so assigning every pixel to its nearest site and accumulating
+    rho * ||x - s||^2 * pixel_area evaluates the integral directly. This replaces the former
+    scipy-Voronoi + polygon-clipping + per-cell Monte-Carlo path, which drew at most 50
+    bbox-rejection probes per cell and could silently drop degenerate cells.
+
+    Set mc_approx=True to fall back to `_cvt_energy_mc`, the legacy Monte-Carlo estimator,
+    for reproducing previously published approximate numbers. The default is exact and
+    deterministic, and `rng` then has no effect.
+    """
+    if mc_approx:
+        return _cvt_energy_mc(points, image_01, rng=rng)
+    try:
+        from scipy.spatial import cKDTree
+        pts = np.asarray(points, dtype=np.float64)
+        if len(pts) < 3:
+            return {"cvt_energy": 0.0}
+        rho = _to_density(image_01)
+        H, W = rho.shape
+        ys, xs = np.mgrid[0:H, 0:W]
+        ys, xs = ys.ravel(), xs.ravel()
+        probe = np.stack([(xs + 0.5) / float(W), (ys + 0.5) / float(H)], axis=1)
+        d, _ = cKDTree(pts).query(probe, k=1)
+        energy = float(np.sum(rho[ys, xs] * d ** 2) / float(H * W))
+        return {"cvt_energy": float(np.clip(energy, 0, 1000))}
+    except Exception as exc:
+        _warn_metric_failure("M1 compute_m1_cvt_energy", exc)
+        return {"cvt_energy": 0.0}
+
+
+def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_approx=False, **mc_args):
+    """M3 -- 2-Wasserstein distance from the points to the target density.
+
+    Exact and deterministic by default: the target is built by mass-preserving block
+    coarsening (`_coarsen_density`) and carries real rho weights, so `rng` has no effect.
+
+    Set mc_approx=True for the legacy estimator -- 5000 grid points drawn with probability
+    proportional to rho, then weighted uniformly -- which reproduces the previously
+    published numbers and does depend on `rng`.
+
+    The old non-MC branch is deliberately not reproducible: it took a regular stride
+    subsample but kept uniform weights, discarding rho entirely and measuring transport to
+    a uniform rectangle (~14x error on real icons). That was a bug, not an approximation.
+    """
     try:
         import ot
+        target_mass = None
         N = len(points)
         if N < 2:
             return {"emd_distance": 0.0}
@@ -642,50 +923,114 @@ def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_appro
                 if density_sum <= 1e-12:
                     return {"emd_distance": 0.0}
                 density_weights = density_weights / density_sum
-                if mc_approx and len(grid_points) > 5000:
+                if mc_approx:
+                    # Legacy estimator: draw 5000 grid points with probability proportional
+                    # to rho, then weight them uniformly. Unbiased but seed-dependent.
                     if rng is None:
                         rng = np.random.default_rng(42)
-                    idx = rng.choice(len(grid_points), 5000, replace=False, p=density_weights)
-                    target_points = grid_points[idx]
-                elif len(grid_points) > 20000:
-                    stride = max(1, int(np.ceil(np.sqrt(len(grid_points) / 20000.0))))
-                    target_points = grid_points.reshape(H, W, 2)[::stride, ::stride].reshape(-1, 2)
+                    if len(grid_points) > 5000:
+                        idx = rng.choice(len(grid_points), 5000, replace=False, p=density_weights)
+                        target_points = grid_points[idx]
+                    else:
+                        target_points = grid_points
                 else:
-                    target_points = grid_points
+                    # Mass-preserving deterministic quadrature. NOTE: the old non-MC branch
+                    # took a regular stride subsample but kept UNIFORM weights, silently
+                    # discarding rho and measuring transport to a uniform rectangle (~14x
+                    # error on real icons). It is not reproducible here because it was a bug,
+                    # not a valid approximation of this quantity.
+                    target_points, target_mass = _coarsen_density(rho, budget=8000)
         if len(target_points) == 0:
             return {"emd_distance": 0.0}
         # W_2 uses squared-Euclidean ground cost; the distance is the sqrt of
         # the optimal transport cost.  (metric="euclidean" would give W_1.)
         M = ot.dist(points, target_points, metric="sqeuclidean")
         source_w = np.ones(len(points)) / len(points)
-        target_w = np.ones(len(target_points)) / len(target_points)
+        if target_mass is None:
+            target_w = np.ones(len(target_points)) / len(target_points)
+        else:
+            target_w = target_mass / target_mass.sum()
         try:
-            cost = ot.emd2(source_w, target_w, M)
+            # POT's default numItermax (100k) is enough for well-formed stipple outputs but
+            # not for point sets far from the target -- exactly what an early-epoch ablation
+            # checkpoint produces. There the network simplex stops early and overstates the
+            # distance by ~0.5% (0.199177 vs the converged 0.198118) while warning. 1e6
+            # converges those cases for ~0.5s more and leaves normal inputs untouched.
+            cost = ot.emd2(source_w, target_w, M, numItermax=1_000_000)
             emd = float(np.sqrt(max(cost, 0.0)))
         except Exception:
             emd = 0.0
         return {"emd_distance": float(np.clip(emd, 0, 100))}
-    except Exception:
+    except Exception as exc:
+        _warn_metric_failure("M3 compute_m3_emd", exc)
         return {"emd_distance": 0.0}
 
 
-def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_approx=True):
+def _collect(result, prefix, fn, *args, **kwargs):
+    """Run one metric and merge its keys under `prefix`, isolating failures.
+
+    M2_v2 and M2_v3 raise on a misconfigured input (no image, or a target carrying no mass)
+    rather than silently reporting a perfect 0.0. That is the right behaviour for a single
+    call, but a batch scorer must not lose an entire sample -- or an entire multi-hour run --
+    because one image is degenerate. On failure we emit a warning and OMIT this metric's keys.
+
+    Omitting rather than substituting 0.0 or NaN is deliberate: downstream aggregation skips
+    absent keys, so a bad sample lowers that metric's `count` (visible in the summary) instead
+    of quietly biasing its mean.
+    """
+    import warnings
+    try:
+        out = fn(*args, **kwargs)
+    except Exception as exc:
+        warnings.warn(
+            f"{fn.__name__} failed ({type(exc).__name__}: {exc}); omitting {prefix}* keys "
+            f"for this sample",
+            RuntimeWarning, stacklevel=2,
+        )
+        return
+
+    # Drop non-finite values for the same reason failures are dropped. NaN/inf reach here
+    # when the scored point set itself contains them -- an undertrained checkpoint can emit
+    # NaN coordinates -- and a NaN written to JSON silently turns that epoch's mean into NaN
+    # during aggregation. Omitting instead lowers the metric's `count`, which is visible.
+    clean, dropped = {}, []
+    for k, v in out.items():
+        try:
+            finite = np.isfinite(v)
+        except TypeError:
+            finite = True                     # non-numeric payloads pass through untouched
+        if finite:
+            clean[f"{prefix}{k}"] = v
+        else:
+            dropped.append(f"{prefix}{k}")
+    if dropped:
+        warnings.warn(
+            f"{fn.__name__} returned non-finite values for {', '.join(dropped)}; omitting them "
+            f"for this sample (usually a NaN/inf in the input point set)",
+            RuntimeWarning, stacklevel=2,
+        )
+    result.update(clean)
+
+
+def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_approx=False):
+    """Run the full M1-M5 battery. Exact and deterministic unless mc_approx=True.
+
+    Individual metric failures are isolated (see `_collect`): the remaining metrics are still
+    reported, and the caller can detect the gap because the key is absent.
+    """
     result = {}
 
-    m1 = compute_m1_cvt_energy(points, image_01, rng=np.random.default_rng(41), mc_approx=mc_approx)
-    result.update({f"M1_{k}": v for k, v in m1.items()})
-    m2 = compute_m2_capacity_constraint(points, image_01, rng=np.random.default_rng(42), mc_approx=mc_approx)
-    result.update({f"M2_{k}": v for k, v in m2.items()})
-    m2v2 = compute_m2_v2_power_cell(points, image_01, rng=np.random.RandomState(45), mc_approx=mc_approx)
-    result.update({f"M2_v2_{k}": v for k, v in m2v2.items()})
-    m2v3 = compute_m2_v3_power_cell_masked(points, image_01, rng=np.random.RandomState(45), mc_approx=mc_approx)
-    result.update({f"M2_v3_{k}": v for k, v in m2v3.items()})
-    m3 = compute_m3_emd(points, None, image_01, rng=np.random.default_rng(43), mc_approx=mc_approx)
-    result.update({f"M3_{k}": v for k, v in m3.items()})
-    m4 = compute_m4_sinkhorn(points, image_01, rng=np.random.default_rng(44))
-    result.update({f"M4_{k}": v for k, v in m4.items()})
-    m5 = compute_m5_spatial_measure(points, image_01)
-    result.update({f"M5_{k}": v for k, v in m5.items()})
+    _collect(result, "M1_", compute_m1_cvt_energy, points, image_01,
+             rng=np.random.default_rng(41), mc_approx=mc_approx)
+    _collect(result, "M2_", compute_m2_capacity_constraint, points, image_01,
+             rng=np.random.default_rng(42), mc_approx=mc_approx)
+    _collect(result, "M2_v2_", compute_m2_v2_power_cell, points, image_01)
+    _collect(result, "M2_v3_cap_", compute_m2_v3_cap_capacity_deviation, points, image_01)
+    _collect(result, "M3_", compute_m3_emd, points, None, image_01,
+             rng=np.random.default_rng(43), mc_approx=mc_approx)
+    _collect(result, "M4_", compute_m4_sinkhorn, points, image_01,
+             rng=np.random.default_rng(44), mc_approx=mc_approx)
+    _collect(result, "M5_", compute_m5_spatial_measure, points, image_01)
     return result
 
 

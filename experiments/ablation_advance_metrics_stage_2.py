@@ -118,13 +118,14 @@ METRIC_ORDER = [
     "M1_cvt_energy",
     "M2_voronoi_mass_cv",
     "M2_v2_power_cell_cap_cv",
-    "M2_v3_power_cell_cap_cv_masked",
+    "M2_v3_cap_capacity_delta_c",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
     "M6_minsnr_loss",
     "M6_v2_minsnr_kde_loss",
 ]
+MC_APPROX = False
 
 
 def parse_args():
@@ -151,7 +152,8 @@ def parse_args():
                         help="KDE map resolution for the M6_v2 density-match term")
     parser.add_argument("--density-kde-sigma-px", type=float, default=DENSITY_KDE_SIGMA_PX,
                         help="Gaussian sigma (in KDE-grid pixels) for the M6_v2 density-match term")
-    parser.add_argument("--mc-approx", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--mc-approx", action=argparse.BooleanOptionalAction, default=MC_APPROX,
+                        help="Use the legacy Monte Carlo approximation for the advanced metrics. Default is now exact/deterministic quadrature; pass --mc-approx only to reproduce previously published approximate numbers.")
     parser.add_argument("--samples-per-image", type=int, default=1,
                         help="Number of MinSNR timestep samples per validation image (MC approximation)")
     parser.add_argument("--timestep-file", type=str, default=None,
@@ -483,20 +485,27 @@ def score_epoch_dir(epoch_dir, output_epoch_dir, val_names, source_backup_dir, t
             continue
 
         print(f"epoch {epoch_id} image {idx}: {name}", flush=True)
-        pred_points = load_pointset(pred_path)
-        advanced_metrics = compute_all_advanced_metrics(
-            pred_points,
-            source_img.astype(np.float64) / 255.0,
-            mc_approx=args.mc_approx,
-        )
-        payload = serialize_metrics(advanced_metrics)
-        ts = None
-        if timesteps_map is not None:
-            ts = timesteps_map.get(name)
-        minsnr_loss = compute_minsnr_proxy(pred_points, target_img, diffusion, args, timesteps=ts)
-        kde_loss = compute_kde_proxy(pred_points, target_img, args)
-        payload["M6_minsnr_loss"] = minsnr_loss
-        payload["M6_v2_minsnr_kde_loss"] = minsnr_loss + kde_loss
+        # Scoring one image must never abort the sweep: a run covers every variant x epoch x
+        # image, so a single degenerate sample would otherwise throw away hours of work.
+        try:
+            pred_points = load_pointset(pred_path)
+            advanced_metrics = compute_all_advanced_metrics(
+                pred_points,
+                source_img.astype(np.float64) / 255.0,
+                mc_approx=args.mc_approx,
+            )
+            payload = serialize_metrics(advanced_metrics)
+            ts = None
+            if timesteps_map is not None:
+                ts = timesteps_map.get(name)
+            minsnr_loss = compute_minsnr_proxy(pred_points, target_img, diffusion, args, timesteps=ts)
+            kde_loss = compute_kde_proxy(pred_points, target_img, args)
+            payload["M6_minsnr_loss"] = minsnr_loss
+            payload["M6_v2_minsnr_kde_loss"] = minsnr_loss + kde_loss
+        except Exception as exc:
+            print(f"epoch {epoch_id} image {idx}: FAILED ({type(exc).__name__}: {exc}) -- skipping",
+                  flush=True)
+            continue
 
         out_json = output_epoch_dir / f"{stem}.json"
         out_json.write_text(json.dumps(payload, indent=2))
