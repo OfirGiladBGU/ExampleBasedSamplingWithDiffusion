@@ -5,6 +5,15 @@ from collections import defaultdict
 from pathlib import Path
 
 
+# Compact figure size (inches). The component plot keeps an outside legend so it is a
+# little wider than the txt plots, but far narrower than before.
+FIG_WIDTH = 11.5
+FIG_HEIGHT = 4.5
+# Components whose time stays below this (seconds) at every grid size are merged into a
+# single summed "Others" line, so only the interesting high-time model blocks stand out.
+MERGE_THRESHOLD = 1.0
+
+
 # Toggle this between "grid" and "points"
 DEFAULT_X_AXIS_MODE = "grid" 
 
@@ -122,7 +131,7 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
     if x_mode == "grid":
         # Standard categorical spacing needs less horizontal room
         fig_width = max(10, len(grid_sizes) * 2.5)
-        fig, ax = plt.subplots(figsize=(fig_width, base_height), dpi=150)
+        fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         
         x = grid_sizes  
         ax.set_xlabel('Grid Size Resolution', fontsize=12, fontweight='bold')
@@ -133,7 +142,7 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
     elif x_mode == "points":
         # Proportional spacing requires a wider canvas to stretch the lower values apart
         fig_width = max(10, len(grid_sizes) * 3.5)
-        fig, ax = plt.subplots(figsize=(fig_width, base_height), dpi=150)
+        fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         
         x = [g**2 for g in grid_sizes]  
         ax.set_xlabel('Number of Points (Grid Size × Grid Size)', fontsize=12, fontweight='bold')
@@ -149,28 +158,41 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
     # --- 3. Plotting Logic ---
     sorted_keys = sorted(data_history.keys())
     
+    # Merge the many small, near-constant components (max < MERGE_THRESHOLD s) into ONE
+    # summed "Others" line, so only the high-time blocks (the model blocks) stand out.
+    others = None
+    others_count = 0
+    significant = []
     for key in sorted_keys:
         if key == "p_mean_variance.model_forward":
-            continue  # Skip this key if it exists, as it's not a direct forward time
-        
+            continue  # not a direct forward time
         y_values = data_history[key]
-        
         if len(y_values) != len(grid_sizes) or sum(y_values) <= 1e-6:
             continue
-            
+        if max(y_values) < MERGE_THRESHOLD:
+            others = list(y_values) if others is None else [a + b for a, b in zip(others, y_values)]
+            others_count += 1
+        else:
+            significant.append((key, y_values))
+
+    for key, y_values in significant:
         is_macro = "total" in key or key in ["model_forward", "unet_forward"]
-        linewidth = 3.5 if is_macro else 1.5
-        linestyle = '--' if is_macro else '-'
-        alpha = 1.0 if is_macro else 0.75
-        
-        ax.plot(x, y_values, marker='o', markersize=6, 
-                linewidth=linewidth, linestyle=linestyle, alpha=alpha, label=key)
+        ax.plot(x, y_values, marker='o', markersize=6,
+                linewidth=3.5 if is_macro else 1.5,
+                linestyle='--' if is_macro else '-',
+                alpha=1.0 if is_macro else 0.75, label=key)
+
+    if others is not None:
+        ax.plot(x, others, marker='s', markersize=6, linewidth=1.8, linestyle=':',
+                alpha=0.9, color='gray',
+                # label=f"others (< {MERGE_THRESHOLD:g}s each, sum of {others_count})")
+                label=f"others (< {MERGE_THRESHOLD:g}s each)")
 
     # --- 4. Formatting ---
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=11, rotation=rotation, ha=ha)
+    ax.set_xticklabels(labels, fontsize=9, rotation=30, ha='right')
     
-    ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=9, ncol=2)
+    ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=9, ncol=1)
     
     ax.grid(True, which="major", ls="-", alpha=0.5)
     ax.grid(True, which="minor", ls=":", alpha=0.3)

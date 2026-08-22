@@ -4,6 +4,11 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 
+# Compact figure size (inches): small enough to place two plots side-by-side in a paper row.
+FIG_WIDTH = 9.0
+FIG_HEIGHT = 4.0
+
+
 # Toggle this between "grid" and "points"
 DEFAULT_X_AXIS_MODE = "grid" 
 
@@ -185,7 +190,7 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
 
     if x_mode == "grid":
         fig_width = max(10, len(grid_sizes) * 2.5)
-        fig, ax = plt.subplots(figsize=(fig_width, base_height), dpi=150)
+        fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = grid_sizes
         ax.set_xlabel('Grid Size Resolution', fontsize=12, fontweight='bold')
         ax.set_title('CPU Denoising Time by Grid Size', fontsize=15, fontweight='bold')
@@ -194,7 +199,7 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
 
     elif x_mode == "points":
         fig_width = max(10, len(grid_sizes) * 3.5)
-        fig, ax = plt.subplots(figsize=(fig_width, base_height), dpi=150)
+        fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = [g**2 for g in grid_sizes]
         ax.set_xlabel('Number of Points (Grid Size × Grid Size)', fontsize=12, fontweight='bold')
         ax.set_title('CPU Denoising Time by Point Count', fontsize=15, fontweight='bold')
@@ -212,7 +217,7 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
 
     # Formatting
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=11, rotation=rotation, ha=ha)
+    ax.set_xticklabels(labels, fontsize=9, rotation=30, ha='right')
     ax.legend(fontsize=11, loc='upper left')
     ax.grid(True, which="major", ls="-", alpha=0.5)
     ax.grid(True, which="minor", ls=":", alpha=0.3)
@@ -259,7 +264,7 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
 
     if x_mode == "grid":
         fig_width = max(10, len(grid_sizes) * 2.5)
-        fig, ax = plt.subplots(figsize=(fig_width, base_height), dpi=150)
+        fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = grid_sizes
         ax.set_xlabel('Grid Size Resolution', fontsize=12, fontweight='bold')
         ax.set_title('GPU Profiler Times by Grid Size', fontsize=15, fontweight='bold')
@@ -268,7 +273,7 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
 
     elif x_mode == "points":
         fig_width = max(10, len(grid_sizes) * 3.5)
-        fig, ax = plt.subplots(figsize=(fig_width, base_height), dpi=150)
+        fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = [g**2 for g in grid_sizes]
         ax.set_xlabel('Number of Points (Grid Size × Grid Size)', fontsize=12, fontweight='bold')
         ax.set_title('GPU Profiler Times by Point Count', fontsize=15, fontweight='bold')
@@ -293,7 +298,7 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
 
     # Formatting
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=11, rotation=rotation, ha=ha)
+    ax.set_xticklabels(labels, fontsize=9, rotation=30, ha='right')
     ax.legend(fontsize=11, loc='upper left')
     ax.grid(True, which="major", ls="-", alpha=0.5)
     ax.grid(True, which="minor", ls=":", alpha=0.3)
