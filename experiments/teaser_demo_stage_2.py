@@ -66,9 +66,9 @@ def main():
     if cond_path.exists():
         im = plt.imread(str(cond_path))
         if im.ndim == 2:
-            ax_cond.imshow(im, cmap="gray", vmin=0.0, vmax=1.0)
+            ax_cond.imshow(im, cmap="gray", vmin=0.0, vmax=1.0, aspect="equal")
         else:
-            ax_cond.imshow(im)
+            ax_cond.imshow(im, aspect="equal")
     else:
         ax_cond.text(0.5, 0.5, "no condition", ha="center", va="center", color="red", fontsize=8)
     ax_cond.set_xticks([]); ax_cond.set_yticks([])
