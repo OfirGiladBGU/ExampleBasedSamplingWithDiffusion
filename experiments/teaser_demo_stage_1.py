@@ -54,7 +54,9 @@ DISABLE_BG_SUPPRESSION = False  # skip the bg-suppression step of the preprocess
 INVERT_IMAGE = False            # invert pixels after (pre)processing
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
-GRID_SIZE = 32
+# GRID_SIZE = 24
+# GRID_SIZE = 32
+GRID_SIZE = 48
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True
 INFER_TRUNCATION_RATIO = 0.5
