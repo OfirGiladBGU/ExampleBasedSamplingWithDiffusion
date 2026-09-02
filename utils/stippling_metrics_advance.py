@@ -48,7 +48,7 @@ POWER_RESOLUTION = 256
 # ── constants for the shared advanced-metrics row ──────────────────
 _ADV_ROW_HEIGHT_RATIO   = 2.0
 _ADV_ROW_EXTRA_HEIGHT   = 3.5  # inches added to base figure height
-# Masked M2_v3: pixel value (0..255). The mask keeps pixels strictly BELOW this, so 255
+# Masked legacy variant: pixel value (0..255). The mask keeps pixels strictly BELOW this, so 255
 # ignores only PURE-white background when restricting the power-cell probes to the stipple support.
 MASK_THRESHOLD = 255
 
@@ -347,7 +347,7 @@ def _knn_power_weights(pts, k=8):
     """Power weights from the local point spacing: w_i = r_k^2 / k, mean-centred.
 
     Derived from the kNN intensity estimate lambda_i = k / (pi r_k^2) as w_i = (1/lambda_i)/pi,
-    i.e. the weight rule used by the earlier M2_v2 / M2_v3 code path. Weights carry units of
+    i.e. the weight rule used by the M2_v3 code path. Weights carry units of
     length^2, as the power distance requires. Mean-centring is free: the power diagram is
     invariant to adding a constant to every weight.
 
@@ -687,6 +687,13 @@ def solve_power_diagram(points, image_01, resolution=POWER_RESOLUTION, shortlist
     return pd, w, info
 
 
+# How a cell's mass/energy integral is evaluated. "kd_tree" assigns every pixel centre to its
+# owning site (exact, deterministic, fast) and is the default everywhere; "voronoi_polygons"
+# clips scipy Voronoi polygons instead and is retained as an independent cross-check.
+_PARTITIONS = ("kd_tree", "voronoi_polygons")
+PARTITION_DEFAULT = "kd_tree"
+
+
 # ============================================================================
 # M1  -  CVT ENERGY
 # ============================================================================
@@ -738,11 +745,12 @@ def _cvt_energy_mc(points, image_01, rng=None):
                 continue
         return {"cvt_energy": float(np.clip(total_energy, 0, 1000))}
     except Exception as exc:
-        _warn_metric_failure("M1 compute_m1_cvt_energy", exc)
+        _warn_metric_failure("M1_v1 compute_m1_v1_cvt_energy", exc)
         return {"cvt_energy": 0.0}
 
 
-def compute_m1_v1_cvt_energy(points, image_01, rng=None, mc_approx=False, **mc_args):
+def compute_m1_v1_cvt_energy(points, image_01, rng=None, mc_approx=False,
+                             partition=PARTITION_DEFAULT, **mc_args):
     """M1 -- density-weighted CVT energy, E = sum_i \\int_{V_i} rho(x) ||x - s_i||^2 dx.
 
     Computed exactly by pixel quadrature: a Voronoi cell is by definition the set of points
@@ -751,11 +759,18 @@ def compute_m1_v1_cvt_energy(points, image_01, rng=None, mc_approx=False, **mc_a
     scipy-Voronoi + polygon-clipping + per-cell Monte-Carlo path, which drew at most 50
     bbox-rejection probes per cell and could silently drop degenerate cells.
 
-    Set mc_approx=True to fall back to `_cvt_energy_mc`, the legacy Monte-Carlo estimator,
-    for reproducing previously published approximate numbers. The default is exact and
-    deterministic, and `rng` then has no effect.
+    partition selects the backend, mirroring `compute_m2_v1_capacity`:
+      "kd_tree"          (default) the exact pixel quadrature described above.
+      "voronoi_polygons" scipy Voronoi with polygons clipped to the unit square and sampled
+                         per cell. An independent cross-check sharing no code with the above.
+
+    mc_approx=True forces the legacy Monte-Carlo estimator (<=50 probes per cell), which is
+    the polygon route by construction. It exists only to reproduce previously published
+    approximate numbers; `rng` has no effect on the exact path.
     """
-    if mc_approx:
+    if partition not in _PARTITIONS:
+        raise ValueError(f"partition must be one of {sorted(_PARTITIONS)}; got {partition!r}")
+    if mc_approx or partition == "voronoi_polygons":
         return _cvt_energy_mc(points, image_01, rng=rng)
     try:
         from scipy.spatial import cKDTree
@@ -771,7 +786,7 @@ def compute_m1_v1_cvt_energy(points, image_01, rng=None, mc_approx=False, **mc_a
         energy = float(np.sum(rho[ys, xs] * d ** 2) / float(H * W))
         return {"cvt_energy": float(np.clip(energy, 0, 1000))}
     except Exception as exc:
-        _warn_metric_failure("M1 compute_m1_cvt_energy", exc)
+        _warn_metric_failure("M1_v1 compute_m1_v1_cvt_energy", exc)
         return {"cvt_energy": 0.0}
 
 
@@ -779,23 +794,22 @@ def compute_m1_v1_cvt_energy(points, image_01, rng=None, mc_approx=False, **mc_a
 # M2  -  CAPACITY
 # ============================================================================
 
-def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
-    """M2_v1 (legacy) -- capacity deviation over VORONOI cells, kept as the original metric.
+def _capacity_voronoi_polygons(points, image_01, rng=None, mc_approx=False):
+    """Capacity deviation via scipy Voronoi + polygon clipping.
 
-    Retained deliberately as a backup/continuity column. Note two things when reading it:
+    The `voronoi_polygons` backend of `compute_m2_v1_capacity`. Measures exactly the same
+    quantity as the kd_tree backend; only the route to each cell's mass differs. Qhull builds
+    the diagram, cells are clipped to the unit square so they form a true partition of Omega
+    (required for the c* = mean(c_i) identity), and each cell's mass is mean(rho) * area over
+    the pixels inside the polygon.
 
-    * With mc_approx=True (this function's own default, so standalone callers keep their
-      historical behaviour) it reproduces the previously published numbers exactly, using
-      <=50 bbox-rejection probes per cell. That estimator is noisy and biased high -- on the
-      real Icons-50 outputs it overstates the deviation by roughly 3-8x.
-    * With mc_approx=False it measures the same quantity as
-      `compute_m2_v3_cap_capacity_deviation` with weight_mode="none" -- the two agree to
-      corr = 0.99988 (mean relative difference 2.9%, pure quadrature). Prefer M2_v3 there:
-      it enumerates pixels directly instead of clipping polygons, so it is both exact and
-      faster.
+    Kept as an independent cross-check: it shares no code with the kd_tree path, so agreement
+    between the two is real evidence that neither has a geometry bug. It is the slower route
+    and clipping can silently drop degenerate cells, which is why kd_tree is the default.
 
-    `compute_all_advanced_metrics` propagates its own `mc_approx` here, so the reported
-    battery is internally consistent.
+    mc_approx=True restricts each cell to <=50 bbox-rejection probes. That estimator is noisy
+    and biased high -- roughly 3-8x on real outputs -- and exists only to reproduce the
+    previously published approximate numbers.
     """
     try:
         from scipy.spatial import Voronoi
@@ -807,7 +821,7 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
         if rng is None:
             rng = np.random.default_rng(42)
 
-        zero = {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
+        zero = {"capacity_delta_c": 0.0, "capacity_std": 0.0, "capacity_mean": 0.0}
 
         N = len(points)
         if N < 3:
@@ -864,17 +878,42 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
         delta_c = float(np.mean((c / c_star - 1.0) ** 2))
 
         return {
-            "voronoi_mass_cv": float(np.clip(delta_c, 0, 10)),  # squared CV (delta_c)
-            "voronoi_mass_std": float(c.std()),
-            "voronoi_mass_mean": float(c_star),
+            "capacity_delta_c": float(np.clip(delta_c, 0, 10)),  # squared CV (delta_c)
+            "capacity_std": float(c.std()),
+            "capacity_mean": float(c_star),
         }
     except Exception as exc:
-        _warn_metric_failure("M2_v1 compute_m2_capacity_constraint", exc)
-        return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
+        _warn_metric_failure("M2_v1 partition=voronoi_polygons", exc)
+        return {"capacity_delta_c": 0.0, "capacity_std": 0.0, "capacity_mean": 0.0}
 
 
-def compute_m2_v1_capacity(points, image_01, weight_mode="none", k=8):
-    """M2_v3 -- capacity deviation delta_c on power cells, per BNOT Eq. (1) and Sec. 4.4.
+
+def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
+    """Deprecated alias kept for `control_gt_free`, which imports this name.
+
+    Equivalent to compute_m2_v1_capacity(partition="voronoi_polygons"), re-exposing the
+    result under the historical `voronoi_mass_*` keys. The mc_approx=True default preserves
+    the behaviour those callers were written against. New code should call
+    `compute_m2_v1_capacity` directly.
+    """
+    r = _capacity_voronoi_polygons(points, image_01, rng=rng, mc_approx=mc_approx)
+    return {"voronoi_mass_cv": r["capacity_delta_c"],
+            "voronoi_mass_std": r["capacity_std"],
+            "voronoi_mass_mean": r["capacity_mean"]}
+
+
+def compute_m2_v1_capacity(points, image_01, weight_mode="none", k=8,
+                           partition=PARTITION_DEFAULT, rng=None, mc_approx=False):
+    """M2_v1 -- capacity deviation delta_c on power cells, per BNOT Eq. (1) and Sec. 4.4.
+
+    partition selects how each cell's mass is obtained. Both backends measure the SAME
+    quantity and agree to corr = 0.99988 (mean relative difference 2.9%):
+      "kd_tree"          (default) every pixel centre is assigned to its owning site and
+                         contributes rho * pixel_area. Exact, deterministic, fast.
+      "voronoi_polygons" scipy Voronoi with polygons clipped to the unit square. An
+                         independent cross-check sharing no code with the above. Requires
+                         weight_mode="none", since polygon clipping has no notion of power
+                         weights; `rng` and `mc_approx` apply to this backend only.
 
     weight_mode:
       "none"  (default) w = 0. All weights equal, so the power diagram coincides with the
@@ -883,7 +922,7 @@ def compute_m2_v1_capacity(points, image_01, weight_mode="none", k=8):
               lattice over a uniform density scores exactly 0), free of tuning parameters,
               and free of the boundary bias described in `_knn_power_weights`.
       "knn"   power weights w_i = r_k^2/k from the local point spacing -- the rule the
-              superseded M2_v2/M2_v3 path used. Tracks "none" within ~15% but is not exact
+              M2_v3 path uses. Tracks "none" within ~15% but is not exact
               on ground truth; kept for reproducing the earlier cell model.
 
     A note for interpreting the comparison: BNOT SOLVES for weights that equalise its own
@@ -896,6 +935,14 @@ def compute_m2_v1_capacity(points, image_01, weight_mode="none", k=8):
 
     Returns delta_c, the raw std of the cell masses, and the global mean capacity m.
     """
+    if partition not in _PARTITIONS:
+        raise ValueError(f"partition must be one of {sorted(_PARTITIONS)}; got {partition!r}")
+    if partition == "voronoi_polygons":
+        if weight_mode != "none":
+            raise ValueError("partition='voronoi_polygons' supports weight_mode='none' only; "
+                             "polygon clipping cannot represent power weights.")
+        return _capacity_voronoi_polygons(points, image_01, rng=rng, mc_approx=mc_approx)
+
     zero = {"capacity_delta_c": 0.0, "capacity_std": 0.0, "capacity_mean": 0.0}
     pts = np.asarray(points, dtype=np.float64)
     n = len(pts)
@@ -929,7 +976,7 @@ def compute_m2_v1_capacity(points, image_01, weight_mode="none", k=8):
 
 
 def _power_cell_cap_cv(points, rho, k=8, shortlist=32):
-    """Shared core for M2_v2. Returns (cap_cv, ratio_std).
+    """Shared core for M2_v3. Returns (cap_cv, ratio_std).
 
     Power (Laguerre) cells with weights from the local spacing (w_i = r_k^2/k); each cell's
     integrated MASS is compared against the mass that the local density predicts, and cap_cv
@@ -939,7 +986,7 @@ def _power_cell_cap_cv(points, rho, k=8, shortlist=32):
     mid-grey and ramped interior all produced byte-identical scores. It also needed a support
     mask, because empty background inflated the outline cells' areas (3.26 -> 0.16). Both
     problems disappear once mass is integrated -- white background carries rho = 0 and so
-    contributes nothing -- which is why the masked variant is gone (see module note on M2_v3).
+    contributes nothing -- which is why the masked variant is gone (see module note on the masked legacy variant).
     """
     pts = np.asarray(points, dtype=np.float64)
     n = len(pts)
@@ -968,7 +1015,7 @@ def _power_cell_cap_cv(points, rho, k=8, shortlist=32):
 
 
 def compute_m2_v3_knn_power_cell(points, image_01=None, k=8, **mc_args):
-    """M2_v2 -- power-cell mass against the LOCALLY predicted mass.
+    """M2_v3 -- power-cell mass against the LOCALLY predicted mass.
 
     Merges the former M2_v2 (unmasked) and M2_v3 (masked) paths. They are provably the same
     measurement once mass replaces area: across 100 real Icons-50 images x 4 methods, the
@@ -979,7 +1026,7 @@ def compute_m2_v3_knn_power_cell(points, image_01=None, k=8, **mc_args):
     (each cell is judged against its own kNN density estimate), so this quantity is largely a
     measure of local partition regularity and is a weak discriminator between samplers --
     across the same 100 images its between-method spread is ~0.23x its within-method scatter.
-    Use `compute_m2_v3_cap_capacity_deviation` for capacity adherence proper (separation 3.2x).
+    Use `compute_m2_v1_capacity` for capacity adherence proper (separation 3.2x).
 
     `**mc_args` swallows the retired `rng` / `n_probe` / `mc_approx` arguments so old call
     sites keep working; the computation is now always exact.
@@ -991,7 +1038,7 @@ def compute_m2_v3_knn_power_cell(points, image_01=None, k=8, **mc_args):
     rho = _to_density(image_01)
     if rho.sum() <= 1e-12:
         # A blank target is a misconfiguration, not a perfect score. Raise rather than
-        # return 0.0, matching compute_m2_v3_cap_capacity_deviation; batch callers isolate
+        # return 0.0, matching compute_m2_v1_capacity; batch callers isolate
         # this via _collect and simply omit the key.
         raise ValueError("compute_m2_v3_knn_power_cell: target density carries no mass "
                          "(pure-white image); there is nothing to distribute.")
@@ -1315,8 +1362,6 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_appro
 
     _collect(result, "M1_v1_", compute_m1_v1_cvt_energy, points, image_01,
              rng=np.random.default_rng(41), mc_approx=mc_approx)
-    _collect(result, "M2_v0_", compute_m2_capacity_constraint, points, image_01,
-             rng=np.random.default_rng(42), mc_approx=mc_approx)
     _collect(result, "M2_v1_", compute_m2_v1_capacity, points, image_01)
     _collect(result, "M2_v3_", compute_m2_v3_knn_power_cell, points, image_01)
 

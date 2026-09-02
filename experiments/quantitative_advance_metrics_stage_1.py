@@ -47,7 +47,6 @@ POINTS_SOURCE = "npy"
 METRIC_ORDER = [
     "M1_v1_cvt_energy",
     "M1_v2_power_cvt_energy",
-    "M2_v0_voronoi_mass_cv",
     "M2_v1_capacity_delta_c",
     "M2_v2_power_displacement",
     "M2_v3_power_cell_cap_cv",
