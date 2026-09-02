@@ -1,6 +1,6 @@
 """Differentiable CVT-energy surrogate (soft weighted-variance).
 
-Training-only surrogate for ``stippling_metrics_advance.compute_m1_cvt_energy``
+Training-only surrogate for ``stippling_metrics_advance.compute_m1_v1_cvt_energy``
 (``cvt_energy``). Never reported.
 
     L_cvt = sum_i sum_x rho(x) * w_i(x) * ||x - s_i||^2

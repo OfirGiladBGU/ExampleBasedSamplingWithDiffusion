@@ -1,3 +1,5 @@
+# Used for Capacity constraint qualitative comparison.
+
 """Export-only helper to collect advanced metrics outputs.
 
 This script does NOT run any model inference. It reads precomputed outputs
@@ -91,7 +93,8 @@ DEFAULT_COMPARE_LIST = [
     {"WVS": "experiments/outputs/images_results_metrics/quadratic_V2/target_WVS_1024/quadratic_density_gradient.npy"},
     {"BNOT": "experiments/outputs/images_results_metrics/quadratic_V2/target_BNOT_1024/quadratic_density_gradient.npy"},
     {"GBN": "experiments/outputs/images_results_metrics/quadratic_V2/target_GBN_1024/quadratic_density_gradient.npy"},
-    {"Ours": "experiments/outputs/images_results_metrics/quadratic_V2/target_CN_1024/quadratic_density_gradient.npy"},
+    {"Ours-WVS": "experiments/outputs/images_results_metrics/quadratic_V2/target_CN-WVS_1024/quadratic_density_gradient.npy"},
+    {"Ours-GBN": "experiments/outputs/images_results_metrics/quadratic_V2/target_CN-GBN_1024/quadratic_density_gradient.npy"},
 ]
 CLIP_TO_DOMAIN = False
 CAPACITY_TEST = True
@@ -104,7 +107,8 @@ MARK_BEST = False  # Draws a red box around the capacity percentage closest to g
 #     {"WVS": "experiments/outputs/images_results_metrics/monkey/target_WVS_1024/emoji-one_4_monkey.npy"},
 #     {"BNOT": "experiments/outputs/images_results_metrics/monkey/target_BNOT_1024/emoji-one_4_monkey.npy"},
 #     {"GBN": "experiments/outputs/images_results_metrics/monkey/target_GBN_1024/emoji-one_4_monkey.npy"},
-#     {"Ours": "experiments/outputs/images_results_metrics/monkey/target_CN_1024/emoji-one_4_monkey.npy"},
+#     {"Ours-WVS": "experiments/outputs/images_results_metrics/monkey/target_CN-WVS_1024/emoji-one_4_monkey.npy"},
+#     {"Ours-GBN": "experiments/outputs/images_results_metrics/monkey/target_CN-GBN_1024/emoji-one_4_monkey.npy"},
 # ]
 # CLIP_TO_DOMAIN = True
 # CAPACITY_TEST = False
@@ -117,7 +121,8 @@ MARK_BEST = False  # Draws a red box around the capacity percentage closest to g
 #     {"WVS": "experiments/outputs/images_results_metrics/plant2/target_WVS_1024/plant2_400x400.npy"},
 #     {"BNOT": "experiments/outputs/images_results_metrics/plant2/target_BNOT_1024/plant2_400x400.npy"},
 #     {"GBN": "experiments/outputs/images_results_metrics/plant2/target_GBN_1024/plant2_400x400.npy"},
-#     {"Ours": "experiments/outputs/images_results_metrics/plant2/target_CN_1024/plant2_400x400.npy"},
+#     {"Ours-WVS": "experiments/outputs/images_results_metrics/plant2/target_CN-WVS_1024/plant2_400x400.npy"},
+#     {"Ours-GBN": "experiments/outputs/images_results_metrics/plant2/target_CN-GBN_1024/plant2_400x400.npy"},
 # ]
 # CLIP_TO_DOMAIN = True
 # CAPACITY_TEST = False
@@ -235,10 +240,12 @@ def collect_outputs(input_image_path: str, compare_list, out_base: str, mc_appro
 
 def _serialize_advanced_metrics(metrics_dict):
     used_keys = {
-        "M1_cvt_energy",
-        "M2_voronoi_mass_cv",
-        "M2_v2_power_cell_cap_cv",
-        "M2_v3_cap_capacity_delta_c",
+        "M1_v1_cvt_energy",
+        "M1_v2_power_cvt_energy",
+        "M2_v0_voronoi_mass_cv",
+        "M2_v1_capacity_delta_c",
+        "M2_v2_power_displacement",
+        "M2_v3_power_cell_cap_cv",
         "M3_emd_distance",
         "M4_sinkhorn_ot_cost",
         "M5_spatial_measure_rho_mean",

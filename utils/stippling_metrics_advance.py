@@ -37,33 +37,141 @@ from utils.stippling_metrics import (
     resolve_capacity_grid_size,
 )
 
+
+# ============================================================================
+# MODULE CONSTANTS
+# ============================================================================
+
+# Working resolution for the iterative power-diagram solve.
+POWER_RESOLUTION = 256
+
+# ── constants for the shared advanced-metrics row ──────────────────
+_ADV_ROW_HEIGHT_RATIO   = 2.0
+_ADV_ROW_EXTRA_HEIGHT   = 3.5  # inches added to base figure height
+# Masked M2_v3: pixel value (0..255). The mask keeps pixels strictly BELOW this, so 255
+# ignores only PURE-white background when restricting the power-cell probes to the stipple support.
+MASK_THRESHOLD = 255
+
+
+# ============================================================================
+# SHARED HELPERS
+# ============================================================================
+
 # Dynamically fetch the current matplotlib global font size so it 
 # perfectly syncs with compare_advance_metrics.py
 def _fs():
     return plt.rcParams.get('font.size', 12) if plt else 12
 
-# ── Advanced text formatting ──────────────────────────────────────────
 
-def _format_advanced_text(metrics):
-    """Format M1-M5 metrics as a compact monospace string for text axes."""
-    return (
-        f"M1 CVT Energy         : {metrics.get('M1_cvt_energy', 0.0):.4f}\n"
-        f"M2 Capacity Constraint: {metrics.get('M2_voronoi_mass_cv', 0.0):.4f}\n"
-        f"M2v2 Power Cell Cap CV: {metrics.get('M2_v2_power_cell_cap_cv', 0.0):.4f}\n"
-        f"M2v3 Capacity delta_c : {metrics.get('M2_v3_cap_capacity_delta_c', 0.0):.4f}\n"
-        f"M3 EMD                : {metrics.get('M3_emd_distance', 0.0):.4f}\n"
-        f"M4 Sinkhorn Distance  : {metrics.get('M4_sinkhorn_ot_cost', 0.0):.4f}\n"
-        f"M5 Spatial Measure    : {metrics.get('M5_spatial_measure_rho_mean', 0.0):.4f}"
-    )
+def _to_density(image_01):
+    """Convert a raw grayscale image (white=1, dark=0) into a target density
+    rho(x) where dark regions carry HIGH mass (more stipples).
+
+    All numeric metric functions weight by rho, so this single inversion keeps
+    them consistent with the target density used by the visual functions
+    (which compute ``1.0 - image_01`` inline). Returns float64 in [0, 1].
+    """
+    rho = 1.0 - np.asarray(image_01, dtype=np.float64)
+    # Guard against tiny negative values from float round-off.
+    return np.clip(rho, 0.0, 1.0)
 
 
-def _polygon_area(vertices):
-    """Shoelace area of a polygon given as an (M, 2) array of (x, y) vertices."""
-    v = np.asarray(vertices, dtype=np.float64)
-    if v.shape[0] < 3:
+def _warn_metric_failure(metric, exc):
+    """Announce a swallowed metric failure instead of silently reporting 0.0.
+
+    The handlers below return zeros so long-running callers keep going, but 0.0 is a PERFECT
+    score for every lower-is-better metric here, so a silent failure would bias a batch mean
+    downwards invisibly. `compute_all_advanced_metrics` omits keys instead (see `_collect`);
+    these warnings cover the direct callers that still rely on the zero fallback.
+    """
+    import warnings
+    warnings.warn(f"{metric} failed ({type(exc).__name__}: {exc}); reporting 0.0 for this "
+                  f"sample -- treat it as MISSING, not as a perfect score",
+                  RuntimeWarning, stacklevel=3)
+
+
+def _collect(result, prefix, fn, *args, **kwargs):
+    """Run one metric and merge its keys under `prefix`, isolating failures.
+
+    M2_v2 and M2_v3 raise on a misconfigured input (no image, or a target carrying no mass)
+    rather than silently reporting a perfect 0.0. That is the right behaviour for a single
+    call, but a batch scorer must not lose an entire sample -- or an entire multi-hour run --
+    because one image is degenerate. On failure we emit a warning and OMIT this metric's keys.
+
+    Omitting rather than substituting 0.0 or NaN is deliberate: downstream aggregation skips
+    absent keys, so a bad sample lowers that metric's `count` (visible in the summary) instead
+    of quietly biasing its mean.
+    """
+    import warnings
+    try:
+        out = fn(*args, **kwargs)
+    except Exception as exc:
+        warnings.warn(
+            f"{fn.__name__} failed ({type(exc).__name__}: {exc}); omitting {prefix}* keys "
+            f"for this sample",
+            RuntimeWarning, stacklevel=2,
+        )
+        return
+
+    # Drop non-finite values for the same reason failures are dropped. NaN/inf reach here
+    # when the scored point set itself contains them -- an undertrained checkpoint can emit
+    # NaN coordinates -- and a NaN written to JSON silently turns that epoch's mean into NaN
+    # during aggregation. Omitting instead lowers the metric's `count`, which is visible.
+    clean, dropped = {}, []
+    for k, v in out.items():
+        try:
+            finite = np.isfinite(v)
+        except TypeError:
+            finite = True                     # non-numeric payloads pass through untouched
+        if finite:
+            clean[f"{prefix}{k}"] = v
+        else:
+            dropped.append(f"{prefix}{k}")
+    if dropped:
+        warnings.warn(
+            f"{fn.__name__} returned non-finite values for {', '.join(dropped)}; omitting them "
+            f"for this sample (usually a NaN/inf in the input point set)",
+            RuntimeWarning, stacklevel=2,
+        )
+    result.update(clean)
+
+
+def _coarsen_density(rho, budget=8000):
+    """Block-sum `rho` down to at most `budget` non-empty cells.
+
+    Returns (centres, masses) with centres in [0,1]^2 and masses summing to the total mass
+    of `rho` times the pixel area, i.e. \\int rho dx. Empty cells are dropped.
+    """
+    rho = np.asarray(rho, dtype=np.float64)
+    H, W = rho.shape
+    pixel_area = 1.0 / float(H * W)
+    for b in (1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64):
+        Hc = int(np.ceil(H / b))
+        Wc = int(np.ceil(W / b))
+        pad = np.zeros((Hc * b, Wc * b), dtype=np.float64)
+        pad[:H, :W] = rho
+        blocks = pad.reshape(Hc, b, Wc, b).sum(axis=(1, 3)) * pixel_area
+        nz = blocks > 0
+        if int(nz.sum()) <= budget or b == 64:
+            iy, ix = np.nonzero(nz)
+            # centre of each block, in image coordinates, clipped to the true image extent
+            cx = np.minimum((ix + 0.5) * b, W) / float(W)
+            cy = np.minimum((iy + 0.5) * b, H) / float(H)
+            return np.stack([cx, cy], axis=1), blocks[iy, ix]
+    raise AssertionError("unreachable")
+
+
+def _polygon_area(poly):
+    """Shoelace area of a polygon given as a list of (x, y) vertices."""
+    n = len(poly)
+    if n < 3:
         return 0.0
-    x, y = v[:, 0], v[:, 1]
-    return 0.5 * abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+    acc = 0.0
+    for i in range(n):
+        x1, y1 = poly[i - 1]
+        x2, y2 = poly[i]
+        acc += x1 * y2 - x2 * y1
+    return abs(acc) * 0.5
 
 
 def _polygon_sample_points(vertices_clip, image_shape, mc_approx=True, rng=None):
@@ -111,64 +219,565 @@ def _polygon_sample_points(vertices_clip, image_shape, mc_approx=True, rng=None)
     return points_inside, px, py
 
 
-# ── constants for the shared advanced-metrics row ──────────────────
-_ADV_ROW_HEIGHT_RATIO   = 2.0
-_ADV_ROW_EXTRA_HEIGHT   = 3.5  # inches added to base figure height
+def _clip_polygon_halfplane(poly, a0, a1, b):
+    """Sutherland-Hodgman clip of polygon `poly` (list of (x, y)) by the half-plane
+    a0*x + a1*y <= b. Returns the clipped vertex list (possibly empty).
+    """
+    out = []
+    n = len(poly)
+    if n == 0:
+        return out
+    for i in range(n):
+        S = poly[i - 1]
+        E = poly[i]
+        sd = a0 * S[0] + a1 * S[1] - b
+        ed = a0 * E[0] + a1 * E[1] - b
+        s_in = sd <= 0.0
+        e_in = ed <= 0.0
+        if e_in:
+            if not s_in:
+                t = sd / (sd - ed)
+                out.append((S[0] + t * (E[0] - S[0]), S[1] + t * (E[1] - S[1])))
+            out.append(E)
+        elif s_in:
+            t = sd / (sd - ed)
+            out.append((S[0] + t * (E[0] - S[0]), S[1] + t * (E[1] - S[1])))
+    return out
 
 
-def _render_advanced_metrics_row(axes_row, points_list, labels, image_01, metrics_list=None, mc_approx=True):
-    """Fill one matplotlib axes row with M1-M5 metric text boxes."""
-    axes_row[0].axis("off")
-    for j, (pts, label) in enumerate(zip(points_list, labels)):
-        ax = axes_row[1 + j]
-        ax.axis("off")
+def _clip_polygon_to_bbox(vertices, bbox=(0.0, 1.0, 0.0, 1.0)):
+    xmin, xmax, ymin, ymax = bbox
+
+    def _clip_edge(poly, ax0, ay0, ax1, ay1):
+        if not poly:
+            return []
+
+        def _inside(p):
+            return (ax1 - ax0) * (p[1] - ay0) - (ay1 - ay0) * (p[0] - ax0) >= 0
+
+        def _intersect(p1, p2):
+            dx, dy = ax1 - ax0, ay1 - ay0
+            dpx, dpy = p2[0] - p1[0], p2[1] - p1[1]
+            denom = dx * dpy - dy * dpx
+            if abs(denom) < 1e-12:
+                return p1
+            t = (dy * (p1[0] - ax0) - dx * (p1[1] - ay0)) / denom
+            return (p1[0] + t * dpx, p1[1] + t * dpy)
+
+        out = []
+        for i, curr in enumerate(poly):
+            prev = poly[i - 1]
+            if _inside(curr):
+                if not _inside(prev):
+                    out.append(_intersect(prev, curr))
+                out.append(curr)
+            elif _inside(prev):
+                out.append(_intersect(prev, curr))
+        return out
+
+    poly = [(v[0], v[1]) for v in vertices]
+    poly = _clip_edge(poly, xmin, ymin, xmax, ymin)   
+    poly = _clip_edge(poly, xmax, ymin, xmax, ymax)   
+    poly = _clip_edge(poly, xmax, ymax, xmin, ymax)   
+    poly = _clip_edge(poly, xmin, ymax, xmin, ymin)   
+    return np.array(poly) if poly else np.zeros((0, 2))
+
+
+def _voronoi_regions_clipped(vor, bbox=(0.0, 1.0, 0.0, 1.0)):
+    xmin, xmax, ymin, ymax = bbox
+    center = vor.points.mean(axis=0)
+    radius = max(xmax - xmin, ymax - ymin) * 4.0
+
+    ridge_map = {}
+    for (p1, p2), (v1, v2) in zip(vor.ridge_points, vor.ridge_vertices):
+        ridge_map.setdefault(p1, []).append((p2, v1, v2))
+        ridge_map.setdefault(p2, []).append((p1, v1, v2))
+
+    ext_verts = vor.vertices.tolist()
+
+    result = []
+    for pt_idx, region_idx in enumerate(vor.point_region):
+        region = vor.regions[region_idx]
+        is_finite = all(v >= 0 for v in region)
+
+        if is_finite:
+            raw = vor.vertices[region]
+        else:
+            new_region = [v for v in region if v >= 0]
+
+            for p2, v1, v2 in ridge_map.get(pt_idx, []):
+                if v2 < 0:
+                    v1, v2 = v2, v1
+                if v1 >= 0:
+                    continue  
+
+                tangent = vor.points[p2] - vor.points[pt_idx]
+                norm = np.linalg.norm(tangent)
+                if norm < 1e-12:
+                    continue
+                tangent /= norm
+                normal = np.array([-tangent[1], tangent[0]])
+                midpoint = vor.points[[pt_idx, p2]].mean(axis=0)
+                sign = np.sign(np.dot(midpoint - center, normal))
+                far_pt = vor.vertices[v2] + sign * normal * radius
+                ext_verts.append(far_pt.tolist())
+                new_region.append(len(ext_verts) - 1)
+
+            if len(new_region) < 3:
+                result.append((np.zeros((0, 2)), is_finite))
+                continue
+
+            ext_arr = np.array(ext_verts)
+            vs = ext_arr[new_region]
+            c = vs.mean(axis=0)
+            angles = np.arctan2(vs[:, 1] - c[1], vs[:, 0] - c[0])
+            raw = vs[np.argsort(angles)]
+
+        clipped = _clip_polygon_to_bbox(raw, bbox)
+        result.append((clipped, is_finite))
+
+    return result
+
+
+# ============================================================================
+# POWER DIAGRAM CORE
+# ============================================================================
+
+def _knn_power_weights(pts, k=8):
+    """Power weights from the local point spacing: w_i = r_k^2 / k, mean-centred.
+
+    Derived from the kNN intensity estimate lambda_i = k / (pi r_k^2) as w_i = (1/lambda_i)/pi,
+    i.e. the weight rule used by the earlier M2_v2 / M2_v3 code path. Weights carry units of
+    length^2, as the power distance requires. Mean-centring is free: the power diagram is
+    invariant to adding a constant to every weight.
+
+    NOT the default -- this rule carries a boundary bias. A point on the edge of the support
+    has neighbours on one side only, so its r_k is inflated and it receives a spuriously large
+    weight. On a perfect lattice over a uniform density (where the true answer is exactly 0)
+    this rule reports delta_c = 5.4e-3, with border points contributing 55% of the error while
+    making up 12% of the set; interior weights have std exactly 0, border weights do not. On
+    icon silhouettes every contour pixel is such a boundary. See `weight_mode="none"`, which
+    is exact on that configuration, and tests/test_m2_capacity.py.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.asarray(pts, dtype=np.float64)
+    n = len(pts)
+    k_eff = int(min(k, n - 1))
+    if k_eff < 1:
+        return np.zeros(n, dtype=np.float64)
+    dk = cKDTree(pts).query(pts, k=k_eff + 1)[0][:, k_eff]
+    w = np.maximum(dk, 1e-12) ** 2 / float(k_eff)
+    return w - w.mean()
+
+
+def _power_cell_masses(pts, rho, weights, shortlist=32):
+    """m_i = \\int_{V_i^w} rho dx for every power cell, by exact pixel enumeration.
+
+    Every pixel centre of the domain is assigned to its power-cell owner (the site
+    minimising ||x - x_i||^2 - w_i, exactly the definition in BNOT Sec. 2.3) and contributes
+    rho(pixel) * pixel_area. Deterministic: no Monte-Carlo, which matters because the old
+    Voronoi M2 drew at most 50 bbox-rejection probes per cell and that sampling noise alone
+    inflated delta_c.
+
+    Owner lookup re-ranks a Euclidean k-NN shortlist by power distance (O(m log n)). That is
+    exact for equal weights and for the small weight spreads produced by `_knn_power_weights`;
+    `shortlist` bounds the error for larger spreads.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.asarray(pts, dtype=np.float64)
+    rho = np.asarray(rho, dtype=np.float64)
+    n = len(pts)
+    H, W = rho.shape
+    ys, xs = np.mgrid[0:H, 0:W]
+    ys = ys.ravel()
+    xs = xs.ravel()
+    probe = np.stack([(xs + 0.5) / float(W), (ys + 0.5) / float(H)], axis=1)
+    kq = int(min(n, shortlist))
+    dd, ii = cKDTree(pts).query(probe, k=kq)
+    if kq == 1:
+        dd = dd[:, None]
+        ii = ii[:, None]
+    pw = dd ** 2 - np.asarray(weights, dtype=np.float64)[ii]
+    owners = ii[np.arange(len(probe)), np.argmin(pw, axis=1)]
+    pixel_area = 1.0 / float(H * W)
+    return np.bincount(owners, weights=rho[ys, xs], minlength=n).astype(np.float64) * pixel_area
+
+
+def power_cell_areas(pts, weights=None, n_probe=48, rng=None, mask=None):
+    """Monte-Carlo POWER (Laguerre) cell areas (they sum to 1). Ported from
+    control_v4_mix_metrics/descriptor_fields.py. Power distance is |x - p|^2 - w; each probe is
+    assigned to its min-power owner via a Euclidean shortlist re-ranked by power distance, which
+    stays O(m log n) with bounded weights.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.asarray(pts, dtype=np.float64)
+    n = len(pts)
+    rng = np.random.RandomState(0) if rng is None else rng
+    if weights is None:
+        weights = np.zeros(n)
+    weights = np.asarray(weights, dtype=np.float64)
+    m = int(n_probe * n)
+    if mask is None:
+        probe = rng.rand(m, 2)
+    else:
+        ys, xs = np.nonzero(mask)
+        if len(ys) == 0:
+            return np.zeros(n, dtype=np.float64)
+        H, W = mask.shape
+        sel = rng.randint(0, len(ys), size=m)
+        probe = np.stack([(xs[sel] + rng.rand(m)) / float(W),
+                          (ys[sel] + rng.rand(m)) / float(H)], axis=1)
+    tree = cKDTree(pts)
+    kq = min(n, 16)
+    dd, ii = tree.query(probe, k=kq)
+    if kq == 1:
+        dd = dd[:, None]
+        ii = ii[:, None]
+    pw = dd ** 2 - weights[ii]
+    owners = ii[np.arange(m), np.argmin(pw, axis=1)]
+    counts = np.bincount(owners, minlength=n).astype(np.float64)
+    return counts / max(m, 1)
+
+
+def power_cell_areas_exact(pts, weights=None, domain=(0.0, 1.0, 0.0, 1.0)):
+    """Exact POWER (Laguerre) cell areas on a rectangular domain, normalised to sum 1.
+
+    The exact counterpart of `power_cell_areas` (used when mc_approx=False). Each cell
+        V_i = { x : ||x - p_i||^2 - w_i <= ||x - p_j||^2 - w_j  for all j }
+    is a convex polygon, because every pairwise power inequality is linear in x:
+        2 (p_j - p_i) . x  <=  |p_j|^2 - |p_i|^2 + w_i - w_j.
+    So the cell is the domain rectangle clipped by all those half-planes -- no Monte-
+    Carlo. Sites are visited nearest-first and half-planes that do not cut the current
+    polygon are skipped (exact prune); worst case is O(n^2). A point with a large enough
+    weight can legitimately own an empty cell (area 0), as in the power-diagram paper.
+    """
+    pts = np.asarray(pts, dtype=np.float64)
+    n = len(pts)
+    if n == 0:
+        return np.zeros(0, dtype=np.float64)
+    if weights is None:
+        weights = np.zeros(n)
+    weights = np.asarray(weights, dtype=np.float64)
+    x0, x1, y0, y1 = domain
+    sq = (pts ** 2).sum(axis=1)                       # |p_i|^2
+    rect = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    areas = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        # nearest-first: the polygon shrinks fast so most far half-planes get pruned
+        order = np.argsort(((pts - pts[i]) ** 2).sum(axis=1))
+        a0 = 2.0 * (pts[:, 0] - pts[i, 0])
+        a1 = 2.0 * (pts[:, 1] - pts[i, 1])
+        bb = sq - sq[i] + weights[i] - weights
+        poly = list(rect)
+        for j in order:
+            if j == i:
+                continue
+            aj0 = a0[j]; aj1 = a1[j]; bj = bb[j]
+            # skip planes that leave the whole current polygon on site i's side
+            if all(aj0 * vx + aj1 * vy - bj <= 1e-15 for (vx, vy) in poly):
+                continue
+            poly = _clip_polygon_halfplane(poly, aj0, aj1, bj)
+            if len(poly) < 3:
+                poly = []
+                break
+        areas[i] = _polygon_area(poly)
+    total = areas.sum()
+    if total > 1e-15:
+        areas = areas / total
+    return areas
+
+
+def power_cell_areas_masked_full(pts, weights=None, mask=None):
+    """Deterministic masked power-cell areas: assign EVERY non-white pixel centre to its power
+    owner (no Monte-Carlo), so it uses the full masked support with no sampling noise. This is the
+    exact (mc_approx=False) counterpart of the masked MC path -- the mask *is* the domain, so
+    enumerating its pixels needs no polygon clipping. Areas are fractions of the mask (sum to 1);
+    owner lookup uses the same 16-NN power-distance shortlist as power_cell_areas.
+    """
+    from scipy.spatial import cKDTree
+    pts = np.asarray(pts, dtype=np.float64)
+    n = len(pts)
+    if weights is None:
+        weights = np.zeros(n)
+    weights = np.asarray(weights, dtype=np.float64)
+    ys, xs = np.nonzero(mask)
+    if len(ys) == 0:
+        return np.zeros(n, dtype=np.float64)
+    H, W = mask.shape
+    probe = np.stack([(xs + 0.5) / float(W), (ys + 0.5) / float(H)], axis=1)
+    tree = cKDTree(pts)
+    kq = min(n, 16)
+    dd, ii = tree.query(probe, k=kq)
+    if kq == 1:
+        dd = dd[:, None]
+        ii = ii[:, None]
+    pw = dd ** 2 - weights[ii]
+    owners = ii[np.arange(len(probe)), np.argmin(pw, axis=1)]
+    counts = np.bincount(owners, minlength=n).astype(np.float64)
+    return counts / max(len(probe), 1)
+
+
+
+
+class PowerDiagram:
+    """Power (Laguerre) cells of a weighted point set, evaluated by exact pixel enumeration.
+
+    Only pixels carrying density are kept as probes: mass and centroids are both rho-weighted,
+    so a zero-density pixel contributes nothing to either, and the only thing dropping it
+    changes is which cell nominally owns empty background. On icons this removes ~60% of the
+    probes. The k-NN shortlist is built ONCE -- point positions never move while weights are
+    solved, so each subsequent evaluation is an argmin over a fixed array, which is what makes
+    an iterative weight solve affordable.
+    """
+
+    def __init__(self, pts, rho, shortlist=48):
+        from scipy.spatial import cKDTree
+        self.pts = np.asarray(pts, dtype=np.float64)
+        self.n = len(self.pts)
+        rho = np.asarray(rho, dtype=np.float64)
+        H, W = rho.shape
+        self.shape = (H, W)
+
+        ys, xs = np.nonzero(rho > 0.0)
+        if len(ys) == 0:
+            gy, gx = np.mgrid[0:H, 0:W]
+            ys, xs = gy.ravel(), gx.ravel()
+        self.ys, self.xs = ys, xs
+        self.probe = np.stack([(xs + 0.5) / W, (ys + 0.5) / H], axis=1)
+        self.rho_w = rho[ys, xs] / float(H * W)          # includes the pixel area factor
+        self.total_mass = float(self.rho_w.sum())
+
+        kq = int(min(self.n, shortlist))
+        dd, ii = cKDTree(self.pts).query(self.probe, k=kq)
+        if kq == 1:
+            dd, ii = dd[:, None], ii[:, None]
+        self.d2 = dd ** 2
+        self.ii = ii
+        self.rows = np.arange(len(self.probe))
+
+    def owners(self, w):
+        """Index of the site minimising the power distance ||x - p_i||^2 - w_i."""
+        return self.ii[self.rows, np.argmin(self.d2 - w[self.ii], axis=1)]
+
+    def masses(self, w):
+        return np.bincount(self.owners(w), weights=self.rho_w, minlength=self.n)
+
+    def cell_stats(self, w):
+        """(mass, centroid, CVT energy) per cell, all rho-weighted."""
+        o = self.owners(w)
+        m = np.bincount(o, weights=self.rho_w, minlength=self.n)
+        cx = np.bincount(o, weights=self.rho_w * self.probe[:, 0], minlength=self.n)
+        cy = np.bincount(o, weights=self.rho_w * self.probe[:, 1], minlength=self.n)
+        safe = np.maximum(m, 1e-15)
+        centroid = np.stack([cx / safe, cy / safe], axis=1)
+        d2 = ((self.probe - self.pts[o]) ** 2).sum(axis=1)
+        return m, centroid, float((self.rho_w * d2).sum())
+
+    def owners_exact(self, w, chunk=16384):
+        """Owner over ALL sites with no shortlist -- ground truth for validating the shortlist."""
+        out = np.empty(len(self.probe), dtype=np.int64)
+        sq = (self.pts ** 2).sum(axis=1)
+        for a in range(0, len(self.probe), chunk):
+            b = min(a + chunk, len(self.probe))
+            pw = (-2.0 * (self.probe[a:b] @ self.pts.T)) + (sq - w)[None, :]
+            out[a:b] = np.argmin(pw, axis=1)
+        return out
+
+    def shortlist_is_adequate(self, w):
+        return float((self.owners(w) == self.owners_exact(w)).mean())
+
+    def solve_weights(self, maxiter=200, tol=1e-16, bound_scale=64.0):
+        """Weights that equalise capacity, by maximising the concave semi-discrete OT dual.
+
+            Phi(w) = m* sum_i w_i + integral min_j( ||x-x_j||^2 - w_j ) rho dx
+            dPhi/dw_i = m* - m_i(w)
+
+        This is the problem BNOT solves (it uses Newton on the weighted Laplacian and reports a
+        residual of ~1e-12 in 3-5 iterations); L-BFGS on the same dual is far simpler and, as
+        tests/test_power_metrics.py shows, converges tightly enough that the metrics built on it
+        are insensitive to the remaining residual.
+
+        The weights are BOUNDED, which is not optional. Without a bound the fixed shortlist and
+        the solve fight each other: a growing w_i should expand cell i onto distant pixels, but
+        those pixels do not carry i in their shortlist, so the mass never arrives, the gradient
+        keeps demanding a larger w_i, and it diverges -- measured at |w| ~ 1e51, with capacity
+        getting WORSE rather than better. The default 64/n was picked from a sweep on real
+        stipples (no weights pinned at the bound, shortlist agreeing with the exact assignment
+        >99%); a badly density-mismatched point set may need more, which the returned
+        `at_bound` fraction makes visible rather than silent.
+        """
+        from scipy.optimize import minimize
+        zeros = np.zeros(self.n)
+        if self.total_mass <= 1e-15:
+            return zeros, {"converged": False, "reason": "no mass", "residual_delta_c": 0.0,
+                           "residual_at_w0": 0.0, "iterations": 0, "at_bound": 0.0}
+        m_star = self.total_mass / self.n
+        lim = bound_scale / max(self.n, 1)
+
+        def neg_phi_grad(w):
+            pw = self.d2 - w[self.ii]
+            j = np.argmin(pw, axis=1)
+            phi = m_star * w.sum() + float((pw[self.rows, j] * self.rho_w).sum())
+            m = np.bincount(self.ii[self.rows, j], weights=self.rho_w, minlength=self.n)
+            return -phi, -(m_star - m)
+
+        res = minimize(neg_phi_grad, zeros, jac=True, method="L-BFGS-B",
+                       bounds=[(-lim, lim)] * self.n,
+                       options={"maxiter": maxiter, "maxcor": 20, "ftol": tol, "gtol": tol})
+        w = res.x - res.x.mean()                     # power diagram is shift-invariant
+
+        def dc(m):
+            return float(np.mean((m / max(m.mean(), 1e-15) - 1.0) ** 2))
+
+        resid, resid0 = dc(self.masses(w)), dc(self.masses(zeros))
+        if resid > resid0:
+            # No weighting we can find improves capacity. This happens when points are stranded
+            # on zero density -- no finite weight can hand them mass. Falling back to w = 0 and
+            # saying so is the honest outcome.
+            return zeros, {"converged": False, "reason": "no improvement",
+                           "residual_delta_c": resid0, "residual_at_w0": resid0,
+                           "iterations": int(res.nit), "at_bound": 0.0}
+        return w, {"converged": bool(res.success), "residual_delta_c": resid,
+                   "residual_at_w0": resid0, "iterations": int(res.nit),
+                   "at_bound": float(np.mean(np.abs(res.x) >= lim * 0.999))}
+
+
+def stranded_points(points, image_01, radius_px=6):
+    """Mask of points whose entire neighbourhood carries no density.
+
+    Such a point can never receive its share of mass however it is weighted, so the capacity
+    problem is genuinely infeasible for it. That is a property of the point set worth reporting
+    on its own rather than burying inside a failed weight solve.
+    """
+    rho = _to_density(image_01)
+    H, W = rho.shape
+    pts = np.asarray(points, dtype=np.float64)
+    px = np.clip((pts[:, 0] * W).astype(int), 0, W - 1)
+    py = np.clip((pts[:, 1] * H).astype(int), 0, H - 1)
+    r = int(radius_px)
+    out = np.zeros(len(px), dtype=bool)
+    for i, (x, y) in enumerate(zip(px, py)):
+        patch = rho[max(0, y - r):y + r + 1, max(0, x - r):x + r + 1]
+        out[i] = patch.size > 0 and patch.max() < 1e-3
+    return out
+
+
+def solve_power_diagram(points, image_01, resolution=POWER_RESOLUTION, shortlist=48,
+                        maxiter=200, bound_scale=64.0):
+    """Build the capacity-optimal power diagram once, for M1_v2 and M2_v2 to share.
+
+    The source is downsampled to `resolution` first: the solve is iterative, and at 512x512
+    each evaluation touches 262k probes for cells that are ~1000 pixels across. 256 keeps ~64
+    probes per cell, which bounds the centroid error near 1e-4.
+
+    Accuracy limit, measured: for displacements of ~5e-3 and above (WVS, GBN, ours) the value
+    agrees with a 512 solve to better than ~2%. For a point set already very close to the
+    optimum the discretisation error becomes a visible share of a very small number -- BNOT
+    measures ~1e-3 here and shifts ~10% between 256 and 512. Rankings are unaffected, since the
+    gaps between methods are several-fold, but do not read fine differences among near-optimal
+    point sets at this resolution; raise it if that case matters.
+    """
+    import cv2
+    rho = _to_density(image_01)
+    if resolution and max(rho.shape) > resolution:
+        rho = cv2.resize(rho, (resolution, resolution), interpolation=cv2.INTER_AREA)
+    pts = np.clip(np.asarray(points, dtype=np.float64), 1e-9, 1.0 - 1e-9)
+    pd = PowerDiagram(pts, rho, shortlist=shortlist)
+    w, info = pd.solve_weights(maxiter=maxiter, bound_scale=bound_scale)
+    return pd, w, info
+
+
+# ============================================================================
+# M1  -  CVT ENERGY
+# ============================================================================
+
+def _cvt_energy_mc(points, image_01, rng=None):
+    """Legacy Monte-Carlo CVT energy: scipy Voronoi, polygons clipped to the unit
+    square, <=50 bbox-rejection probes per cell. Retained so the previously published
+    approximate numbers can be reproduced; `compute_m1_v1_cvt_energy` is exact by default.
+    """
+    try:
+        from scipy.spatial import Voronoi
+        if rng is None:
+            rng = np.random.default_rng(42)
+        N = len(points)
+        if N < 3:
+            return {"cvt_energy": 0.0}
+        rho = _to_density(image_01)
+        pts_clip = np.clip(points, 1e-6, 1 - 1e-6)
         try:
-            if metrics_list is not None and j < len(metrics_list) and metrics_list[j] is not None:
-                m = metrics_list[j]
-            else:
-                m = compute_all_advanced_metrics(pts, image_01, mc_approx=mc_approx)
-            text = _format_advanced_text(m)
+            vor = Voronoi(pts_clip)
         except Exception:
-            text = "(metrics unavailable)"
-        ax.text(
-            0.5, 0.95, text,
-            ha="center", va="top",
-            fontsize=_fs(),
-            fontfamily="monospace",
-            transform=ax.transAxes,
-            bbox=dict(boxstyle="round,pad=0.8", facecolor="lightyellow", alpha=0.85),
-        )
-        ax.set_title(f"{label} Adv. Metrics", fontsize=_fs())
+            return {"cvt_energy": 0.0}
+        H, W = rho.shape
+        # Clip cells to the unit square so boundary cells contribute their true
+        # (bounded) energy instead of being silently dropped.
+        clipped_regions = _voronoi_regions_clipped(vor, bbox=(0.0, 1.0, 0.0, 1.0))
+        total_energy = 0.0
+        for pt_idx, (poly, _is_finite) in enumerate(clipped_regions):
+            try:
+                if poly.shape[0] < 3:
+                    continue
+                point = points[pt_idx]
+                sample = _polygon_sample_points(poly, (H, W), mc_approx=True, rng=rng)
+                if sample is None:
+                    continue
+                points_inside, px, py = sample
+                area = _polygon_area(poly)
+                n_in = len(points_inside)
+                dist_sq = (points_inside[:, 0] - point[0]) ** 2 + (points_inside[:, 1] - point[1]) ** 2
+                if True:
+                    # MC estimate of  integral_cell rho * ||x - s||^2 dx
+                    # = area * mean( rho(x) * ||x - s||^2 ) over uniform samples.
+                    contrib = area * float(np.mean(rho[py, px] * dist_sq)) if n_in > 0 else 0.0
+                else:
+                    # Pixel-grid quadrature: each pixel has area (1/(W*H)).
+                    contrib = float(np.sum(rho[py, px] * dist_sq)) / float(W * H)
+                total_energy += contrib
+            except Exception:
+                continue
+        return {"cvt_energy": float(np.clip(total_energy, 0, 1000))}
+    except Exception as exc:
+        _warn_metric_failure("M1 compute_m1_cvt_energy", exc)
+        return {"cvt_energy": 0.0}
 
 
-# ── Advanced Metrics M1-M5 ──────────────────────────────────────────
+def compute_m1_v1_cvt_energy(points, image_01, rng=None, mc_approx=False, **mc_args):
+    """M1 -- density-weighted CVT energy, E = sum_i \\int_{V_i} rho(x) ||x - s_i||^2 dx.
 
-def _warn_metric_failure(metric, exc):
-    """Announce a swallowed metric failure instead of silently reporting 0.0.
+    Computed exactly by pixel quadrature: a Voronoi cell is by definition the set of points
+    closest to its site, so assigning every pixel to its nearest site and accumulating
+    rho * ||x - s||^2 * pixel_area evaluates the integral directly. This replaces the former
+    scipy-Voronoi + polygon-clipping + per-cell Monte-Carlo path, which drew at most 50
+    bbox-rejection probes per cell and could silently drop degenerate cells.
 
-    The handlers below return zeros so long-running callers keep going, but 0.0 is a PERFECT
-    score for every lower-is-better metric here, so a silent failure would bias a batch mean
-    downwards invisibly. `compute_all_advanced_metrics` omits keys instead (see `_collect`);
-    these warnings cover the direct callers that still rely on the zero fallback.
+    Set mc_approx=True to fall back to `_cvt_energy_mc`, the legacy Monte-Carlo estimator,
+    for reproducing previously published approximate numbers. The default is exact and
+    deterministic, and `rng` then has no effect.
     """
-    import warnings
-    warnings.warn(f"{metric} failed ({type(exc).__name__}: {exc}); reporting 0.0 for this "
-                  f"sample -- treat it as MISSING, not as a perfect score",
-                  RuntimeWarning, stacklevel=3)
+    if mc_approx:
+        return _cvt_energy_mc(points, image_01, rng=rng)
+    try:
+        from scipy.spatial import cKDTree
+        pts = np.asarray(points, dtype=np.float64)
+        if len(pts) < 3:
+            return {"cvt_energy": 0.0}
+        rho = _to_density(image_01)
+        H, W = rho.shape
+        ys, xs = np.mgrid[0:H, 0:W]
+        ys, xs = ys.ravel(), xs.ravel()
+        probe = np.stack([(xs + 0.5) / float(W), (ys + 0.5) / float(H)], axis=1)
+        d, _ = cKDTree(pts).query(probe, k=1)
+        energy = float(np.sum(rho[ys, xs] * d ** 2) / float(H * W))
+        return {"cvt_energy": float(np.clip(energy, 0, 1000))}
+    except Exception as exc:
+        _warn_metric_failure("M1 compute_m1_cvt_energy", exc)
+        return {"cvt_energy": 0.0}
 
 
-def _to_density(image_01):
-    """Convert a raw grayscale image (white=1, dark=0) into a target density
-    rho(x) where dark regions carry HIGH mass (more stipples).
-
-    All numeric metric functions weight by rho, so this single inversion keeps
-    them consistent with the target density used by the visual functions
-    (which compute ``1.0 - image_01`` inline). Returns float64 in [0, 1].
-    """
-    rho = 1.0 - np.asarray(image_01, dtype=np.float64)
-    # Guard against tiny negative values from float round-off.
-    return np.clip(rho, 0.0, 1.0)
-
+# ============================================================================
+# M2  -  CAPACITY
+# ============================================================================
 
 def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
     """M2_v1 (legacy) -- capacity deviation over VORONOI cells, kept as the original metric.
@@ -264,162 +873,59 @@ def compute_m2_capacity_constraint(points, image_01, rng=None, mc_approx=True):
         return {"voronoi_mass_cv": 0.0, "voronoi_mass_std": 0.0, "voronoi_mass_mean": 0.0}
 
 
-def power_cell_areas(pts, weights=None, n_probe=48, rng=None, mask=None):
-    """Monte-Carlo POWER (Laguerre) cell areas (they sum to 1). Ported from
-    control_v4_mix_metrics/descriptor_fields.py. Power distance is |x - p|^2 - w; each probe is
-    assigned to its min-power owner via a Euclidean shortlist re-ranked by power distance, which
-    stays O(m log n) with bounded weights.
+def compute_m2_v1_capacity(points, image_01, weight_mode="none", k=8):
+    """M2_v3 -- capacity deviation delta_c on power cells, per BNOT Eq. (1) and Sec. 4.4.
+
+    weight_mode:
+      "none"  (default) w = 0. All weights equal, so the power diagram coincides with the
+              ordinary Voronoi diagram (BNOT Sec. 2.3) and delta_c reduces to Balzer et al.'s
+              capacity deviation verbatim. Exact on the analytic ground truth (a regular
+              lattice over a uniform density scores exactly 0), free of tuning parameters,
+              and free of the boundary bias described in `_knn_power_weights`.
+      "knn"   power weights w_i = r_k^2/k from the local point spacing -- the rule the
+              superseded M2_v2/M2_v3 path used. Tracks "none" within ~15% but is not exact
+              on ground truth; kept for reproducing the earlier cell model.
+
+    A note for interpreting the comparison: BNOT SOLVES for weights that equalise its own
+    capacities, reaching a residual of ~1e-12 by construction (BNOT Sec. 4.2). Those weights
+    are part of BNOT's output, and WVS / GBN / a learned sampler produce none. Scoring each
+    method under its own optimal weights would therefore compare a different quantity per
+    column, and measurably washes out the differences the metric exists to show. This function
+    applies one disclosed rule identically to every method; BNOT's number must be read with
+    the caveat that it is not the partition BNOT optimises.
+
+    Returns delta_c, the raw std of the cell masses, and the global mean capacity m.
     """
-    from scipy.spatial import cKDTree
-    pts = np.asarray(pts, dtype=np.float64)
+    zero = {"capacity_delta_c": 0.0, "capacity_std": 0.0, "capacity_mean": 0.0}
+    pts = np.asarray(points, dtype=np.float64)
     n = len(pts)
-    rng = np.random.RandomState(0) if rng is None else rng
-    if weights is None:
-        weights = np.zeros(n)
-    weights = np.asarray(weights, dtype=np.float64)
-    m = int(n_probe * n)
-    if mask is None:
-        probe = rng.rand(m, 2)
-    else:
-        ys, xs = np.nonzero(mask)
-        if len(ys) == 0:
-            return np.zeros(n, dtype=np.float64)
-        H, W = mask.shape
-        sel = rng.randint(0, len(ys), size=m)
-        probe = np.stack([(xs[sel] + rng.rand(m)) / float(W),
-                          (ys[sel] + rng.rand(m)) / float(H)], axis=1)
-    tree = cKDTree(pts)
-    kq = min(n, 16)
-    dd, ii = tree.query(probe, k=kq)
-    if kq == 1:
-        dd = dd[:, None]
-        ii = ii[:, None]
-    pw = dd ** 2 - weights[ii]
-    owners = ii[np.arange(m), np.argmin(pw, axis=1)]
-    counts = np.bincount(owners, minlength=n).astype(np.float64)
-    return counts / max(m, 1)
-
-
-def _clip_polygon_halfplane(poly, a0, a1, b):
-    """Sutherland-Hodgman clip of polygon `poly` (list of (x, y)) by the half-plane
-    a0*x + a1*y <= b. Returns the clipped vertex list (possibly empty).
-    """
-    out = []
-    n = len(poly)
-    if n == 0:
-        return out
-    for i in range(n):
-        S = poly[i - 1]
-        E = poly[i]
-        sd = a0 * S[0] + a1 * S[1] - b
-        ed = a0 * E[0] + a1 * E[1] - b
-        s_in = sd <= 0.0
-        e_in = ed <= 0.0
-        if e_in:
-            if not s_in:
-                t = sd / (sd - ed)
-                out.append((S[0] + t * (E[0] - S[0]), S[1] + t * (E[1] - S[1])))
-            out.append(E)
-        elif s_in:
-            t = sd / (sd - ed)
-            out.append((S[0] + t * (E[0] - S[0]), S[1] + t * (E[1] - S[1])))
-    return out
-
-
-def _polygon_area(poly):
-    """Shoelace area of a polygon given as a list of (x, y) vertices."""
-    n = len(poly)
     if n < 3:
-        return 0.0
-    acc = 0.0
-    for i in range(n):
-        x1, y1 = poly[i - 1]
-        x2, y2 = poly[i]
-        acc += x1 * y2 - x2 * y1
-    return abs(acc) * 0.5
+        return dict(zero)
+    rho = _to_density(image_01)
+    if rho.ndim != 2:
+        raise ValueError(f"compute_m2_v1_capacity: expected a 2-D density, got {rho.shape}")
+    if rho.sum() <= 1e-12:
+        raise ValueError("compute_m2_v1_capacity: target density carries no mass "
+                         "(pure-white image); there is nothing to distribute.")
 
+    if weight_mode == "knn":
+        w = _knn_power_weights(pts, k=k)
+    elif weight_mode == "none":
+        w = np.zeros(n, dtype=np.float64)
+    else:
+        raise ValueError(f"weight_mode must be 'knn' or 'none'; got {weight_mode!r}")
 
-def power_cell_areas_exact(pts, weights=None, domain=(0.0, 1.0, 0.0, 1.0)):
-    """Exact POWER (Laguerre) cell areas on a rectangular domain, normalised to sum 1.
-
-    The exact counterpart of `power_cell_areas` (used when mc_approx=False). Each cell
-        V_i = { x : ||x - p_i||^2 - w_i <= ||x - p_j||^2 - w_j  for all j }
-    is a convex polygon, because every pairwise power inequality is linear in x:
-        2 (p_j - p_i) . x  <=  |p_j|^2 - |p_i|^2 + w_i - w_j.
-    So the cell is the domain rectangle clipped by all those half-planes -- no Monte-
-    Carlo. Sites are visited nearest-first and half-planes that do not cut the current
-    polygon are skipped (exact prune); worst case is O(n^2). A point with a large enough
-    weight can legitimately own an empty cell (area 0), as in the power-diagram paper.
-    """
-    pts = np.asarray(pts, dtype=np.float64)
-    n = len(pts)
-    if n == 0:
-        return np.zeros(0, dtype=np.float64)
-    if weights is None:
-        weights = np.zeros(n)
-    weights = np.asarray(weights, dtype=np.float64)
-    x0, x1, y0, y1 = domain
-    sq = (pts ** 2).sum(axis=1)                       # |p_i|^2
-    rect = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-    areas = np.zeros(n, dtype=np.float64)
-    for i in range(n):
-        # nearest-first: the polygon shrinks fast so most far half-planes get pruned
-        order = np.argsort(((pts - pts[i]) ** 2).sum(axis=1))
-        a0 = 2.0 * (pts[:, 0] - pts[i, 0])
-        a1 = 2.0 * (pts[:, 1] - pts[i, 1])
-        bb = sq - sq[i] + weights[i] - weights
-        poly = list(rect)
-        for j in order:
-            if j == i:
-                continue
-            aj0 = a0[j]; aj1 = a1[j]; bj = bb[j]
-            # skip planes that leave the whole current polygon on site i's side
-            if all(aj0 * vx + aj1 * vy - bj <= 1e-15 for (vx, vy) in poly):
-                continue
-            poly = _clip_polygon_halfplane(poly, aj0, aj1, bj)
-            if len(poly) < 3:
-                poly = []
-                break
-        areas[i] = _polygon_area(poly)
-    total = areas.sum()
-    if total > 1e-15:
-        areas = areas / total
-    return areas
-
-
-# Masked M2_v3: pixel value (0..255). The mask keeps pixels strictly BELOW this, so 255
-# ignores only PURE-white background when restricting the power-cell probes to the stipple support.
-MASK_THRESHOLD = 255
-
-
-def power_cell_areas_masked_full(pts, weights=None, mask=None):
-    """Deterministic masked power-cell areas: assign EVERY non-white pixel centre to its power
-    owner (no Monte-Carlo), so it uses the full masked support with no sampling noise. This is the
-    exact (mc_approx=False) counterpart of the masked MC path -- the mask *is* the domain, so
-    enumerating its pixels needs no polygon clipping. Areas are fractions of the mask (sum to 1);
-    owner lookup uses the same 16-NN power-distance shortlist as power_cell_areas.
-    """
-    from scipy.spatial import cKDTree
-    pts = np.asarray(pts, dtype=np.float64)
-    n = len(pts)
-    if weights is None:
-        weights = np.zeros(n)
-    weights = np.asarray(weights, dtype=np.float64)
-    ys, xs = np.nonzero(mask)
-    if len(ys) == 0:
-        return np.zeros(n, dtype=np.float64)
-    H, W = mask.shape
-    probe = np.stack([(xs + 0.5) / float(W), (ys + 0.5) / float(H)], axis=1)
-    tree = cKDTree(pts)
-    kq = min(n, 16)
-    dd, ii = tree.query(probe, k=kq)
-    if kq == 1:
-        dd = dd[:, None]
-        ii = ii[:, None]
-    pw = dd ** 2 - weights[ii]
-    owners = ii[np.arange(len(probe)), np.argmin(pw, axis=1)]
-    counts = np.bincount(owners, minlength=n).astype(np.float64)
-    return counts / max(len(probe), 1)
+    m = _power_cell_masses(pts, rho, w)
+    # The cells partition the domain, so mean(m_i) == (1/n) * total mass == BNOT's m (Sec. 4.4).
+    m_bar = m.mean()
+    if m_bar <= 1e-15:
+        return dict(zero)
+    delta_c = float(np.mean((m / m_bar - 1.0) ** 2))
+    return {
+        "capacity_delta_c": float(np.clip(delta_c, 0, 10)),
+        "capacity_std": float(m.std()),
+        "capacity_mean": float(m_bar),
+    }
 
 
 def _power_cell_cap_cv(points, rho, k=8, shortlist=32):
@@ -461,7 +967,7 @@ def _power_cell_cap_cv(points, rho, k=8, shortlist=32):
     return float(np.clip(delta, 0, 10)), float(ratio.std())
 
 
-def compute_m2_v2_power_cell(points, image_01=None, k=8, **mc_args):
+def compute_m2_v3_knn_power_cell(points, image_01=None, k=8, **mc_args):
     """M2_v2 -- power-cell mass against the LOCALLY predicted mass.
 
     Merges the former M2_v2 (unmasked) and M2_v3 (masked) paths. They are provably the same
@@ -479,7 +985,7 @@ def compute_m2_v2_power_cell(points, image_01=None, k=8, **mc_args):
     sites keep working; the computation is now always exact.
     """
     if image_01 is None:
-        raise ValueError("compute_m2_v2_power_cell requires image_01 (grayscale in [0,1]); "
+        raise ValueError("compute_m2_v3_knn_power_cell requires image_01 (grayscale in [0,1]); "
                          "the metric integrates the target density and cannot be computed "
                          "from points alone.")
     rho = _to_density(image_01)
@@ -487,408 +993,82 @@ def compute_m2_v2_power_cell(points, image_01=None, k=8, **mc_args):
         # A blank target is a misconfiguration, not a perfect score. Raise rather than
         # return 0.0, matching compute_m2_v3_cap_capacity_deviation; batch callers isolate
         # this via _collect and simply omit the key.
-        raise ValueError("compute_m2_v2_power_cell: target density carries no mass "
+        raise ValueError("compute_m2_v3_knn_power_cell: target density carries no mass "
                          "(pure-white image); there is nothing to distribute.")
     cv, std = _power_cell_cap_cv(points, rho, k=k)
     return {"power_cell_cap_cv": cv, "power_cell_cap_std": std}
 
 
-# ── M2: capacity deviation, per BNOT [de Goes et al. 2012] ───────────────────────
-#
-# The partition is the POWER (Laguerre) diagram already built above -- unchanged. What is
-# measured on it follows BNOT directly:
-#
-#   Eq. (1):  m_i = \int_{V_i^w} rho(x) dx            (mass / "ink" carried by point i)
-#   Sec. 4.4: m   = (1/n) \int_Omega rho(x) dx        (ONE global constant: sum of the
-#                                                      density values times pixel area, / n)
-#   delta_c   = (1/n) sum_i (m_i/m - 1)^2             (squared coefficient of variation)
-#
-# It differs from M2_v2 above in the YARDSTICK, not the partition. M2_v2 judges each cell
-# against its own kNN density estimate (a per-point reference), which makes it largely a
-# local-regularity measure. M2_v3 uses the single global constant m, which is what BNOT
-# actually constrains -- and on 100 real Icons-50 images that is the difference between a
-# metric that separates the samplers (spread 3.2x the within-method scatter) and one that
-# does not (0.23x). See tests/test_m2_capacity.py and experiments/validate_m2_metric.py.
-#
-# Historically BOTH were area-based and never read rho at all, so a black, mid-grey and
-# ramped interior scored identically and a point set ignoring the target could outscore one
-# matching it. Integrating rho fixed that for both.
-#
-# The support mask is deliberately NOT used here. It was a workaround for the area measure,
-# where empty white background inflated outline cells (delta 3.26 -> 0.16). Under the mass
-# integral it is a measured no-op to floating-point equality, because white background has
-# rho = 0 and contributes nothing. Dropping it removes a free parameter (MASK_THRESHOLD)
-# rather than leaving an unjustified one in the metric.
 
-def _power_cell_masses(pts, rho, weights, shortlist=32):
-    """m_i = \\int_{V_i^w} rho dx for every power cell, by exact pixel enumeration.
 
-    Every pixel centre of the domain is assigned to its power-cell owner (the site
-    minimising ||x - x_i||^2 - w_i, exactly the definition in BNOT Sec. 2.3) and contributes
-    rho(pixel) * pixel_area. Deterministic: no Monte-Carlo, which matters because the old
-    Voronoi M2 drew at most 50 bbox-rejection probes per cell and that sampling noise alone
-    inflated delta_c.
+def compute_m1_v2_power_cvt_energy(points, image_01, solution=None, **kw):
+    """M1_v2 -- CVT energy under the capacity-optimal POWER partition.
 
-    Owner lookup re-ranks a Euclidean k-NN shortlist by power distance (O(m log n)). That is
-    exact for equal weights and for the small weight spreads produced by `_knn_power_weights`;
-    `shortlist` bounds the error for larger spreads.
+    M1_v1 measures the CVT energy on Voronoi cells, which is precisely the objective Weighted
+    Voronoi Stippling minimises, so WVS leads that column by construction. The power-diagram
+    counterpart is the \\star_0-HOT_{2,2} energy that BNOT minimises (de Goes et al., Sec. 2.3),
+    so reporting both gives each family its own ground rather than privileging one.
+
+    Pass `solution` (from solve_power_diagram) to avoid re-solving the weights when M2_v2 has
+    already computed them for the same input.
     """
-    from scipy.spatial import cKDTree
-    pts = np.asarray(pts, dtype=np.float64)
-    rho = np.asarray(rho, dtype=np.float64)
-    n = len(pts)
-    H, W = rho.shape
-    ys, xs = np.mgrid[0:H, 0:W]
-    ys = ys.ravel()
-    xs = xs.ravel()
-    probe = np.stack([(xs + 0.5) / float(W), (ys + 0.5) / float(H)], axis=1)
-    kq = int(min(n, shortlist))
-    dd, ii = cKDTree(pts).query(probe, k=kq)
-    if kq == 1:
-        dd = dd[:, None]
-        ii = ii[:, None]
-    pw = dd ** 2 - np.asarray(weights, dtype=np.float64)[ii]
-    owners = ii[np.arange(len(probe)), np.argmin(pw, axis=1)]
-    pixel_area = 1.0 / float(H * W)
-    return np.bincount(owners, weights=rho[ys, xs], minlength=n).astype(np.float64) * pixel_area
+    zero = {"power_cvt_energy": 0.0}
+    pts = np.asarray(points, dtype=np.float64)
+    if len(pts) < 3:
+        return dict(zero)
+    pd, w, info = solution if solution is not None else solve_power_diagram(points, image_01, **kw)
+    if pd.total_mass <= 1e-15:
+        raise ValueError("compute_m1_v2_power_cvt_energy: target density carries no mass.")
+    _, _, energy = pd.cell_stats(w)
+    return {"power_cvt_energy": float(np.clip(energy, 0, 1000))}
 
 
-def _knn_power_weights(pts, k=8):
-    """Power weights from the local point spacing: w_i = r_k^2 / k, mean-centred.
+def compute_m2_v2_power_displacement(points, image_01, solution=None, **kw):
+    """M2_v2 -- mean displacement from each point to its power-cell centroid.
 
-    Derived from the kNN intensity estimate lambda_i = k / (pi r_k^2) as w_i = (1/lambda_i)/pi,
-    i.e. the weight rule used by the earlier M2_v2 / M2_v3 code path. Weights carry units of
-    length^2, as the power distance requires. Mean-centring is free: the power diagram is
-    invariant to adding a constant to every weight.
+    Why this and not "capacity under power cells": once the weights are solved, capacity
+    deviation is ~0 for EVERY method by construction -- semi-discrete OT admits a solution for
+    almost any configuration, so "does some weighting make this capacity-constrained?" is
+    answered yes for all of them and the column ranks nothing (measured: ~4e-5 for all four
+    samplers). Displacement does not collapse, because the weights equalise MASS while the
+    positions are still not at the barycenters.
 
-    NOT the default -- this rule carries a boundary bias. A point on the edge of the support
-    has neighbours on one side only, so its r_k is inflated and it receives a spuriously large
-    weight. On a perfect lattice over a uniform density (where the true answer is exactly 0)
-    this rule reports delta_c = 5.4e-3, with border points contributing 55% of the error while
-    making up 12% of the set; interior weights have std exactly 0, border weights do not. On
-    icon silhouettes every contour pixel is such a boundary. See `weight_mode="none"`, which
-    is exact on that configuration, and tests/test_m2_capacity.py.
+    What it means: at a critical point of BNOT's functional every point sits at the barycenter
+    of its own power cell -- the position gradient is a natural extension of the CVT gradient
+    and vanishes exactly there. So this measures how far a point set is from satisfying BNOT's
+    own optimality condition, under the partition BNOT actually uses. That is the quantity
+    reviewers asked for when they objected to judging BNOT on Voronoi cells.
+
+    Reported alongside: the solver's residual, the fraction of weights pinned at the bound, and
+    the count of stranded points -- all three are failure indicators that must stay visible,
+    since a silently unconverged solve would otherwise look like a good score.
     """
-    from scipy.spatial import cKDTree
-    pts = np.asarray(pts, dtype=np.float64)
-    n = len(pts)
-    k_eff = int(min(k, n - 1))
-    if k_eff < 1:
-        return np.zeros(n, dtype=np.float64)
-    dk = cKDTree(pts).query(pts, k=k_eff + 1)[0][:, k_eff]
-    w = np.maximum(dk, 1e-12) ** 2 / float(k_eff)
-    return w - w.mean()
-
-
-def compute_m2_v3_cap_capacity_deviation(points, image_01, weight_mode="none", k=8):
-    """M2_v3 -- capacity deviation delta_c on power cells, per BNOT Eq. (1) and Sec. 4.4.
-
-    weight_mode:
-      "none"  (default) w = 0. All weights equal, so the power diagram coincides with the
-              ordinary Voronoi diagram (BNOT Sec. 2.3) and delta_c reduces to Balzer et al.'s
-              capacity deviation verbatim. Exact on the analytic ground truth (a regular
-              lattice over a uniform density scores exactly 0), free of tuning parameters,
-              and free of the boundary bias described in `_knn_power_weights`.
-      "knn"   power weights w_i = r_k^2/k from the local point spacing -- the rule the
-              superseded M2_v2/M2_v3 path used. Tracks "none" within ~15% but is not exact
-              on ground truth; kept for reproducing the earlier cell model.
-
-    A note for interpreting the comparison: BNOT SOLVES for weights that equalise its own
-    capacities, reaching a residual of ~1e-12 by construction (BNOT Sec. 4.2). Those weights
-    are part of BNOT's output, and WVS / GBN / a learned sampler produce none. Scoring each
-    method under its own optimal weights would therefore compare a different quantity per
-    column, and measurably washes out the differences the metric exists to show. This function
-    applies one disclosed rule identically to every method; BNOT's number must be read with
-    the caveat that it is not the partition BNOT optimises.
-
-    Returns delta_c, the raw std of the cell masses, and the global mean capacity m.
-    """
-    zero = {"capacity_delta_c": 0.0, "capacity_std": 0.0, "capacity_mean": 0.0}
+    zero = {"power_displacement": 0.0, "power_displacement_norm": 0.0,
+            "power_solver_residual": 0.0, "power_at_bound": 0.0, "power_stranded": 0.0}
     pts = np.asarray(points, dtype=np.float64)
     n = len(pts)
     if n < 3:
         return dict(zero)
-    rho = _to_density(image_01)
-    if rho.ndim != 2:
-        raise ValueError(f"compute_m2_v3_cap_capacity_deviation: expected a 2-D density, got {rho.shape}")
-    if rho.sum() <= 1e-12:
-        raise ValueError("compute_m2_v3_cap_capacity_deviation: target density carries no mass "
-                         "(pure-white image); there is nothing to distribute.")
+    pd, w, info = solution if solution is not None else solve_power_diagram(points, image_01, **kw)
+    if pd.total_mass <= 1e-15:
+        raise ValueError("compute_m2_v2_power_displacement: target density carries no mass.")
 
-    if weight_mode == "knn":
-        w = _knn_power_weights(pts, k=k)
-    elif weight_mode == "none":
-        w = np.zeros(n, dtype=np.float64)
-    else:
-        raise ValueError(f"weight_mode must be 'knn' or 'none'; got {weight_mode!r}")
-
-    m = _power_cell_masses(pts, rho, w)
-    # The cells partition the domain, so mean(m_i) == (1/n) * total mass == BNOT's m (Sec. 4.4).
-    m_bar = m.mean()
-    if m_bar <= 1e-15:
-        return dict(zero)
-    delta_c = float(np.mean((m / m_bar - 1.0) ** 2))
+    _, centroid, _ = pd.cell_stats(w)
+    disp = np.linalg.norm(centroid - pd.pts, axis=1)
+    # Express displacement in units of the mean point spacing (1/sqrt(n)) so the value is
+    # comparable across point budgets.
     return {
-        "capacity_delta_c": float(np.clip(delta_c, 0, 10)),
-        "capacity_std": float(m.std()),
-        "capacity_mean": float(m_bar),
+        "power_displacement": float(disp.mean()),
+        "power_displacement_norm": float(disp.mean() * np.sqrt(n)),
+        "power_solver_residual": float(info.get("residual_delta_c", float("nan"))),
+        "power_at_bound": float(info.get("at_bound", 0.0)),
+        "power_stranded": float(stranded_points(points, image_01).sum()),
     }
 
 
-def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.01,
-                        mc_approx=False, **mc_args):
-    """M4 -- entropy-regularised Sinkhorn distance to the target density.
-
-    Exact and deterministic by default: the target is built by mass-preserving block
-    coarsening. Set mc_approx=True for the legacy estimator (10k random draws with
-    probability proportional to rho, uniform weights), which depends on `rng`.
-    """
-    try:
-        import ot
-        if rng is None:
-            rng = np.random.default_rng(42)
-        # Use the same target density convention as every other metric: dark = high mass.
-        if target_density is None:
-            target_density = _to_density(image_01)
-        else:
-            target_density = np.asarray(target_density, dtype=np.float64)
-        N = len(points)
-        H, W = image_01.shape
-        if N == 0:
-            return {"sinkhorn_ot_cost": 0.0, "sinkhorn_transport_cost": 0.0}
-        if mc_approx:
-            # Legacy estimator: 10k random draws with p ~ rho, then uniform weights.
-            yy, xx = np.mgrid[0:H, 0:W]
-            grid_points = np.column_stack([(xx.ravel() + 0.5) / W, (yy.ravel() + 0.5) / H])
-            density_weights = target_density.ravel() / (target_density.sum() + 1e-8)
-            density_weights = np.maximum(density_weights, 1e-10)
-            density_weights /= density_weights.sum()
-            if len(grid_points) > 10000:
-                idx = rng.choice(len(grid_points), 10000, p=density_weights)
-                target_pts = grid_points[idx]
-                target_w = np.ones(len(target_pts)) / len(target_pts)
-            else:
-                target_pts = grid_points
-                target_w = density_weights
-        else:
-            # Deterministic mass-preserving quadrature.
-            target_pts, target_mass = _coarsen_density(target_density, budget=8000)
-            target_w = target_mass / target_mass.sum()
-        source_w = np.ones(N) / N
-        # W_2-consistent ground cost: squared Euclidean.
-        M = ot.dist(points, target_pts, metric="sqeuclidean")
-        try:
-            # numItermax was 200, which tripped POT's "did not converge" warning on ~73% of
-            # real samples. That warning was previously invisible because M2_v1 globally
-            # disabled warnings as a side effect. It is not an accuracy problem: at 200
-            # iterations the plan already matches its marginals to ~2e-16 (source) and ~1e-7
-            # (target), and the reported cost is identical to 6 decimals at 200, 2000 and
-            # 50000 iterations, and under log-domain stabilisation. 2000 clears POT's
-            # iteration-delta threshold for ~0.1s more per call, so the run log stays clean
-            # and a genuine warning is not lost in the noise.
-            P = ot.sinkhorn(source_w, target_w, M, reg=reg, numItermax=2000)
-            transport_cost = float(np.sum(P * M))
-            # d_lambda = <P, M> - lambda * H(P), with H(P) = -sum P log P
-            # (Cuturi 2013). lambda is the regularization weight `reg`.
-            nz = P > 1e-300
-            entropy = float(-np.sum(P[nz] * np.log(P[nz])))
-            d_lambda = transport_cost - reg * entropy
-            # Report sqrt of the (non-negative) transport cost as the W_2-style
-            # distance for interpretability; keep raw d_lambda too.
-            sinkhorn_distance = float(np.sqrt(max(transport_cost, 0.0)))
-        except Exception:
-            transport_cost = 0.0
-            d_lambda = 0.0
-            sinkhorn_distance = 0.0
-        return {
-            "sinkhorn_ot_cost": float(np.clip(sinkhorn_distance, 0, 100)),
-            "sinkhorn_transport_cost": float(np.clip(transport_cost, 0, 100)),
-            "sinkhorn_d_lambda": float(np.clip(d_lambda, -100, 100)),
-        }
-    except Exception as exc:
-        _warn_metric_failure("M4 compute_m4_sinkhorn", exc)
-        return {"sinkhorn_ot_cost": 0.0, "sinkhorn_transport_cost": 0.0}
-
-
-def compute_m5_spatial_measure(points, image_01):
-    try:
-        from scipy.spatial import cKDTree
-        N = len(points)
-        if N < 2:
-            return {
-                "spatial_measure_rho_mean": 0.0,
-                "spatial_measure_rho_cv": 0.0
-            }
-
-        points = np.asarray(points, dtype=np.float64)
-        rho_img = _to_density(image_01)  # dark = high target density
-        H, W = rho_img.shape
-
-        # Local target density at each sample (vectorized).
-        gx = np.clip((points[:, 0] * (W - 1)).astype(int), 0, W - 1)
-        gy = np.clip((points[:, 1] * (H - 1)).astype(int), 0, H - 1)
-        local_density = rho_img[gy, gx]
-
-        mean_density = local_density.mean()
-        if mean_density < 1e-10:
-            mean_density = 1.0
-        # Expected number of points per unit area at each location.
-        D_x = N * (local_density / (mean_density + 1e-10))
-        D_x_safe = np.maximum(D_x, 1e-8)
-
-        # Density-transformed differential-domain spacing (Wei & Wang 2011):
-        # the raw Euclidean NN distance is scaled by the local distance field,
-        # which is inversely proportional to sqrt(local density). This makes the
-        # measure scale-invariant under non-uniform target densities.
-        tree = cKDTree(points)
-        nn_dists, _ = tree.query(points, k=2)
-        raw_rmin = nn_dists[:, 1]
-        # local distance field ~ 1 / sqrt(D_x); warp by dividing raw distance by it
-        # => warped r_min = raw_rmin * sqrt(D_x).
-        r_min = raw_rmin * np.sqrt(D_x_safe)
-
-        # Maximal hexagonal packing distance for unit-density domain (D normalized out
-        # by the warp above, so r_max is the constant packing distance at density 1).
-        r_max = np.sqrt(2.0 / np.sqrt(3.0))
-
-        rho_values = np.clip(r_min / (r_max + 1e-10), 0.0, 2.0)
-        rho_mean = float(rho_values.mean())
-        rho_std = float(rho_values.std())
-        rho_cv = rho_std / (rho_mean + 1e-8)
-
-        return {
-            "spatial_measure_rho_mean": rho_mean,
-            "spatial_measure_rho_cv": float(np.clip(rho_cv, 0, 10))
-        }
-    except Exception:
-        return {
-            "spatial_measure_rho_mean": 0.0,
-            "spatial_measure_rho_cv": 0.0
-        }
-
-
-# ── Deterministic quadrature shared by M1/M3/M4 ──────────────────────────────────
-#
-# The metrics used to approximate the continuous target by drawing a few thousand random
-# grid points with probability proportional to rho and then giving them UNIFORM weights.
-# That is unbiased but noisy and irreproducible across seeds. Worse, the non-random
-# ("exact") branch of M3 kept the uniform weights while switching to a REGULAR stride
-# subsample, so rho was silently dropped and the metric measured transport to a uniform
-# rectangle -- a ~14x error on real icons.
-#
-# Both are replaced by mass-preserving block coarsening: sum rho over b x b pixel blocks
-# and place the total at the block centre. Total mass is preserved exactly, the result is
-# deterministic, and empty blocks (rho = 0 background) drop out for free.
-
-def _coarsen_density(rho, budget=8000):
-    """Block-sum `rho` down to at most `budget` non-empty cells.
-
-    Returns (centres, masses) with centres in [0,1]^2 and masses summing to the total mass
-    of `rho` times the pixel area, i.e. \\int rho dx. Empty cells are dropped.
-    """
-    rho = np.asarray(rho, dtype=np.float64)
-    H, W = rho.shape
-    pixel_area = 1.0 / float(H * W)
-    for b in (1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64):
-        Hc = int(np.ceil(H / b))
-        Wc = int(np.ceil(W / b))
-        pad = np.zeros((Hc * b, Wc * b), dtype=np.float64)
-        pad[:H, :W] = rho
-        blocks = pad.reshape(Hc, b, Wc, b).sum(axis=(1, 3)) * pixel_area
-        nz = blocks > 0
-        if int(nz.sum()) <= budget or b == 64:
-            iy, ix = np.nonzero(nz)
-            # centre of each block, in image coordinates, clipped to the true image extent
-            cx = np.minimum((ix + 0.5) * b, W) / float(W)
-            cy = np.minimum((iy + 0.5) * b, H) / float(H)
-            return np.stack([cx, cy], axis=1), blocks[iy, ix]
-    raise AssertionError("unreachable")
-
-
-def _cvt_energy_mc(points, image_01, rng=None):
-    """Legacy Monte-Carlo CVT energy: scipy Voronoi, polygons clipped to the unit
-    square, <=50 bbox-rejection probes per cell. Retained so the previously published
-    approximate numbers can be reproduced; `compute_m1_cvt_energy` is exact by default.
-    """
-    try:
-        from scipy.spatial import Voronoi
-        if rng is None:
-            rng = np.random.default_rng(42)
-        N = len(points)
-        if N < 3:
-            return {"cvt_energy": 0.0}
-        rho = _to_density(image_01)
-        pts_clip = np.clip(points, 1e-6, 1 - 1e-6)
-        try:
-            vor = Voronoi(pts_clip)
-        except Exception:
-            return {"cvt_energy": 0.0}
-        H, W = rho.shape
-        # Clip cells to the unit square so boundary cells contribute their true
-        # (bounded) energy instead of being silently dropped.
-        clipped_regions = _voronoi_regions_clipped(vor, bbox=(0.0, 1.0, 0.0, 1.0))
-        total_energy = 0.0
-        for pt_idx, (poly, _is_finite) in enumerate(clipped_regions):
-            try:
-                if poly.shape[0] < 3:
-                    continue
-                point = points[pt_idx]
-                sample = _polygon_sample_points(poly, (H, W), mc_approx=True, rng=rng)
-                if sample is None:
-                    continue
-                points_inside, px, py = sample
-                area = _polygon_area(poly)
-                n_in = len(points_inside)
-                dist_sq = (points_inside[:, 0] - point[0]) ** 2 + (points_inside[:, 1] - point[1]) ** 2
-                if True:
-                    # MC estimate of  integral_cell rho * ||x - s||^2 dx
-                    # = area * mean( rho(x) * ||x - s||^2 ) over uniform samples.
-                    contrib = area * float(np.mean(rho[py, px] * dist_sq)) if n_in > 0 else 0.0
-                else:
-                    # Pixel-grid quadrature: each pixel has area (1/(W*H)).
-                    contrib = float(np.sum(rho[py, px] * dist_sq)) / float(W * H)
-                total_energy += contrib
-            except Exception:
-                continue
-        return {"cvt_energy": float(np.clip(total_energy, 0, 1000))}
-    except Exception as exc:
-        _warn_metric_failure("M1 compute_m1_cvt_energy", exc)
-        return {"cvt_energy": 0.0}
-
-
-
-def compute_m1_cvt_energy(points, image_01, rng=None, mc_approx=False, **mc_args):
-    """M1 -- density-weighted CVT energy, E = sum_i \\int_{V_i} rho(x) ||x - s_i||^2 dx.
-
-    Computed exactly by pixel quadrature: a Voronoi cell is by definition the set of points
-    closest to its site, so assigning every pixel to its nearest site and accumulating
-    rho * ||x - s||^2 * pixel_area evaluates the integral directly. This replaces the former
-    scipy-Voronoi + polygon-clipping + per-cell Monte-Carlo path, which drew at most 50
-    bbox-rejection probes per cell and could silently drop degenerate cells.
-
-    Set mc_approx=True to fall back to `_cvt_energy_mc`, the legacy Monte-Carlo estimator,
-    for reproducing previously published approximate numbers. The default is exact and
-    deterministic, and `rng` then has no effect.
-    """
-    if mc_approx:
-        return _cvt_energy_mc(points, image_01, rng=rng)
-    try:
-        from scipy.spatial import cKDTree
-        pts = np.asarray(points, dtype=np.float64)
-        if len(pts) < 3:
-            return {"cvt_energy": 0.0}
-        rho = _to_density(image_01)
-        H, W = rho.shape
-        ys, xs = np.mgrid[0:H, 0:W]
-        ys, xs = ys.ravel(), xs.ravel()
-        probe = np.stack([(xs + 0.5) / float(W), (ys + 0.5) / float(H)], axis=1)
-        d, _ = cKDTree(pts).query(probe, k=1)
-        energy = float(np.sum(rho[ys, xs] * d ** 2) / float(H * W))
-        return {"cvt_energy": float(np.clip(energy, 0, 1000))}
-    except Exception as exc:
-        _warn_metric_failure("M1 compute_m1_cvt_energy", exc)
-        return {"cvt_energy": 0.0}
-
+# ============================================================================
+# M3  -  EARTH MOVER'S DISTANCE
+# ============================================================================
 
 def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_approx=False, **mc_args):
     """M3 -- 2-Wasserstein distance from the points to the target density.
@@ -966,53 +1146,166 @@ def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_appro
         return {"emd_distance": 0.0}
 
 
-def _collect(result, prefix, fn, *args, **kwargs):
-    """Run one metric and merge its keys under `prefix`, isolating failures.
+# ============================================================================
+# M4  -  SINKHORN DISTANCE
+# ============================================================================
 
-    M2_v2 and M2_v3 raise on a misconfigured input (no image, or a target carrying no mass)
-    rather than silently reporting a perfect 0.0. That is the right behaviour for a single
-    call, but a batch scorer must not lose an entire sample -- or an entire multi-hour run --
-    because one image is degenerate. On failure we emit a warning and OMIT this metric's keys.
+def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.01,
+                        mc_approx=False, **mc_args):
+    """M4 -- entropy-regularised Sinkhorn distance to the target density.
 
-    Omitting rather than substituting 0.0 or NaN is deliberate: downstream aggregation skips
-    absent keys, so a bad sample lowers that metric's `count` (visible in the summary) instead
-    of quietly biasing its mean.
+    Exact and deterministic by default: the target is built by mass-preserving block
+    coarsening. Set mc_approx=True for the legacy estimator (10k random draws with
+    probability proportional to rho, uniform weights), which depends on `rng`.
     """
-    import warnings
     try:
-        out = fn(*args, **kwargs)
-    except Exception as exc:
-        warnings.warn(
-            f"{fn.__name__} failed ({type(exc).__name__}: {exc}); omitting {prefix}* keys "
-            f"for this sample",
-            RuntimeWarning, stacklevel=2,
-        )
-        return
-
-    # Drop non-finite values for the same reason failures are dropped. NaN/inf reach here
-    # when the scored point set itself contains them -- an undertrained checkpoint can emit
-    # NaN coordinates -- and a NaN written to JSON silently turns that epoch's mean into NaN
-    # during aggregation. Omitting instead lowers the metric's `count`, which is visible.
-    clean, dropped = {}, []
-    for k, v in out.items():
-        try:
-            finite = np.isfinite(v)
-        except TypeError:
-            finite = True                     # non-numeric payloads pass through untouched
-        if finite:
-            clean[f"{prefix}{k}"] = v
+        import ot
+        if rng is None:
+            rng = np.random.default_rng(42)
+        # Use the same target density convention as every other metric: dark = high mass.
+        if target_density is None:
+            target_density = _to_density(image_01)
         else:
-            dropped.append(f"{prefix}{k}")
-    if dropped:
-        warnings.warn(
-            f"{fn.__name__} returned non-finite values for {', '.join(dropped)}; omitting them "
-            f"for this sample (usually a NaN/inf in the input point set)",
-            RuntimeWarning, stacklevel=2,
-        )
-    result.update(clean)
+            target_density = np.asarray(target_density, dtype=np.float64)
+        N = len(points)
+        H, W = image_01.shape
+        if N == 0:
+            return {"sinkhorn_ot_cost": 0.0, "sinkhorn_transport_cost": 0.0}
+        if mc_approx:
+            # Legacy estimator: 10k random draws with p ~ rho, then uniform weights.
+            yy, xx = np.mgrid[0:H, 0:W]
+            grid_points = np.column_stack([(xx.ravel() + 0.5) / W, (yy.ravel() + 0.5) / H])
+            density_weights = target_density.ravel() / (target_density.sum() + 1e-8)
+            density_weights = np.maximum(density_weights, 1e-10)
+            density_weights /= density_weights.sum()
+            if len(grid_points) > 10000:
+                idx = rng.choice(len(grid_points), 10000, p=density_weights)
+                target_pts = grid_points[idx]
+                target_w = np.ones(len(target_pts)) / len(target_pts)
+            else:
+                target_pts = grid_points
+                target_w = density_weights
+        else:
+            # Deterministic mass-preserving quadrature.
+            target_pts, target_mass = _coarsen_density(target_density, budget=8000)
+            target_w = target_mass / target_mass.sum()
+        source_w = np.ones(N) / N
+        # W_2-consistent ground cost: squared Euclidean.
+        M = ot.dist(points, target_pts, metric="sqeuclidean")
+        try:
+            # numItermax was 200, which tripped POT's "did not converge" warning on ~73% of
+            # real samples. That warning was previously invisible because M2_v1 globally
+            # disabled warnings as a side effect. It is not an accuracy problem: at 200
+            # iterations the plan already matches its marginals to ~2e-16 (source) and ~1e-7
+            # (target), and the reported cost is identical to 6 decimals at 200, 2000 and
+            # 50000 iterations, and under log-domain stabilisation. 2000 clears POT's
+            # iteration-delta threshold for ~0.1s more per call, so the run log stays clean
+            # and a genuine warning is not lost in the noise.
+            P = ot.sinkhorn(source_w, target_w, M, reg=reg, numItermax=2000)
+            transport_cost = float(np.sum(P * M))
+            # d_lambda = <P, M> - lambda * H(P), with H(P) = -sum P log P
+            # (Cuturi 2013). lambda is the regularization weight `reg`.
+            nz = P > 1e-300
+            entropy = float(-np.sum(P[nz] * np.log(P[nz])))
+            d_lambda = transport_cost - reg * entropy
+            # Report sqrt of the (non-negative) transport cost as the W_2-style
+            # distance for interpretability; keep raw d_lambda too.
+            sinkhorn_distance = float(np.sqrt(max(transport_cost, 0.0)))
+        except Exception:
+            transport_cost = 0.0
+            d_lambda = 0.0
+            sinkhorn_distance = 0.0
+        return {
+            "sinkhorn_ot_cost": float(np.clip(sinkhorn_distance, 0, 100)),
+            "sinkhorn_transport_cost": float(np.clip(transport_cost, 0, 100)),
+            "sinkhorn_d_lambda": float(np.clip(d_lambda, -100, 100)),
+        }
+    except Exception as exc:
+        _warn_metric_failure("M4 compute_m4_sinkhorn", exc)
+        return {"sinkhorn_ot_cost": 0.0, "sinkhorn_transport_cost": 0.0}
 
 
-def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_approx=False):
+# ============================================================================
+# M5  -  SPATIAL MEASURE
+# ============================================================================
+
+def compute_m5_spatial_measure(points, image_01):
+    try:
+        from scipy.spatial import cKDTree
+        N = len(points)
+        if N < 2:
+            return {
+                "spatial_measure_rho_mean": 0.0,
+                "spatial_measure_rho_cv": 0.0
+            }
+
+        points = np.asarray(points, dtype=np.float64)
+        rho_img = _to_density(image_01)  # dark = high target density
+        H, W = rho_img.shape
+
+        # Local target density at each sample (vectorized).
+        gx = np.clip((points[:, 0] * (W - 1)).astype(int), 0, W - 1)
+        gy = np.clip((points[:, 1] * (H - 1)).astype(int), 0, H - 1)
+        local_density = rho_img[gy, gx]
+
+        mean_density = local_density.mean()
+        if mean_density < 1e-10:
+            mean_density = 1.0
+        # Expected number of points per unit area at each location.
+        D_x = N * (local_density / (mean_density + 1e-10))
+        D_x_safe = np.maximum(D_x, 1e-8)
+
+        # Density-transformed differential-domain spacing (Wei & Wang 2011):
+        # the raw Euclidean NN distance is scaled by the local distance field,
+        # which is inversely proportional to sqrt(local density). This makes the
+        # measure scale-invariant under non-uniform target densities.
+        tree = cKDTree(points)
+        nn_dists, _ = tree.query(points, k=2)
+        raw_rmin = nn_dists[:, 1]
+        # local distance field ~ 1 / sqrt(D_x); warp by dividing raw distance by it
+        # => warped r_min = raw_rmin * sqrt(D_x).
+        r_min = raw_rmin * np.sqrt(D_x_safe)
+
+        # Maximal hexagonal packing distance for unit-density domain (D normalized out
+        # by the warp above, so r_max is the constant packing distance at density 1).
+        r_max = np.sqrt(2.0 / np.sqrt(3.0))
+
+        rho_values = np.clip(r_min / (r_max + 1e-10), 0.0, 2.0)
+        rho_mean = float(rho_values.mean())
+        rho_std = float(rho_values.std())
+        rho_cv = rho_std / (rho_mean + 1e-8)
+
+        return {
+            "spatial_measure_rho_mean": rho_mean,
+            "spatial_measure_rho_cv": float(np.clip(rho_cv, 0, 10))
+        }
+    except Exception:
+        return {
+            "spatial_measure_rho_mean": 0.0,
+            "spatial_measure_rho_cv": 0.0
+        }
+
+
+# ============================================================================
+# AGGREGATE
+# ============================================================================
+
+def _format_advanced_text(metrics):
+    """Format M1-M5 metrics as a compact monospace string for text axes."""
+    return (
+        f"M1v1 CVT (Voronoi)    : {metrics.get('M1_v1_cvt_energy', 0.0):.6f}\n"
+        f"M1v2 CVT (power)      : {metrics.get('M1_v2_power_cvt_energy', 0.0):.6f}\n"
+        f"M2v1 Capacity delta_c : {metrics.get('M2_v1_capacity_delta_c', 0.0):.4f}\n"
+        f"M2v2 Power displace.  : {metrics.get('M2_v2_power_displacement', 0.0):.4f}\n"
+        f"M2v3 kNN power cell   : {metrics.get('M2_v3_power_cell_cap_cv', 0.0):.4f}\n"
+        f"M3 EMD                : {metrics.get('M3_emd_distance', 0.0):.4f}\n"
+        f"M4 Sinkhorn Distance  : {metrics.get('M4_sinkhorn_ot_cost', 0.0):.4f}\n"
+        f"M5 Spatial Measure    : {metrics.get('M5_spatial_measure_rho_mean', 0.0):.4f}"
+    )
+
+
+def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_approx=False,
+                                 power_metrics=True, power_resolution=POWER_RESOLUTION):
     """Run the full M1-M5 battery. Exact and deterministic unless mc_approx=True.
 
     Individual metric failures are isolated (see `_collect`): the remaining metrics are still
@@ -1020,12 +1313,28 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_appro
     """
     result = {}
 
-    _collect(result, "M1_", compute_m1_cvt_energy, points, image_01,
+    _collect(result, "M1_v1_", compute_m1_v1_cvt_energy, points, image_01,
              rng=np.random.default_rng(41), mc_approx=mc_approx)
-    _collect(result, "M2_", compute_m2_capacity_constraint, points, image_01,
+    _collect(result, "M2_v0_", compute_m2_capacity_constraint, points, image_01,
              rng=np.random.default_rng(42), mc_approx=mc_approx)
-    _collect(result, "M2_v2_", compute_m2_v2_power_cell, points, image_01)
-    _collect(result, "M2_v3_cap_", compute_m2_v3_cap_capacity_deviation, points, image_01)
+    _collect(result, "M2_v1_", compute_m2_v1_capacity, points, image_01)
+    _collect(result, "M2_v3_", compute_m2_v3_knn_power_cell, points, image_01)
+
+    # M1_v2 and M2_v2 share one capacity-optimal power diagram: the weight solve is the
+    # expensive part and solving it twice for the same input would double the cost.
+    if power_metrics:
+        try:
+            solution = solve_power_diagram(points, image_01, resolution=power_resolution)
+        except Exception as exc:
+            import warnings
+            warnings.warn(f"power-diagram solve failed ({type(exc).__name__}: {exc}); "
+                          f"omitting M1_v2_* and M2_v2_* for this sample",
+                          RuntimeWarning, stacklevel=2)
+        else:
+            _collect(result, "M1_v2_", compute_m1_v2_power_cvt_energy, points, image_01,
+                     solution=solution)
+            _collect(result, "M2_v2_", compute_m2_v2_power_displacement, points, image_01,
+                     solution=solution)
     _collect(result, "M3_", compute_m3_emd, points, None, image_01,
              rng=np.random.default_rng(43), mc_approx=mc_approx)
     _collect(result, "M4_", compute_m4_sinkhorn, points, image_01,
@@ -1034,7 +1343,9 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_appro
     return result
 
 
-# ── GBN Algorithm 2 + density reconstruction ─────────────────────────
+# ============================================================================
+# GBN DENSITY RECONSTRUCTION
+# ============================================================================
 
 if HAS_TORCH:
     @torch.no_grad()
@@ -1105,6 +1416,35 @@ def process_target_density(source_img_u8, device):
     if d_max > d_min:
         smoothed = (smoothed - d_min) / (d_max - d_min)
     return smoothed
+
+
+# ============================================================================
+# VISUALIZATION
+# ============================================================================
+
+def _render_advanced_metrics_row(axes_row, points_list, labels, image_01, metrics_list=None, mc_approx=True):
+    """Fill one matplotlib axes row with M1-M5 metric text boxes."""
+    axes_row[0].axis("off")
+    for j, (pts, label) in enumerate(zip(points_list, labels)):
+        ax = axes_row[1 + j]
+        ax.axis("off")
+        try:
+            if metrics_list is not None and j < len(metrics_list) and metrics_list[j] is not None:
+                m = metrics_list[j]
+            else:
+                m = compute_all_advanced_metrics(pts, image_01, mc_approx=mc_approx)
+            text = _format_advanced_text(m)
+        except Exception:
+            text = "(metrics unavailable)"
+        ax.text(
+            0.5, 0.95, text,
+            ha="center", va="top",
+            fontsize=_fs(),
+            fontfamily="monospace",
+            transform=ax.transAxes,
+            bbox=dict(boxstyle="round,pad=0.8", facecolor="lightyellow", alpha=0.85),
+        )
+        ax.set_title(f"{label} Adv. Metrics", fontsize=_fs())
 
 
 def visualize_adaptive_sampling_density_map(
@@ -1196,8 +1536,6 @@ def visualize_adaptive_sampling_density_map(
     plt.close()
     return save_path
 
-
-# ── 4-row overfit panel (with optional M1-M5 text row) ───────────────
 
 def visualize_overfit_metrics(
     source_img,
@@ -1369,8 +1707,6 @@ def visualize_overfit_metrics(
     return save_path
 
 
-# ── Advanced metrics bar-chart panel ─────────────────────────────────
-
 def visualize_advanced_metrics_panel(
     image_01,
     pred_pointsets,
@@ -1447,102 +1783,6 @@ def visualize_advanced_metrics_panel(
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()
     return save_path
-
-
-# ── Per-axis spatial visual functions ────────────────────────────────
-
-def _clip_polygon_to_bbox(vertices, bbox=(0.0, 1.0, 0.0, 1.0)):
-    xmin, xmax, ymin, ymax = bbox
-
-    def _clip_edge(poly, ax0, ay0, ax1, ay1):
-        if not poly:
-            return []
-
-        def _inside(p):
-            return (ax1 - ax0) * (p[1] - ay0) - (ay1 - ay0) * (p[0] - ax0) >= 0
-
-        def _intersect(p1, p2):
-            dx, dy = ax1 - ax0, ay1 - ay0
-            dpx, dpy = p2[0] - p1[0], p2[1] - p1[1]
-            denom = dx * dpy - dy * dpx
-            if abs(denom) < 1e-12:
-                return p1
-            t = (dy * (p1[0] - ax0) - dx * (p1[1] - ay0)) / denom
-            return (p1[0] + t * dpx, p1[1] + t * dpy)
-
-        out = []
-        for i, curr in enumerate(poly):
-            prev = poly[i - 1]
-            if _inside(curr):
-                if not _inside(prev):
-                    out.append(_intersect(prev, curr))
-                out.append(curr)
-            elif _inside(prev):
-                out.append(_intersect(prev, curr))
-        return out
-
-    poly = [(v[0], v[1]) for v in vertices]
-    poly = _clip_edge(poly, xmin, ymin, xmax, ymin)   
-    poly = _clip_edge(poly, xmax, ymin, xmax, ymax)   
-    poly = _clip_edge(poly, xmax, ymax, xmin, ymax)   
-    poly = _clip_edge(poly, xmin, ymax, xmin, ymin)   
-    return np.array(poly) if poly else np.zeros((0, 2))
-
-
-def _voronoi_regions_clipped(vor, bbox=(0.0, 1.0, 0.0, 1.0)):
-    xmin, xmax, ymin, ymax = bbox
-    center = vor.points.mean(axis=0)
-    radius = max(xmax - xmin, ymax - ymin) * 4.0
-
-    ridge_map = {}
-    for (p1, p2), (v1, v2) in zip(vor.ridge_points, vor.ridge_vertices):
-        ridge_map.setdefault(p1, []).append((p2, v1, v2))
-        ridge_map.setdefault(p2, []).append((p1, v1, v2))
-
-    ext_verts = vor.vertices.tolist()
-
-    result = []
-    for pt_idx, region_idx in enumerate(vor.point_region):
-        region = vor.regions[region_idx]
-        is_finite = all(v >= 0 for v in region)
-
-        if is_finite:
-            raw = vor.vertices[region]
-        else:
-            new_region = [v for v in region if v >= 0]
-
-            for p2, v1, v2 in ridge_map.get(pt_idx, []):
-                if v2 < 0:
-                    v1, v2 = v2, v1
-                if v1 >= 0:
-                    continue  
-
-                tangent = vor.points[p2] - vor.points[pt_idx]
-                norm = np.linalg.norm(tangent)
-                if norm < 1e-12:
-                    continue
-                tangent /= norm
-                normal = np.array([-tangent[1], tangent[0]])
-                midpoint = vor.points[[pt_idx, p2]].mean(axis=0)
-                sign = np.sign(np.dot(midpoint - center, normal))
-                far_pt = vor.vertices[v2] + sign * normal * radius
-                ext_verts.append(far_pt.tolist())
-                new_region.append(len(ext_verts) - 1)
-
-            if len(new_region) < 3:
-                result.append((np.zeros((0, 2)), is_finite))
-                continue
-
-            ext_arr = np.array(ext_verts)
-            vs = ext_arr[new_region]
-            c = vs.mean(axis=0)
-            angles = np.arctan2(vs[:, 1] - c[1], vs[:, 0] - c[0])
-            raw = vs[np.argsort(angles)]
-
-        clipped = _clip_polygon_to_bbox(raw, bbox)
-        result.append((clipped, is_finite))
-
-    return result
 
 
 def _extract_subject_contour(density_map, bg_threshold=0.05):
@@ -1916,8 +2156,6 @@ def plot_visual_m5_spectrum(points, image_01, ax):
     ax.set_xlabel("Radial frequency", fontsize=_fs())
     ax.set_ylabel("Power", fontsize=_fs())
 
-
-# ── Spatial visual metrics panel ─────────────────────────────────────
 
 def visualize_spatial_metrics_panel(
     image_01,

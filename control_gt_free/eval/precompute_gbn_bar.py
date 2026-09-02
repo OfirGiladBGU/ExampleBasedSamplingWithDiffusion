@@ -23,7 +23,7 @@ from control_gt_free.losses.soft_membership import offsets_to_coords, density_to
 from control_gt_free.losses.loss_pcf import pcf_from_points, default_edges
 
 from utils.stippling_metrics_advance import (
-    compute_m1_cvt_energy, compute_m2_capacity_constraint, compute_m5_spatial_measure,
+    compute_m1_v1_cvt_energy, compute_m2_capacity_constraint, compute_m5_spatial_measure,
 )
 from data.Transforms import to_pointset_optimal_transport
 
@@ -93,7 +93,7 @@ def build_bar_from_dataset(source, offsets, out, grid_size=32, max_refs=64,
         if hard_metrics:
             image01 = s_i["high_res"].squeeze(0).numpy()
             pts_np = points_from_offsets_np(offsets_np)
-            hard["cvt_energy"].append(compute_m1_cvt_energy(pts_np, image01).get("cvt_energy", 0.0))
+            hard["cvt_energy"].append(compute_m1_v1_cvt_energy(pts_np, image01).get("cvt_energy", 0.0))
             hard["voronoi_mass_cv"].append(compute_m2_capacity_constraint(pts_np, image01).get("voronoi_mass_cv", 0.0))
             m5 = compute_m5_spatial_measure(pts_np, image01)
             hard["spatial_measure_rho_cv"].append(m5.get("spatial_measure_rho_cv", 0.0))
@@ -170,7 +170,7 @@ def main():
 
         # hard validators on the same reference (the bar)
         pts_np = points_from_offsets_np(offsets_np)
-        hard["cvt_energy"].append(compute_m1_cvt_energy(pts_np, image01).get("cvt_energy", 0.0))
+        hard["cvt_energy"].append(compute_m1_v1_cvt_energy(pts_np, image01).get("cvt_energy", 0.0))
         hard["voronoi_mass_cv"].append(
             compute_m2_capacity_constraint(pts_np, image01).get("voronoi_mass_cv", 0.0))
         m5 = compute_m5_spatial_measure(pts_np, image01)

@@ -1,9 +1,11 @@
+# Fix script that it needs to create the manifest.json file in the output folder if not exists.
+
 """Copy per-method stipple results (PNG + NPY) for the validation manifest into
-flat target folders, mirroring the layout of target_CN_1024.
+flat target folders, mirroring the layout of target_CN-GBN_1024.
 
 The source trees are nested as  <method_target>/Icons-50/<category>/<stem>.{png,npy}
 while the destination folders are FLAT (all files directly inside), exactly like
-experiments/outputs/quantitative_advance_metrics/target_CN_1024.
+experiments/outputs/quantitative_advance_metrics/target_CN-GBN_1024.
 
 For each method (WVS, BNOT, GBN) this script:
   * reads validation_manifest.json (a list of "<stem>.png" filenames),

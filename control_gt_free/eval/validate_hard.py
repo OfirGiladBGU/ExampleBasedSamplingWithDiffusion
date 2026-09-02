@@ -27,7 +27,7 @@ from control_gt_free.losses.soft_membership import (
 from control_gt_free.losses.loss_capacity import soft_capacity_cv
 
 from utils.stippling_metrics_advance import (
-    compute_m1_cvt_energy, compute_m2_capacity_constraint, compute_m5_spatial_measure,
+    compute_m1_v1_cvt_energy, compute_m2_capacity_constraint, compute_m5_spatial_measure,
 )
 
 
@@ -82,7 +82,7 @@ def offsets_to_points_np(offsets):
 
 
 def hard_metrics_for_points(points_np, image01):
-    m1 = compute_m1_cvt_energy(points_np, image01)
+    m1 = compute_m1_v1_cvt_energy(points_np, image01)
     m2 = compute_m2_capacity_constraint(points_np, image01)
     m5 = compute_m5_spatial_measure(points_np, image01)
     return {

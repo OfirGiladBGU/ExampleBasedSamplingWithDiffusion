@@ -1,6 +1,6 @@
 """qualitative_comparison_showcase.py
 
-Comparison showcase: the fixed 5 columns [Target, WVS, BNOT, GBN, Ours], one row
+Comparison showcase: the fixed columns [Target, WVS, BNOT, GBN, Ours-WVS, Ours-GBN], one row
 per sample. Icons rows come first, faces rows are ALWAYS placed below them. Control
 each block with its own flat VALID_SAMPLES list; an empty list [] drops that block.
 
@@ -9,7 +9,8 @@ Images come straight from the *_results_compare folders (no model, no rendering)
     WVS    -> target_WVS_1024/<stem>.npy      (shown as vector point scatter)
     BNOT   -> target_BNOT_1024/<stem>.npy
     GBN    -> target_GBN_1024/<stem>.npy
-    Ours   -> target_CN_1024/<stem>.npy       (CN = our ControlNet model)
+    Ours-WVS -> target_CN-WVS_1024/<stem>.npy   (our ControlNet, trained on WVS targets)
+    Ours-GBN -> target_CN-GBN_1024/<stem>.npy   (our ControlNet, trained on GBN targets)
 
 The stipple columns are drawn from the .npy points (crisp at any size, vector in
 the PDF) rather than the rendered .png (which fades when downsampled).
@@ -59,13 +60,14 @@ OUT_NAME = "qualitative_comparison_left"
 # OUT_NAME = "qualitative_comparison_appendix_right"
 
 # ── Fixed columns -> subfolder ────────────────────────────────────────────────
-COLUMNS = ["Target", "WVS", "BNOT", "GBN", "Ours"]
+COLUMNS = ["Target", "WVS", "BNOT", "GBN", "Ours-WVS", "Ours-GBN"]
 COL_TO_DIR = {
     "Target": "source",
     "WVS": "target_WVS_1024",
     "BNOT": "target_BNOT_1024",
     "GBN": "target_GBN_1024",
-    "Ours": "target_CN_1024",
+    "Ours-WVS": "target_CN-WVS_1024",
+    "Ours-GBN": "target_CN-GBN_1024",
 }
 
 CELL = 2.0            # inches per cell
@@ -116,7 +118,7 @@ def render_cell(ax, root, column, stem, dot_size):
 
 
 def parse_args():
-    ap = argparse.ArgumentParser(description="Comparison showcase (Target/WVS/BNOT/GBN/Ours).")
+    ap = argparse.ArgumentParser(description="Comparison showcase (Target/WVS/BNOT/GBN/Ours-WVS/Ours-GBN).")
     ap.add_argument("--icons-dir", default=ICONS_DIR)
     ap.add_argument("--faces-dir", default=FACES_DIR)
     ap.add_argument("--output", default=OUT_DIR, help="Folder to write the panel into.")

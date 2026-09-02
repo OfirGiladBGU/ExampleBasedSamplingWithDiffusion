@@ -20,7 +20,8 @@ column. Columns may be ragged (short ones are blank-padded). Use [] to drop a bl
 
 Images come straight from the *_results_compare folders (no model, no rendering):
     Target -> source/<stem>.png            (shown as an image)
-    Ours   -> target_CN_1024/<stem>.npy    (shown as vector point scatter; CN = our model)
+    Ours-WVS -> target_CN-WVS_1024/<stem>.npy   (vector point scatter; ControlNet on WVS targets)
+    Ours-GBN -> target_CN-GBN_1024/<stem>.npy   (vector point scatter; ControlNet on GBN targets)
 
 The stipple result is drawn from the .npy points (crisp at any size, vector in the
 PDF) rather than the rendered .png (which fades when downsampled).
@@ -70,11 +71,12 @@ OUT_NAME = "qualitative_ours"
 # OUT_NAME = "qualitative_ours_appendix"
 
 # What each sample cell shows, left to right. Edit to ["Ours"] for result-only.
-OURS_SUBCOLS = ["Target", "Ours"]
+OURS_SUBCOLS = ["Target", "Ours-WVS", "Ours-GBN"]
 
 COL_TO_DIR = {
     "Target": "source",
-    "Ours": "target_CN_1024",
+    "Ours-WVS": "target_CN-WVS_1024",
+    "Ours-GBN": "target_CN-GBN_1024",
 }
 
 CELL = 2.0             # inches per cell

@@ -609,8 +609,10 @@ def save_sample_image(image_path, pts, out_png_path):
 
 def _serialize_advanced_metrics(metrics_dict):
     used_keys = {
-        "M1_cvt_energy",
-        "M2_voronoi_mass_cv",
+        "M1_v1_cvt_energy",
+        "M1_v2_power_cvt_energy",
+        "M2_v1_capacity_delta_c",
+        "M2_v2_power_displacement",
         "M3_emd_distance",
         "M4_sinkhorn_ot_cost",
         "M5_spatial_measure_rho_mean",

@@ -59,6 +59,8 @@ def main() -> int:
     TRACK_TIME_FULL = False
     TRACK_PROFILE_TRACE = False
 
+    TARGET_FOLDER = "target"
+
     ############################
     # CONFIGURATION PARAMETERS #
     ############################
@@ -68,18 +70,27 @@ def main() -> int:
     DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic_V2"
     GRID_SIZE = 32
     TRACK_TIME = False
+    TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic_V2"
+    # GRID_SIZE = 32
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
 
     # Monkey Sample
     # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
     # DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/monkey"
     # GRID_SIZE = 32
     # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
 
     # Plant Sample
     # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
     # DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/plant2"
     # GRID_SIZE = 32
     # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
 
 
     # Faces Set Sample
@@ -87,12 +98,26 @@ def main() -> int:
     # DATA_PATH = "experiments/outputs/faces_results_compare"
     # GRID_SIZE = 32
     # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/faces_results_compare"
+    # GRID_SIZE = 32
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
 
     # Icons-50 - METRICS
     # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
     # DATA_PATH = "experiments/outputs/quantitative_advance_metrics"
     # GRID_SIZE = 32
     # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/quantitative_advance_metrics"
+    # GRID_SIZE = 32
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
 
     # Icons-50 - TIMES - V1
     # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep10000.ckpt"
@@ -102,6 +127,7 @@ def main() -> int:
     # GRID_SIZE = 48
     # # TRACK_TIME_FULL = True
     # # TRACK_PROFILE_TRACE = True
+    # TARGET_FOLDER = f"target_CN_{GRID_SIZE**2}"
 
 
     parser = argparse.ArgumentParser(
@@ -152,10 +178,10 @@ def main() -> int:
     # NOTE: Build paths
     data_path = args.data_path
     SOURCE_PATH = os.path.join(args.data_path, "source")
-    TARGET_PATH = os.path.join(args.data_path, "target")
+    TARGET_PATH = os.path.join(args.data_path, TARGET_FOLDER)
     JSON_PATH = os.path.join(args.data_path, "prompt.json")
     # TARGET_NPY_PATH = os.path.join(args.data_path, "target_npy")
-    TARGET_NPY_PATH = os.path.join(args.data_path, "target")
+    TARGET_NPY_PATH = TARGET_PATH
     TIMESTAMPS_PATH = os.path.join(args.data_path, "timestamps")
 
     print(f"Data path: {data_path}")

@@ -64,10 +64,12 @@ FIG_DPI = 100
 
 
 METRIC_ORDER = [
-    "M1_cvt_energy",
-    # "M2_voronoi_mass_cv",
-    # "M2_v2_power_cell_cap_cv",
-    "M2_v3_cap_capacity_delta_c",
+    "M1_v1_cvt_energy",
+    "M1_v2_power_cvt_energy",
+    "M2_v0_voronoi_mass_cv",
+    "M2_v1_capacity_delta_c",
+    "M2_v2_power_displacement",
+    "M2_v3_power_cell_cap_cv",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
@@ -78,10 +80,12 @@ METRIC_ORDER = [
 METRIC_LABELS = {
     # Each metric can map to either a string (used for both title and ylabel)
     # or a dict with explicit `title` and `ylabel` fields.
-    "M1_cvt_energy": {"title": "M1: CVT Energy", "ylabel": "Energy", "exclude_result_dirs": []},
+    "M1_v1_cvt_energy": {"title": "M1: CVT Energy (Voronoi)", "ylabel": "Energy", "exclude_result_dirs": []},
+    "M1_v2_power_cvt_energy": {"title": "M1: CVT Energy (power)", "ylabel": "Energy", "exclude_result_dirs": []},
     # "M2_voronoi_mass_cv": {"title": "M2: Capacity Constraint Fulfillment", "ylabel": "Voronoi Mass", "exclude_result_dirs": []},
     # "M2_v2_power_cell_cap_cv": {"title": "M2: Power Cell", "ylabel": "Power Cell Capacity", "exclude_result_dirs": []},    
-    "M2_v3_cap_capacity_delta_c": {"title": r"M2: Capacity Deviation $\delta_c$", "ylabel": r"$\delta_c$", "exclude_result_dirs": []},
+    "M2_v1_capacity_delta_c": {"title": r"M2: Capacity Deviation $\delta_c$", "ylabel": r"$\delta_c$", "exclude_result_dirs": []},
+    "M2_v2_power_displacement": {"title": "M2: Power Centroid Displacement", "ylabel": "displacement", "exclude_result_dirs": []},
     "M3_emd_distance": {"title": "M3: EMD Distance", "ylabel": "Distance", "exclude_result_dirs": []},
     "M4_sinkhorn_ot_cost": {"title": "M4: Sinkhorn OT Cost", "ylabel": "Cost", "exclude_result_dirs": []},
     "M5_spatial_measure_rho_mean": {"title": "M5: Spatial Measure ρ Mean", "ylabel": "ρ Mean", "exclude_result_dirs": []},

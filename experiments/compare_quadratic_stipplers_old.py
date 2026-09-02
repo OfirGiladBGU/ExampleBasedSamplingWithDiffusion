@@ -8,15 +8,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-DEFAULT_REFERENCE_IMAGE = Path("experiments") / "results" / "quadratic" / "source" / "quadratic_density_gradient.png"
-DEFAULT_OUTPUT = Path("experiments") / "outputs" / "quadratic_comparison" / "comparison_panel.png"
+DEFAULT_REFERENCE_IMAGE = Path("experiments") / "outputs" / "images_results_metrics" / "quadratic" / "source" / "quadratic_density_gradient.png"
+DEFAULT_OUTPUT = Path("experiments") / "outputs" / "images_results_metrics" / "quadratic" / "comparison_panel.png"
 
 # Edit this list to control the order and contents of the comparison.
 # For raster inputs (png/jpg), you can add an optional "threshold" value per entry.
 RESULT_SPECS = [
-    {"label": "WVS", "path": Path("/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic/target_WVS_1024/quadratic_density_gradient.png"), "threshold": 127},
-    {"label": "GBN", "path": Path("/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic/target_GBN_1024/quadratic_density_gradient.png"), "threshold": 127},
-    {"label": "ControlNet", "path": Path("/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/quadratic/target_CN_1024/quadratic_density_gradient.png"), "threshold": 127},
+    {"label": "WVS", "path": Path("/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic/target_WVS_1024/quadratic_density_gradient.png"), "threshold": 127},
+    {"label": "GBN", "path": Path("/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic/target_GBN_1024/quadratic_density_gradient.png"), "threshold": 127},
+    {"label": "ControlNet", "path": Path("/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic/target_CN_1024/quadratic_density_gradient.png"), "threshold": 127},
 ]
 
 

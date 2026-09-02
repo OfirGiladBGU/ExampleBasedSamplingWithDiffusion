@@ -44,10 +44,12 @@ NUM_SAMPLES = 50
 EVERY_EPOCH = 500
 
 METRIC_ORDER = [
-    "M1_cvt_energy",
-    "M2_voronoi_mass_cv",
-    "M2_v2_power_cell_cap_cv",
-    "M2_v3_cap_capacity_delta_c",
+    "M1_v1_cvt_energy",
+    "M1_v2_power_cvt_energy",
+    "M2_v0_voronoi_mass_cv",
+    "M2_v1_capacity_delta_c",
+    "M2_v2_power_displacement",
+    "M2_v3_power_cell_cap_cv",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",

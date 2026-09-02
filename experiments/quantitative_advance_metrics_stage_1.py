@@ -33,20 +33,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.stippling_metrics_advance import compute_all_advanced_metrics
 
 # Default input folders
+# Set SOURCE_DIR to the folder icons_results_compare
 SOURCE_DIR = r"experiments/outputs/quantitative_advance_metrics/source"
 TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_WVS_1024"
 # TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_BNOT_1024"
 # TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_GBN_1024"
-# TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_CN_1024"
+# TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_CN-WVS_1024"
+# TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_CN-GBN_1024"
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 POINTS_SOURCE = "npy"
 
 METRIC_ORDER = [
-    "M1_cvt_energy",
-    "M2_voronoi_mass_cv",
-    "M2_v2_power_cell_cap_cv",
-    "M2_v3_cap_capacity_delta_c",
+    "M1_v1_cvt_energy",
+    "M1_v2_power_cvt_energy",
+    "M2_v0_voronoi_mass_cv",
+    "M2_v1_capacity_delta_c",
+    "M2_v2_power_displacement",
+    "M2_v3_power_cell_cap_cv",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",

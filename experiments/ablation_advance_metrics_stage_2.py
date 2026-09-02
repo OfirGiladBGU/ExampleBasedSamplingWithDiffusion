@@ -5,8 +5,8 @@ This script reads the point-set outputs produced by stage 1 from
 example, and writes JSON files to `OUTPUT_DIR/{RESULTS_DIR}/epoch_*_json/`.
 
 The per-example JSON contains:
-    M1_cvt_energy
-    M2_voronoi_mass_cv
+    M1_v1_cvt_energy / M1_v2_power_cvt_energy
+    M2_v1_capacity_delta_c / M2_v2_power_displacement
     M3_emd_distance
     M4_sinkhorn_ot_cost
     M5_spatial_measure_rho_mean
@@ -115,10 +115,12 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 # M6_minsnr_loss        = Component-1 proxy only (MinSNR-weighted density MSE).
 # M6_v2_minsnr_kde_loss = full training-loss proxy: Component 1 + w * Component-2 KDE loss.
 METRIC_ORDER = [
-    "M1_cvt_energy",
-    "M2_voronoi_mass_cv",
-    "M2_v2_power_cell_cap_cv",
-    "M2_v3_cap_capacity_delta_c",
+    "M1_v1_cvt_energy",
+    "M1_v2_power_cvt_energy",
+    "M2_v0_voronoi_mass_cv",
+    "M2_v1_capacity_delta_c",
+    "M2_v2_power_displacement",
+    "M2_v3_power_cell_cap_cv",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
