@@ -32,6 +32,18 @@ OUTPUT_DIR = "experiments/outputs/z_validation_data/Icons-50_1024"
 # OUTPUT_DIR = "experiments/outputs/z_validation_data/CelebA-5K_1024"
 
 
+# ShapeNetRender dataset
+# # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_WVS/source"
+# # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_BNOT/source"
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_GBN/source"
+# TARGET_DIRS = {
+#     "target_1024_WVS": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_WVS/target",
+#     "target_1024_BNOT": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_BNOT/target",
+#     "target_1024_GBN": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_GBN/target",
+# }
+# OUTPUT_DIR = "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"
+
+
 DEVICE = "cuda"
 SPLIT_SEED = 42
 VAL_SPLIT = 0.1
