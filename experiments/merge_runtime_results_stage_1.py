@@ -1,121 +1,87 @@
 #!/usr/bin/env python3
-"""Aggregate per-image TOTAL runtimes from the ``timestamps_*`` folders.
+"""Stage 1: gather the timestamps_<METHOD>_<GRID> folders from each per-method runtime
+output folder into ONE common folder, so stage 2 can aggregate them.
 
-Each method writes its per-image timing into a different text format:
+The per-method folders and their input images are built by
+merge_runtime_results_stage_0.py; each method's own stippling code fills in the
+timestamps_<METHOD>_<GRID> folders this stage collects.
 
-    BNOT : a line ``total_wall_seconds: <float>``
-    CN   : a line ``Total Execution Time: <float> s``
-    WVS  : the whole file is just a bare number (seconds)
-    GBN  : the whole file is just a bare number (seconds)
+Copies (recursively) every folder named ``timestamps_<METHOD>_<GRID>`` from:
+    outputs/icons_results_runtimes_cn
+    outputs/icons_results_runtimes_gbn
+    outputs/icons_results_runtimes_wvs
+    outputs/icons_results_runtimes_bnot
+into:
+    outputs/icons_results_runtimes/
 
-Folder layout is ``timestamps_<METHOD>_<GRID>`` and the txt files may sit either
-directly inside it (CN) or under ``Icons-50/<category>/`` (BNOT/WVS/GBN); a
-recursive glob covers both.  Some folders have fewer files than others because
-BNOT occasionally crashes and those images were skipped -- we simply aggregate
-whatever totals are present.
-
-Output: ``outputs/icons_results_runtimes/runtimes_avg.json`` ::
-
-    {"WVS": {"256": {"avg": ..., "std": ..., "count": N}, ...}, ...}
+Anything that is not a timestamps_<METHOD>_<GRID> folder is ignored. Re-running merges/
+overwrites (dirs_exist_ok), so it is idempotent. Then run merge_runtime_results_stage_2.py.
 """
 
 from __future__ import annotations
 
-import glob
-import json
-import math
+import argparse
 import os
 import re
+import shutil
 
-ROOT = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "outputs",
-    "icons_results_runtimes",
-)
-OUT_JSON = os.path.join(ROOT, "runtimes_avg.json")
+BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
+SOURCE_DIRS = [
+    "icons_results_runtimes_wvs",
+    "icons_results_runtimes_bnot",
+    "icons_results_runtimes_gbn",
+    "icons_results_runtimes_cn",
+]
+DEST = os.path.join(BASE, "icons_results_runtimes")
 
-# Structured formats (BNOT / CN). WVS & GBN are bare numbers handled below.
-RE_BNOT = re.compile(r"total_wall_seconds:\s*([0-9.eE+-]+)")
-RE_CN = re.compile(r"Total Execution Time:\s*([0-9.eE+-]+)")
+# Same pattern stage 1 uses, so only real timing folders are copied.
 RE_FOLDER = re.compile(r"^timestamps_([A-Za-z0-9]+)_(\d+)$")
 
 
-def extract_total_seconds(text):
-    """Return the TOTAL runtime (seconds) from one timestamp file, or None."""
-    m = RE_BNOT.search(text)
-    if m:
-        return float(m.group(1))
-    m = RE_CN.search(text)
-    if m:
-        return float(m.group(1))
-    # WVS / GBN: first non-empty line is the bare total.
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            return float(line.split()[0])
-        except ValueError:
-            return None
-    return None
+def count_txt(folder):
+    n = 0
+    for _root, _dirs, files in os.walk(folder):
+        n += sum(1 for f in files if f.lower().endswith(".txt"))
+    return n
 
 
 def main():
-    results = {}  # method -> { size -> stats }
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--dest", default=DEST, help="Common destination folder.")
+    ap.add_argument("--sources", nargs="+", default=SOURCE_DIRS,
+                    help="Per-method runtime folders (relative to outputs/, or absolute).")
+    ap.add_argument("--dry-run", action="store_true", help="List what would be copied; copy nothing.")
+    args = ap.parse_args()
 
-    for name in sorted(os.listdir(ROOT)):
-        full = os.path.join(ROOT, name)
-        if not os.path.isdir(full):
-            continue
-        fm = RE_FOLDER.match(name)
-        if not fm:
-            continue
-        method, size = fm.group(1), fm.group(2)
+    if not args.dry_run:
+        os.makedirs(args.dest, exist_ok=True)
 
-        txts = glob.glob(os.path.join(full, "**", "*.txt"), recursive=True)
-        times, skipped = [], []
-        for tf in txts:
-            try:
-                with open(tf, "r", errors="replace") as fh:
-                    val = extract_total_seconds(fh.read())
-            except OSError as exc:
-                skipped.append((tf, str(exc)))
+    copied = 0
+    for sd in args.sources:
+        src_base = sd if os.path.isabs(sd) else os.path.join(BASE, sd)
+        if not os.path.isdir(src_base):
+            print(f"[WARN] source not found: {src_base}")
+            continue
+        found = 0
+        for name in sorted(os.listdir(src_base)):
+            full = os.path.join(src_base, name)
+            if not os.path.isdir(full) or not RE_FOLDER.match(name):
                 continue
-            if val is None:
-                skipped.append((tf, "no total found"))
+            found += 1
+            dst = os.path.join(args.dest, name)
+            ntxt = count_txt(full)
+            if args.dry_run:
+                print(f"  DRY copy {name}  ({ntxt} txt)  {src_base} -> {dst}")
             else:
-                times.append(val)
+                shutil.copytree(full, dst, dirs_exist_ok=True)
+                print(f"  copied {name}  ({ntxt} txt)")
+            copied += 1
+        if found == 0:
+            print(f"[WARN] {os.path.basename(src_base)}: no timestamps_<METHOD>_<GRID> folders")
 
-        if not times:
-            print(f"[WARN] {name}: no usable timing files ({len(txts)} txt found)")
-            continue
-
-        n = len(times)
-        avg = sum(times) / n
-        if n > 1:
-            std = math.sqrt(sum((t - avg) ** 2 for t in times) / (n - 1))
-        else:
-            std = 0.0
-
-        results.setdefault(method, {})[size] = {
-            "avg": round(avg, 6),
-            "std": round(std, 6),
-            "count": n,
-        }
-        flag = f"  [skipped {len(skipped)}]" if skipped else ""
-        print(f"{method:5s} {size:>6s}: n={n:2d}  avg={avg:10.4f}s  std={std:9.4f}s{flag}")
-
-    # Sort methods alphabetically and sizes numerically.
-    ordered = {
-        method: {size: results[method][size]
-                 for size in sorted(results[method], key=int)}
-        for method in sorted(results)
-    }
-
-    with open(OUT_JSON, "w") as fh:
-        json.dump(ordered, fh, indent=2)
-    print(f"\nWrote {OUT_JSON}")
+    print(f"\n{'Would copy' if args.dry_run else 'Copied'} {copied} timestamps folders -> {args.dest}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
