@@ -21,6 +21,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+# NOTE: requires access to the original dataset to get:
+#  The source image, target images and later the target offsets.
 DATA_PATH = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN"
 IMAGE_NAME = "emoji-one_4_monkey.png"
 OUTPUT_DIR = "experiments/outputs/flow_images"

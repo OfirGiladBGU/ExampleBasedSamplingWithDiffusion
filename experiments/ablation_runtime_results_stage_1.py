@@ -6,20 +6,21 @@ writing one per-image timing .txt into:
 
     OUTPUT_DIR/<RESULTS_DIR>/timestamps/<image_stem>.txt
 
-No predictions are exported -- this only measures speed. Reuses the config blocks and
-the seed-42 validation split from ablation_advance_metrics_stage_1.py.
+No predictions are exported -- this only measures speed. Reuses the config blocks from
+ablation_advance_metrics_stage_1.py, and times exactly the images staged by
+ablation_runtime_results_stage_0.py into OUTPUT_DIR/resources/ (manifest order), rather
+than re-deriving a split from the full training set with a seed.
 
 Part 2 (ablation_runtime_results_stage_2.py) averages each method's timestamps; part 3
 merges the per-method means.
 """
 
 import argparse
+import json
 import os
 import re
 import sys
 from pathlib import Path
-
-import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -44,8 +45,8 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 # ── Uncomment ONE method block ────────────────────────────────────────────────
 
 # Vanilla
-# WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_vanilla/checkpoints"
-# RESULTS_DIR = "vanilla"
+WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_vanilla/checkpoints"
+RESULTS_DIR = "vanilla"
 
 
 # Unfrozen
@@ -68,12 +69,12 @@ ENABLE_SMART_INIT_SPLAT_SIGMA = False
 
 
 # Full
-WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints"
-RESULTS_DIR = "full"
-BASE_CKPT_PATH = ""  # NOTE
-FREEZE_DENOISER = False  # NOTE
-ENABLE_GECCO = True  # NOTE
-ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
+# WEIGHTS_DIR = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints"
+# RESULTS_DIR = "full"
+# BASE_CKPT_PATH = ""  # NOTE
+# FREEZE_DENOISER = False  # NOTE
+# ENABLE_GECCO = True  # NOTE
+# ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
 
 
 # Full + SDEdit
@@ -87,35 +88,46 @@ ENABLE_ADAPTIVE_GATE_INJECTION = True  # NOTE
 
 
 # ── Shared config ─────────────────────────────────────────────────────────────
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
 OUTPUT_DIR = "experiments/outputs/ablation_runtime_results"
+MANIFEST_NAME = "validation_manifest.json"
 
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 DEVICE = "cuda"
-SPLIT_SEED = 42
-VAL_SPLIT = 0.1
-NUM_SAMPLES = 50            # number of validation images to time
+NUM_SAMPLES = 50            # number of validation images to time (manifest order)
 EPOCH = 5000               # measure only the last (ep5000) weights
 WARMUP_RUNS = 1            # untimed inferences to warm up CUDA before timing (0 = none)
 
-IMG_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
+def load_validation_images(out_base):
+    """Image paths staged by ablation_runtime_results_stage_0.py, in MANIFEST order.
 
+        OUTPUT_DIR/resources/validation_manifest.json
+        OUTPUT_DIR/resources/source/
 
-def list_images(folder):
-    p = Path(folder)
-    return [str(f) for f in sorted(p.rglob("*")) if f.suffix.lower() in IMG_EXTS]
+    The manifest stores the validation split in selection order, so taking the first
+    NUM_SAMPLES reproduces the seed-42 subset the earlier runs timed -- no re-deriving
+    the split from the full training set here.
+    """
+    res = Path(out_base) / "resources"
+    manifest_path = res / MANIFEST_NAME
+    source_dir = res / "source"
+    missing = [str(p) for p in (manifest_path, source_dir) if not p.exists()]
+    if missing:
+        raise FileNotFoundError(
+            "Missing staged resources: " + ", ".join(missing)
+            + "  -- run experiments/ablation_runtime_results_stage_0.py first.")
 
-
-def select_validation_images(all_images, val_frac, seed):
-    imgs = sorted(all_images)
-    n_total = len(imgs)
-    val_len = min(max(int(n_total * float(val_frac)), 0), max(n_total - 1, 0))
-    train_len = n_total - val_len
-    order = torch.randperm(n_total, generator=torch.Generator().manual_seed(int(seed))).tolist()
-    return [imgs[i] for i in order[train_len:]]
+    names = json.loads(manifest_path.read_text())
+    images, absent = [], []
+    for name in names:
+        p = source_dir / name
+        (images if p.exists() else absent).append(str(p) if p.exists() else name)
+    if absent:
+        print(f"  [warn] {len(absent)} manifest entries missing from {source_dir}, "
+              f"e.g. {absent[:3]}")
+    return images
 
 
 def limit_validation_images(val_images, num_samples):
@@ -137,12 +149,10 @@ def find_checkpoint_at_epoch(weights_dir, epoch):
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Time the active method's ep5000 inference over the val set.")
+    p = argparse.ArgumentParser(
+        description="Time the active method's ep5000 inference over the staged val images.")
     p.add_argument("--output", default=OUTPUT_DIR)
-    p.add_argument("--source", default=SOURCE_DIR)
-    p.add_argument("--val-split", type=float, default=VAL_SPLIT)
     p.add_argument("--num-samples", type=int, default=NUM_SAMPLES, help="-1 = all val images")
-    p.add_argument("--seed", type=int, default=SPLIT_SEED)
     p.add_argument("--epoch", type=int, default=EPOCH)
     p.add_argument("--warmup", type=int, default=WARMUP_RUNS)
     p.add_argument("--dry-run", action="store_true")
@@ -167,11 +177,9 @@ def run_one(img, diffusion, control_net, ts_dir, track_time):
 
 def main():
     args = parse_args()
-    all_images = list_images(args.source)
-    if not all_images:
-        print(f"No source images in {args.source}"); return 2
-    val_images = limit_validation_images(
-        select_validation_images(all_images, args.val_split, args.seed), args.num_samples)
+    val_images = limit_validation_images(load_validation_images(args.output), args.num_samples)
+    if not val_images:
+        print(f"No staged validation images under {Path(args.output) / 'resources'}"); return 2
 
     ckpt = find_checkpoint_at_epoch(WEIGHTS_DIR, args.epoch)
     if ckpt is None:

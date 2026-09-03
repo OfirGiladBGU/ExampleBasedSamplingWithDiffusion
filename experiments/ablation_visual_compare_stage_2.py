@@ -2,7 +2,7 @@
 
 Stage 2 of the visual ablation comparison. Reads the shared point .npy produced by
 ablation_visual_compare_stage_1.py, selects samples by split_index (VALID_SAMPLES, the same
-index space stage 1 used, via selection.json), and renders ONE comparison panel:
+index space stage 1 used -- indices into the staged manifest), and renders ONE comparison panel:
 
     rows    = the selected samples
     columns = [ Target condition image ] | [ train-based methods ] | [ inference-based methods ]
@@ -11,9 +11,9 @@ with a vertical line separating the column groups (default split 1, 5, 1). Metho
 VECTOR scatter so the PDF stays crisp at any zoom; the Target cell is the source condition image.
 
 Reads ONLY from the common folder (no model, no eval_dataset):
-    OUTPUT_DIR/selection.json
-    OUTPUT_DIR/validation_data/source/<filename>       (Target condition image)
-    OUTPUT_DIR/<method>/<stem>.npy                      (method prediction points)
+    OUTPUT_DIR/resources/validation_manifest.json      (staged by stage 0)
+    OUTPUT_DIR/resources/source/<filename>             (Target condition image)
+    OUTPUT_DIR/<method>/<stem>.npy                     (method prediction points)
 
 Writes:
     OUTPUT_DIR/ablation_visual_panel.pdf   (+ .png)
@@ -29,6 +29,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 OUTPUT_DIR = "experiments/outputs/ablation_visual_results"
+MANIFEST_NAME = "validation_manifest.json"
 
 # Column groups, left to right. First group = the Target condition image (special "Target"
 # column). Remaining groups = method result columns (each name -> <name>/<stem>.npy). A vertical
@@ -43,7 +44,8 @@ COL_LABELS = {
     "gecco": "GECCO", "agi": "Gated", "full": "Full", "sdedit": "SDEdit",
 }
 
-# Which samples to show, as split_index values from selection.json. None -> all stage-1 samples.
+# Which samples to show, as indices into the staged manifest. None -> every sample that has
+# a prediction in one of the method folders (i.e. whatever stage 1 actually ran).
 VALID_SAMPLES = [1, 2, 4, 7]
 
 DOT_SIZE = 1.2       # vector scatter marker size (pt^2)
@@ -66,7 +68,7 @@ def parse_args():
     ap = argparse.ArgumentParser(description="Merge stage-1 NPYs into a grouped vector panel.")
     ap.add_argument("--output", default=OUTPUT_DIR, help="Shared folder from stage 1.")
     ap.add_argument("--valid-samples", default=("null" if VALID_SAMPLES is None else json.dumps(VALID_SAMPLES)),
-                    help="JSON list of split_index values from selection.json (null/omit = all).")
+                    help="JSON list of manifest indices (null/omit = every sample stage 1 ran).")
     ap.add_argument("--dot-size", type=float, default=DOT_SIZE)
     ap.add_argument("--out-name", default="ablation_visual_panel")
     ap.add_argument("--no-headers", action="store_true", help="Hide the column labels row.")
@@ -76,21 +78,36 @@ def parse_args():
 def main():
     args = parse_args()
     out_base = Path(args.output)
-    src_dir = out_base / "validation_data" / "source"
+    res = out_base / "resources"
+    src_dir = res / "source"
+    manifest_path = res / MANIFEST_NAME
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"Missing {manifest_path} -- run experiments/ablation_visual_compare_stage_0.py first.")
 
-    sel_rows = json.loads((out_base / "selection.json").read_text())["selected_rows"]
-    by_index = {int(r["split_index"]): r for r in sel_rows}
+    names = json.loads(manifest_path.read_text())
 
     sel = json.loads(args.valid_samples)
     if sel is None:
-        chosen = [r["split_index"] for r in sel_rows]           # all, in stage-1 order
+        # No explicit list: show whatever stage 1 actually produced, by matching the .npy
+        # stems in the method folders back to their manifest indices.
+        stem_to_index = {Path(n).stem: i for i, n in enumerate(names)}
+        have = set()
+        for group in GROUPS:
+            for name in group:
+                d = out_base / name
+                if d.is_dir():
+                    have |= {p.stem for p in d.glob("*.npy")}
+        chosen = sorted(stem_to_index[st] for st in have if st in stem_to_index)
+        if not chosen:
+            raise FileNotFoundError(f"No method .npy predictions found under {out_base}")
     else:
-        missing = [i for i in sel if i not in by_index]
-        if missing:
-            raise KeyError(f"VALID_SAMPLES {missing} not in selection.json "
-                           f"(available split_index: {sorted(by_index)})")
+        bad = [i for i in sel if not (0 <= i < len(names))]
+        if bad:
+            raise IndexError(f"VALID_SAMPLES out of range for {len(names)} manifest entries: {bad}")
         chosen = list(sel)
-    samples = [by_index[i] for i in chosen]                     # each: {split_index, filename, stem}
+    samples = [{"split_index": i, "filename": names[i], "stem": Path(names[i]).stem}
+               for i in chosen]
 
     col_spec = build_column_spec(GROUPS)
     width_ratios = [1.0 if kind == "content" else SEP_RATIO for kind, _ in col_spec]

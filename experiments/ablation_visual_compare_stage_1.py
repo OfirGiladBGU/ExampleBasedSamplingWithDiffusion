@@ -1,16 +1,20 @@
 """ablation_visual_compare_stage_1.py
 
 Stage 1 of the visual ablation comparison. Same shape as ablation_advance_metrics_stage_1.py:
-uncomment ONE method block below, set EPOCH, and run. It builds/reuses a shared validation
-selection + manifest, then runs that method's EPOCH checkpoint over VALID_SAMPLES, exporting
-the predicted point .npy (and a .png) into ONE shared folder. Stage 2 merges a (possibly
-smaller) selection into a panel.
+uncomment ONE method block below, set EPOCH, and run. It runs that method's EPOCH checkpoint
+over VALID_SAMPLES, exporting the predicted point .npy (and a .png) into ONE shared folder.
+Stage 2 merges a (possibly smaller) selection into a panel.
+
+VALID_SAMPLES are indices into the manifest staged by ablation_visual_compare_stage_0.py.
+The manifest is in selection order, so index i is the same image the old seed-42 split
+resolved to -- no split is re-derived here, and no selection.json / manifest is written:
+the staged manifest plus VALID_SAMPLES already determines the selection completely.
 
 Depends only on control_v4.sample_control (load_pipeline + process_single_image).
 
 Layout (OUTPUT_DIR = experiments/outputs/ablation_visual_results):
-    OUTPUT_DIR/validation_data/{source,target}/<name>   (+ target/<stem>.npy = GT)
-    OUTPUT_DIR/validation_manifest.json                 selected stems, in order
+    OUTPUT_DIR/resources/source/<name>                  (staged by stage 0)
+    OUTPUT_DIR/resources/validation_manifest.json       (staged by stage 0)
     OUTPUT_DIR/<RESULTS_DIR>/<stem>.npy   (+ <stem>.png)
 """
 
@@ -18,12 +22,8 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sys
 from pathlib import Path
-
-import torch
-from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -92,83 +92,52 @@ RESULTS_DIR = "vanilla"
 
 
 # ── Shared config ─────────────────────────────────────────────────────────────
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 OUTPUT_DIR = "experiments/outputs/ablation_visual_results"
+MANIFEST_NAME = "validation_manifest.json"
 
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 DEVICE = "cuda"
-SPLIT_SEED = 42
-VAL_SPLIT = 0.1
 
-# Which validation samples to run, as indices into the seed-42 validation split order.
+# Which validation samples to run, as indices into the staged manifest (which is in the
+# seed-42 validation split order, so these are the same split_index values as before).
 VALID_SAMPLES = [1, 2, 4, 7]
 # Which checkpoint epoch to use (finds "*ep{EPOCH}.*" in WEIGHTS_DIR).
 EPOCH = 5000
 
-IMG_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
+def select_from_manifest(out_base, valid_samples):
+    """Resolve VALID_SAMPLES indices against the manifest staged by stage 0.
 
-def list_images(folder):
-    p = Path(folder)
-    return [str(f) for f in sorted(p.rglob("*")) if f.suffix.lower() in IMG_EXTS]
+        OUTPUT_DIR/resources/validation_manifest.json
+        OUTPUT_DIR/resources/source/
 
-
-def select_validation_images(all_images, val_frac, seed):
-    imgs = sorted(all_images)
-    n = len(imgs)
-    val_len = min(max(int(n * float(val_frac)), 0), max(n - 1, 0))
-    order = torch.randperm(n, generator=torch.Generator().manual_seed(int(seed))).tolist()
-    return [imgs[i] for i in order[n - val_len:]]
-
-
-def pick_valid_samples(val_images, valid_samples):
-    bad = [i for i in valid_samples if not (0 <= i < len(val_images))]
-    if bad:
-        raise IndexError(f"VALID_SAMPLES out of range for {len(val_images)} val images: {bad}")
-    return [val_images[i] for i in valid_samples]
-
-
-def backup_selected(selected_pairs, out_base, target_dir, val_split, split_seed):
-    """Copy each selected (split_index, source) (+ target PNG and GT .npy) into validation_data/,
-    and write selection.json mapping each split_index -> filename/stem (like eval_selection.json).
+    Returns [(split_index, image_path)]. The manifest is in selection order, so index i
+    names exactly the image the old seed-42 split gave for split_index i.
     """
-    out_base = Path(out_base)
-    vd = out_base / "validation_data"
-    src_bk, tgt_bk = vd / "source", vd / "target"
-    src_bk.mkdir(parents=True, exist_ok=True)
-    tgt_bk.mkdir(parents=True, exist_ok=True)
+    res = Path(out_base) / "resources"
+    manifest_path = res / MANIFEST_NAME
+    source_dir = res / "source"
+    missing = [str(p) for p in (manifest_path, source_dir) if not p.exists()]
+    if missing:
+        raise FileNotFoundError(
+            "Missing staged resources: " + ", ".join(missing)
+            + "  -- run experiments/ablation_visual_compare_stage_0.py first.")
 
-    target_img_map, target_npy_map = {}, {}
-    for tf in Path(target_dir).rglob("*"):
-        if not tf.is_file():
-            continue
-        if tf.suffix.lower() in IMG_EXTS:
-            target_img_map.setdefault(tf.name, tf)
-        elif tf.suffix.lower() == ".npy":
-            target_npy_map.setdefault(tf.stem, tf)
+    names = json.loads(manifest_path.read_text())
+    bad = [i for i in valid_samples if not (0 <= i < len(names))]
+    if bad:
+        raise IndexError(f"VALID_SAMPLES out of range for {len(names)} manifest entries: {bad}")
 
-    selected_rows = []
-    for split_index, img in tqdm(selected_pairs, desc="Backing up selected validation"):
-        src = Path(img)
-        if not (src_bk / src.name).exists():
-            shutil.copy2(src, src_bk / src.name)
-        if src.name in target_img_map and not (tgt_bk / src.name).exists():
-            shutil.copy2(target_img_map[src.name], tgt_bk / src.name)
-        if src.stem in target_npy_map and not (tgt_bk / f"{src.stem}.npy").exists():
-            shutil.copy2(target_npy_map[src.stem], tgt_bk / f"{src.stem}.npy")  # GT points
-        selected_rows.append({"split_index": int(split_index), "filename": src.name, "stem": src.stem})
-
-    selection = {"val_split": val_split, "split_seed": split_seed,
-                 "valid_samples": [r["split_index"] for r in selected_rows],
-                 "selected_rows": selected_rows}
-    (out_base / "selection.json").write_text(json.dumps(selection, indent=2))
-    (out_base / "validation_manifest.json").write_text(   # plain list, for convenience
-        json.dumps([r["filename"] for r in selected_rows], indent=2))
-    return src_bk, selected_rows
+    out = []
+    for i in valid_samples:
+        p = source_dir / names[i]
+        if not p.exists():
+            raise FileNotFoundError(f"manifest[{i}] = {names[i]} not found under {source_dir}")
+        out.append((int(i), str(p)))
+    return out
 
 
 def find_checkpoint_at_epoch(weights_dir, epoch):
@@ -186,12 +155,8 @@ def find_checkpoint_at_epoch(weights_dir, epoch):
 def parse_args():
     ap = argparse.ArgumentParser(description="Run the active method's EPOCH weights over VALID_SAMPLES.")
     ap.add_argument("--output", default=OUTPUT_DIR)
-    ap.add_argument("--source", default=SOURCE_DIR)
-    ap.add_argument("--target", default=TARGET_DIR)
-    ap.add_argument("--val-split", type=float, default=VAL_SPLIT)
-    ap.add_argument("--seed", type=int, default=SPLIT_SEED)
     ap.add_argument("--valid-samples", default=json.dumps(VALID_SAMPLES),
-                    help="JSON list of indices into the val split to run, e.g. '[1,2,4,7]'")
+                    help="JSON list of manifest indices to run, e.g. '[1,2,4,7]'")
     ap.add_argument("--epoch", type=int, default=EPOCH, help="Checkpoint epoch to use (finds *ep{EPOCH}.*)")
     ap.add_argument("--overwrite", action="store_true", help="Re-run samples whose .npy already exists.")
     ap.add_argument("--dry-run", action="store_true")
@@ -204,26 +169,10 @@ def main():
     out_base.mkdir(parents=True, exist_ok=True)
     valid_samples = json.loads(args.valid_samples)
 
-    # Shared selection.json (split_index -> filename) + backups; built once, reused across methods.
-    selection_path = out_base / "selection.json"
-    src_bk = out_base / "validation_data" / "source"
-    if selection_path.exists():
-        selected_rows = json.loads(selection_path.read_text())["selected_rows"]
-        print(f"Reusing selection.json: {len(selected_rows)} samples, "
-              f"split_index {[r['split_index'] for r in selected_rows]}")
-    else:
-        all_images = list_images(args.source)
-        if not all_images:
-            print(f"No source images in {args.source}"); return 2
-        val_images = select_validation_images(all_images, args.val_split, args.seed)
-        bad = [i for i in valid_samples if not (0 <= i < len(val_images))]
-        if bad:
-            print(f"VALID_SAMPLES out of range for {len(val_images)} val images: {bad}"); return 2
-        selected_pairs = [(i, val_images[i]) for i in valid_samples]
-        src_bk, selected_rows = backup_selected(selected_pairs, out_base, args.target, args.val_split, args.seed)
-        print(f"Selected + backed up {len(selected_rows)} samples -> {out_base/'validation_data'}")
-
-    run_paths = [str(src_bk / r["filename"]) for r in selected_rows]
+    selected = select_from_manifest(out_base, valid_samples)
+    run_paths = [p for _, p in selected]
+    print(f"Selected {len(selected)} samples from the manifest: "
+          + ", ".join(f"[{i}] {Path(p).name}" for i, p in selected))
 
     ckpt = find_checkpoint_at_epoch(WEIGHTS_DIR, args.epoch)
     if ckpt is None:
