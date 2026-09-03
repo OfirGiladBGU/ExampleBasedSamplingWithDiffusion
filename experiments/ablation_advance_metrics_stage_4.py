@@ -54,8 +54,12 @@ DIR_TO_LABEL_MAP = {
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
 OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e500_b50_1024"
 
-# Default metrics file name
+# Default metrics file names
 METRICS_FILE = "metrics_avg.json"
+# Stage 3 splits the M6 training losses into their own per-model file; they are merged
+# back on top of metrics_avg.json below so plots and the combined root file see one
+# flat metric -> series mapping.
+LOSS_FILE = "loss_avg.json"
 
 # Default figure settings (pixels and DPI) — change these at top of script
 FIG_WIDTH = 1000
@@ -113,11 +117,17 @@ def parse_args():
     return p.parse_args()
 
 
-def load_metrics_for_model(model_dir: Path, metrics_file: str):
+def load_metrics_for_model(model_dir: Path, metrics_file: str, loss_file: str = LOSS_FILE):
     path = model_dir / metrics_file
     if not path.exists():
         return None
     data = json.loads(path.read_text())
+
+    # Merge the losses in. Absent is fine: runs scored before stage 3 split the files
+    # still carry the M6 series inside metrics_avg.json itself.
+    loss_path = model_dir / loss_file
+    if loss_path.exists():
+        data.update(json.loads(loss_path.read_text()))
     # convert epoch keys to ints
     converted = {}
     for metric, series in data.items():
@@ -159,7 +169,7 @@ def make_plots(out_base: Path, model_names, metrics_file, fig_width_px: int, fig
             color_map[name] = colors[next_idx % len(colors)]
             next_idx += 1
 
-    plots_dir = out_base / "plots"
+    plots_dir = out_base / "resources" / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     # Create one separate plot per metric and save as m1.png, m2.png, ...

@@ -42,6 +42,8 @@ BASE_CONFIG_PATH = "config/GBN/config.json"
 BASE_CKPT_PATH = ""   # full weights are from-scratch: load_pipeline restores the denoiser from the control ckpt
 CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
 
+# NOTE: Place the "Demo.png" image in the folder:
+# "experiments/outputs/teaser_demo_results/source/Demo.png"
 INPUT_IMAGE = "experiments/outputs/teaser_demo_results/source/Demo.png"
 OUTPUT_DIR = "experiments/outputs/teaser_demo_results"
 

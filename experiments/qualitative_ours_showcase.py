@@ -41,8 +41,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # ── Data locations ────────────────────────────────────────────────────────────
-ICONS_DIR = "experiments/outputs/icons_results_compare"
-FACES_DIR = "experiments/outputs/faces_results_compare"
+ICONS_DIR = "experiments/outputs/z_validation_data/Icons-50_1024"
+FACES_DIR = "experiments/outputs/z_validation_data/CelebA-5K_1024"
+# TODO: SHAPENET_DIR = "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"
 OUT_DIR = "experiments/outputs/qualitative_showcase"
 
 # ── Grid selection (edit these to find the panel you want) ────────────────────

@@ -2,9 +2,14 @@
 
 This script scans `OUTPUT_DIR/{RESULTS_DIR}/epoch_*_json/`, computes the mean
 for each metric across examples in each epoch, writes `epoch_{id}_metrics.json`
-next to each epoch folder, and produces `metrics_avg.json` in the model root
-that maps metric -> { epoch_id: avg }. This layout is convenient for plotting
-metric curves over epochs.
+next to each epoch folder, and produces `metrics_avg.json` in the model root that maps
+metric -> { epoch_id: avg }. This layout is convenient for plotting metric curves over
+epochs.
+
+Geometry metrics (M1-M5) only. The M6 training losses are NOT per-image -- stage 2 part 2
+evaluates them as one batch over the whole validation set and writes them straight to
+`loss_avg.json` in the same model root. Stage 4 merges the two files when it builds the
+combined metrics at the ablation root.
 
 The math is simple mean; per-epoch files are written to avoid re-reading many
 small files when re-aggregating.
@@ -52,8 +57,6 @@ METRIC_ORDER = [
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
-    "M6_minsnr_loss",
-    "M6_v2_minsnr_kde_loss",
 ]
 
 
@@ -127,7 +130,7 @@ def epoch_id_from_name(name):
 
 def load_manifest_order(out_base):
     """Load validation_manifest.json to get the canonical file order."""
-    manifest_path = Path(out_base) / "validation_manifest.json"
+    manifest_path = Path(out_base) / "resources" / "validation_manifest.json"
     if not manifest_path.exists():
         return []
     try:

@@ -87,8 +87,6 @@ RESULTS_DIR = "vanilla"
 
 
 # Default folders
-SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
-TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 # OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics"
 OUTPUT_DIR = "experiments/outputs/ablation_advance_metrics_e500_b50_1024"
 
@@ -97,8 +95,6 @@ SDF_TRUNCATE_PX = 8.0
 SMART_INIT_SPLAT_SIGMA_PX = 0.5
 
 DEVICE = "cuda"
-SPLIT_SEED = 42
-VAL_SPLIT = 0.1
 # NUM_SAMPLES = -1  # Use all validation samples by default
 NUM_SAMPLES = 50
 # EVERY_EPOCH = -1  # Keep all checkpoints by default
@@ -107,38 +103,13 @@ EVERY_EPOCH = 500
 def parse_args():
     p = argparse.ArgumentParser(description="Export ablation predictions to .npy per epoch")
     p.add_argument("--output", default=OUTPUT_DIR, help="Base output folder for exports")
-    p.add_argument("--source", default=SOURCE_DIR, help="Source images folder (validation pool)")
-    p.add_argument("--target", default=TARGET_DIR, help="Target images folder (ground truth)")
-    p.add_argument("--val-split", type=float, default=VAL_SPLIT, help="Fraction for validation split")
     p.add_argument("--num-samples", type=int, default=NUM_SAMPLES,
                    help="Number of validation samples to use in order after selection; -1 means use all")
     p.add_argument("--every-epoch", type=int, default=EVERY_EPOCH,
                    help="Keep only checkpoints whose epoch (from '*ep{N}') is a multiple of this; 0 = all")
-    p.add_argument("--seed", type=int, default=SPLIT_SEED, help="Deterministic seed for split")
     p.add_argument("--checkpoints", default="all", help="'all' or comma-separated filename substrings")
     p.add_argument("--dry-run", action="store_true", help="Only show what would be done")
     return p.parse_args()
-
-
-def list_images(folder):
-    exts = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
-    p = Path(folder)
-    return [str(f) for f in sorted(p.rglob("*")) if f.suffix.lower() in exts]
-
-
-def select_validation_images(all_images, val_frac, seed):
-    imgs = sorted(all_images)
-    n_total = len(imgs)
-    val_len = int(n_total * float(val_frac))
-    val_len = min(max(val_len, 0), max(n_total - 1, 0))
-    train_len = n_total - val_len
-
-    all_indices = torch.randperm(
-        n_total,
-        generator=torch.Generator().manual_seed(int(seed)),
-    ).tolist()
-    val_indices = all_indices[train_len:]
-    return [imgs[i] for i in val_indices]
 
 
 def limit_validation_images(val_images, num_samples):
@@ -160,44 +131,6 @@ def filter_by_every_epoch(ckpts, every):
         if m and int(m.group(1)) % int(every) == 0:
             kept.append(c)
     return kept
-
-
-def backup_validation_images(val_images, out_base, target_dir):
-    out_base_p = Path(out_base)
-    val_data_dir = out_base_p / "validation_data"
-    source_backup_dir = val_data_dir / "source"
-    target_backup_dir = val_data_dir / "target"
-    manifest_path = out_base_p / "validation_manifest.json"
-
-    source_backup_dir.mkdir(parents=True, exist_ok=True)
-    target_backup_dir.mkdir(parents=True, exist_ok=True)
-    manifest = []
-    
-    # Build a map of target filenames to full paths (recursive search)
-    target_path_obj = Path(target_dir)
-    target_map = {}
-    for target_file in target_path_obj.rglob("*"):
-        if target_file.is_file() and target_file.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp"}:
-            target_map[target_file.name] = target_file
-    
-    for img in tqdm(val_images, desc="Backing up validation images"):
-        src = Path(img)
-        # Backup source image
-        src_dst = source_backup_dir / src.name
-        if not src_dst.exists():
-            shutil.copy2(src, src_dst)
-        
-        # Backup corresponding target image (search by filename)
-        if src.name in target_map:
-            tgt_src = target_map[src.name]
-            tgt_dst = target_backup_dir / src.name
-            if not tgt_dst.exists():
-                shutil.copy2(tgt_src, tgt_dst)
-        
-        manifest.append(src.name)
-    
-    manifest_path.write_text(json.dumps(manifest, indent=2))
-    return source_backup_dir, target_backup_dir
 
 
 def find_checkpoints(weights_dir, pattern_filter=None):
@@ -239,33 +172,25 @@ def main():
     out_base = Path(args.output)
     out_base.mkdir(parents=True, exist_ok=True)
 
-    manifest_path = out_base / "validation_manifest.json"
-    val_data_dir = out_base / "validation_data"
-    source_backup_dir = val_data_dir / "source"
-    target_backup_dir = val_data_dir / "target"
-    
-    if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text())
-        val_images = [str(source_backup_dir / name) for name in manifest]
-        missing = [p for p in val_images if not Path(p).exists()]
-        if missing:
-            print("Validation manifest exists but some backed-up images are missing.")
-            print(f"Missing count: {len(missing)}")
-            return 2
-        val_images = limit_validation_images(val_images, args.num_samples)
-        print(f"Loaded {len(val_images)} validation images from existing manifest")
-    else:
-        all_images = list_images(args.source)
-        if len(all_images) == 0:
-            print(f"No source images found in {args.source}")
-            return 2
+    # Validation data is staged by ablation_advance_metrics_stage_0.py:
+    #   OUTPUT_DIR/resources/source/  +  OUTPUT_DIR/resources/validation_manifest.json
+    resources_dir = out_base / "resources"
+    manifest_path = resources_dir / "validation_manifest.json"
+    source_dir = resources_dir / "source"
+    if not manifest_path.exists() or not source_dir.is_dir():
+        print(f"Missing {manifest_path} or {source_dir}.")
+        print("Run experiments/ablation_advance_metrics_stage_0.py first.")
+        return 2
 
-        manifest_images = select_validation_images(all_images, args.val_split, args.seed)
-        source_backup_dir, target_backup_dir = backup_validation_images(manifest_images, out_base, args.target)
-        print(f"Backed up validation data to {val_data_dir}")
-        val_images = limit_validation_images(manifest_images, args.num_samples)
-        print(f"Selected {len(val_images)} validation images")
-        val_images = [str(source_backup_dir / Path(img).name) for img in val_images]
+    manifest = json.loads(manifest_path.read_text())
+    val_images = [str(source_dir / name) for name in manifest]
+    missing = [p for p in val_images if not Path(p).exists()]
+    if missing:
+        print(f"{len(missing)} manifest image(s) missing from {source_dir}; "
+              f"e.g. {[Path(m).name for m in missing[:3]]}")
+        return 2
+    val_images = limit_validation_images(val_images, args.num_samples)
+    print(f"Loaded {len(val_images)} validation images from {source_dir}")
 
     ckpts = find_checkpoints(WEIGHTS_DIR, pattern_filter=args.checkpoints)
     ckpts = filter_by_every_epoch(ckpts, args.every_epoch)

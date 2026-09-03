@@ -86,7 +86,8 @@ PLOT_AREA_FRACTION = 0.88
 # --- GLOBAL TEXT SIZE VARIABLE ---
 TEXT_SIZE = 15
 
-
+# NOTE: Place the map created by the script: "generate_map.py" in the folder:
+# experiments/outputs/images_results_metrics/quadratic_V2/source/quadratic_density_gradient.png"
 DEFAULT_INPUT_IMAGE = "experiments/outputs/images_results_metrics/quadratic_V2/source/quadratic_density_gradient.png"
 DEFAULT_OUT_BASE = "experiments/outputs/images_results_metrics/quadratic_V2/results"
 DEFAULT_COMPARE_LIST = [

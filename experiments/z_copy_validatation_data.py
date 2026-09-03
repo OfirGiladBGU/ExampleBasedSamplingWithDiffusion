@@ -13,9 +13,9 @@ from tqdm import tqdm
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_BNOT/source"
 SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source"
 TARGET_DIRS = {
-    "target_1024_WVS": "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_WVS/target",
-    "target_1024_BNOT": "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_BNOT/target",
-    "target_1024_GBN": "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target",
+    "target_WVS_1024": "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_WVS/target",
+    "target_BNOT_1024": "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_BNOT/target",
+    "target_GBN_1024": "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target",
 }
 OUTPUT_DIR = "experiments/outputs/z_validation_data/Icons-50_1024"
 
@@ -25,9 +25,9 @@ OUTPUT_DIR = "experiments/outputs/z_validation_data/Icons-50_1024"
 # # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_BNOT/source"
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_GBN/source"
 # TARGET_DIRS = {
-#     "target_1024_WVS": "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_WVS/target",
-#     "target_1024_BNOT": "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_BNOT/target",
-#     "target_1024_GBN": "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_GBN/target",
+#     "target_WVS_1024": "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_WVS/target",
+#     "target_BNOT_1024": "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_BNOT/target",
+#     "target_GBN_1024": "/groups/asharf_group/ofirgila/ControlNet/training/CelebA-5K_1024_GBN/target",
 # }
 # OUTPUT_DIR = "experiments/outputs/z_validation_data/CelebA-5K_1024"
 
@@ -37,9 +37,9 @@ OUTPUT_DIR = "experiments/outputs/z_validation_data/Icons-50_1024"
 # # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_BNOT/source"
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_GBN/source"
 # TARGET_DIRS = {
-#     "target_1024_WVS": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_WVS/target",
-#     "target_1024_BNOT": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_BNOT/target",
-#     "target_1024_GBN": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_GBN/target",
+#     "target_WVS_1024": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_WVS/target",
+#     "target_BNOT_1024": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_BNOT/target",
+#     "target_GBN_1024": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNetRender_Custom-3K_1600_GBN/target",
 # }
 # OUTPUT_DIR = "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"
 
