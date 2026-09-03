@@ -57,6 +57,7 @@ from utils.stippling_metrics import geometric_validation_score
 WANDB_ENV = ".env"
 BEST_WEIGHTS_FILENAME = "best_dynamic_ep{epoch}_score{score}_cv{cv}_clumped{clumped}.ckpt"
 WEIGTHS_FILENAME_FORMAT = "dynamic_ep{epoch}.ckpt"
+LOSSES_LOG_FILENAME = "losses_log.json"
 # Prefix/suffix derived from the periodic-checkpoint format, used to PARSE the epoch
 # number back out when resuming / pruning. Keep WEIGTHS_FILENAME_FORMAT of the form
 # "<prefix>{epoch}<suffix>".
@@ -1399,6 +1400,32 @@ def run(args):
                   _pf, indent=2, default=str)
     print(f"  -> wrote run parameters: {run_params_path}")
 
+    # Per-epoch train/valid loss history, written every epoch so it survives a crash and
+    # never depends on wandb or on scraping the console log after the fact. On a resumed
+    # run the existing file (from earlier crashed/restarted segments) is loaded first, so
+    # epochs from a previous segment are preserved; a re-run of an epoch simply overwrites
+    # its entry, exactly like a fresh checkpoint replaces an older one at the same epoch.
+    losses_log_path = os.path.join(args.out, LOSSES_LOG_FILENAME)
+    if os.path.exists(losses_log_path):
+        with open(losses_log_path, "r", encoding="utf-8") as _lf:
+            _prev = json.load(_lf)
+        train_losses = {str(k): float(v) for k, v in _prev.get("train", {}).items()}
+        valid_losses = {str(k): float(v) for k, v in _prev.get("valid", {}).items()}
+        print(f"  -> loaded existing loss history: {losses_log_path} "
+              f"({len(train_losses)} train, {len(valid_losses)} valid epochs)")
+    else:
+        train_losses, valid_losses = {}, {}
+
+    def write_losses_log():
+        payload = {
+            "train": {str(e): train_losses[str(e)] for e in sorted(int(k) for k in train_losses)},
+            "valid": {str(e): valid_losses[str(e)] for e in sorted(int(k) for k in valid_losses)},
+        }
+        tmp_path = losses_log_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as _lf:
+            json.dump(payload, _lf, indent=2)
+        os.replace(tmp_path, losses_log_path)
+
     # ── wandb ────────────────────────────────────────────────────────
     use_wandb = WANDB_ACTIVE
     if use_wandb:
@@ -2086,6 +2113,11 @@ def run(args):
                     xname="epoch",
                 )
                 wandb.log({"epoch": epoch + 1, "visual/compare": compare_chart}, step=epoch + 1)
+        train_losses[str(epoch)] = float(avg_loss)
+        if val_avg_loss is not None:
+            valid_losses[str(epoch)] = float(val_avg_loss)
+        write_losses_log()
+
         if val_avg_loss is None:
             print(f"Epoch {epoch:>4d}  |  train loss = {avg_loss:.6f}")
         else:

@@ -48,6 +48,12 @@ EVERY_EPOCH_NUM = 500
 # The single checkpoints folder in the new layout.
 CHECKPOINTS_DIR = "checkpoints"
 
+# Small per-run files, archived at the root of the zip alongside checkpoints/ when present.
+# losses_log.json is the train/valid loss history (see train_control.py); run_params.json
+# is the config the run was launched with. Neither is required -- a run predating either
+# file just gets a smaller archive, with a note printed below.
+SIDE_FILES = ["losses_log.json", "run_params.json"]
+
 # Periodic snapshots only. The leading anchor makes this NOT match
 # best_dynamic_ep..., so best checkpoints are excluded.
 PERIODIC_PATTERN = r"^dynamic_ep(\d+)\.ckpt$"
@@ -109,16 +115,25 @@ def create_checkpoint_archive(base_folder, output_zip, every_n_epochs):
         print("\nError: nothing to archive (no periodic checkpoints on the interval).")
         sys.exit(1)
 
+    side_paths = [base_path / name for name in SIDE_FILES]
+    present = [p for p in side_paths if p.exists()]
+    missing = [p for p in side_paths if not p.exists()]
+    for p in missing:
+        print(f"  [note] {p.name} not found at {p} -- skipping (older run?)")
+
     print(f"\nCreating archive: {output_zip}")
     with ZipFile(output_zip, "w") as zf:
         for epoch, path in filtered:
             arcname = f"{CHECKPOINTS_DIR}/{path.name}"
             zf.write(path, arcname=arcname)
             print(f"  Added ep{epoch}: {arcname}")
+        for path in present:
+            zf.write(path, arcname=path.name)
+            print(f"  Added {path.name}")
 
     zip_size_mb = Path(output_zip).stat().st_size / (1024 * 1024)
     print(f"\nArchive created: {output_zip} "
-          f"({len(filtered)} files, {zip_size_mb:.1f} MB)")
+          f"({len(filtered)} checkpoints + {len(present)} side file(s), {zip_size_mb:.1f} MB)")
 
 
 if __name__ == "__main__":

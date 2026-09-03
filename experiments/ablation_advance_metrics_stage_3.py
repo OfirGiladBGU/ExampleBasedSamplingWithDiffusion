@@ -6,10 +6,9 @@ next to each epoch folder, and produces `metrics_avg.json` in the model root tha
 metric -> { epoch_id: avg }. This layout is convenient for plotting metric curves over
 epochs.
 
-Geometry metrics (M1-M5) only. The M6 training losses are NOT per-image -- stage 2 part 2
-evaluates them as one batch over the whole validation set and writes them straight to
-`loss_avg.json` in the same model root. Stage 4 merges the two files when it builds the
-combined metrics at the ablation root.
+Geometry metrics (M1-M5) only. The M6 training losses live in a separate pipeline
+(ablation_loss_results_stage_0/1/2.py), which reads control_v4/train_outputs_*/losses_log.json
+directly -- they are not per-image and do not belong to this per-example aggregation.
 
 The math is simple mean; per-epoch files are written to avoid re-reading many
 small files when re-aggregating.
