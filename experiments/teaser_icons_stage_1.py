@@ -16,6 +16,12 @@ Stage 2 (teaser_icons_stage_2.py) reads these and lays them out as the teaser pa
 VALID_SAMPLES may be flat ([0,1,2,3]) or nested ([[0,1,2,3],[4,5,6,7]]); stage 1 only
 cares about the *set* of indices, so it flattens either form. The grouping/order is
 used by stage 2 to build the big columns.
+
+VALID_SAMPLES index into the manifest staged by teaser_icons_stage_0.py, which is stored
+in selection order -- so index i is the same image the old seed-42 split gave. The split is
+no longer re-derived here. The GBN offsets still come from the real source/offsets dirs
+(they cannot be staged), so the dataset is still built; only the choice of which files form
+the validation subset comes from the manifest.
 """
 
 import argparse
@@ -50,6 +56,7 @@ SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GB
 TARGET_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/target"
 OFFSETS_DIR = ""  # empty -> ensure_offsets_dir builds/loads the GBN offsets from source+target
 OUTPUT_DIR = "experiments/outputs/teaser_icons_results"
+MANIFEST_NAME = "validation_manifest.json"
 
 # Model components (FULL config) + SDEdit inference.
 ENABLE_GECCO = True
@@ -64,8 +71,6 @@ BATCH_COORDS_FEATURES = False
 SMART_INIT_SEED = 42
 SDF_TRUNCATE_PX = 8.0
 
-VAL_SPLIT = 0.1
-SPLIT_SEED = 42
 DEVICE = "cuda"
 OVERWRITE = True   # re-run samples even if their result .npy already exists
 
@@ -90,8 +95,23 @@ def flatten_samples(valid_samples):
     return out
 
 
+def load_manifest(out_base):
+    """Validation filenames, in selection order, staged by teaser_icons_stage_0.py."""
+    mpath = os.path.join(out_base, MANIFEST_NAME)
+    if not os.path.exists(mpath):
+        raise FileNotFoundError(
+            f"Missing {mpath}  -- run experiments/teaser_icons_stage_0.py first.")
+    with open(mpath, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def build_val_dataset(args):
-    """Reproduce eval_dataset's seed-42 train/valid split and return the val dataset."""
+    """Validation dataset, with membership+order taken from the staged manifest.
+
+    The base dataset is still constructed because it is what resolves each image to its
+    path relative to the source root AND intersects with the offsets that actually exist;
+    the manifest only decides which of those files are the validation set.
+    """
     offsets_dir = ensure_offsets_dir(args.source, args.target, args.offsets, args.grid_size)
     base_dataset = DynamicStippleDataset(
         args.source, offsets_dir, grid_size=args.grid_size, sdf_truncate_px=args.sdf_truncate_px,
@@ -101,13 +121,19 @@ def build_val_dataset(args):
     if len(base_dataset) == 0:
         raise RuntimeError("Dataset is empty after matching source images and offsets")
 
-    val_len = int(len(base_dataset) * args.val_split)
-    val_len = min(max(val_len, 0), max(len(base_dataset) - 1, 0))
-    train_len = len(base_dataset) - val_len
-    all_indices = torch.randperm(
-        len(base_dataset), generator=torch.Generator().manual_seed(args.split_seed),
-    ).tolist()
-    val_filenames = [base_dataset.filenames[i] for i in all_indices[train_len:]]
+    # The manifest holds flat basenames; the dataset keys on source-relative paths.
+    by_base = {os.path.basename(f): f for f in base_dataset.filenames}
+    manifest = load_manifest(args.out)
+    val_filenames, missing = [], []
+    for name in manifest:
+        rel = by_base.get(os.path.basename(name))
+        (val_filenames if rel else missing).append(rel if rel else name)
+    if missing:
+        print(f"  [warn] {len(missing)} manifest entries have no source+offsets pair, "
+              f"e.g. {missing[:3]}")
+    if not val_filenames:
+        raise RuntimeError("No manifest entry matched the dataset (source/offsets mismatch?)")
+    print(f"  validation set from manifest: {len(val_filenames)} images")
 
     val_dataset = DynamicStippleDataset(
         args.source, offsets_dir, grid_size=args.grid_size, sdf_truncate_px=args.sdf_truncate_px,
@@ -128,8 +154,6 @@ def parse_args():
     ap.add_argument("--offsets", default=OFFSETS_DIR)
     ap.add_argument("--out", default=OUTPUT_DIR)
     ap.add_argument("--grid-size", type=int, default=GRID_SIZE)
-    ap.add_argument("--val-split", type=float, default=VAL_SPLIT)
-    ap.add_argument("--split-seed", type=int, default=SPLIT_SEED)
     ap.add_argument("--smart-init-seed", type=int, default=SMART_INIT_SEED)
     ap.add_argument("--sdf-truncate-px", type=float, default=SDF_TRUNCATE_PX)
     ap.add_argument("--eval-timesteps", type=int, default=EVAL_TIMESTEPS)
@@ -227,7 +251,7 @@ def main():
 
     selection = {
         "source": args.source, "grid_size": args.grid_size,
-        "val_split": args.val_split, "split_seed": args.split_seed,
+        "selection_from": MANIFEST_NAME,
         "valid_samples": valid_samples, "control_ckpt": args.control_ckpt,
         "infer_truncation_ratio": args.infer_truncation_ratio,
         "selected_rows": meta_rows,
