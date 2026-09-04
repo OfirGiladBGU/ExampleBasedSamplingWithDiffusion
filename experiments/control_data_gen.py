@@ -73,7 +73,7 @@ def main() -> int:
     TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
 
     # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
-    # DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic_V2"
+    # DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic"
     # GRID_SIZE = 32
     # TRACK_TIME = False
     # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
@@ -91,6 +91,20 @@ def main() -> int:
     # GRID_SIZE = 32
     # TRACK_TIME = False
     # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+
+    # Spectral Analysis Set Sample
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/spectral_analysis"
+    # GRID_SIZE = 32
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/spectral_analysis"
+    # GRID_SIZE = 32
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
 
 
     # Faces Set Sample

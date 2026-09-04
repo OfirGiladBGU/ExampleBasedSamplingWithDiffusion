@@ -65,7 +65,7 @@ def build_gradient_parser():
     # DEFAULT_HEIGHT = 250
     DEFAULT_HEIGHT = 1000
     DEFAULT_EXPONENT = 2.0
-    DEFAULT_OUTPUT = Path("experiments") / "outputs" / "maps" / "quadratic_density_gradient.png"
+    DEFAULT_OUTPUT = Path("experiments") / "outputs" / "z_validation_data" / "maps" / "quadratic_density_gradient.png"
 
     parser = argparse.ArgumentParser(description="Generate a quadratic density gradient image.")
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
@@ -77,7 +77,7 @@ def build_gradient_parser():
 
 def build_stress_parser():
     DEFAULT_SIZE = 512
-    DEFAULT_OUTPUT = Path("experiments") / "outputs" / "maps" / "stress_test_density.png"
+    DEFAULT_OUTPUT = Path("experiments") / "outputs" / "z_validation_data" / "maps" / "stress_test_density.png"
 
     parser = argparse.ArgumentParser(description="Generate the synthetic stress-test density image.")
     parser.add_argument("--size", type=int, default=DEFAULT_SIZE)

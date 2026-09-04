@@ -7,13 +7,13 @@ so the output PDF is high quality / zoomable.  "Target" cells are raster
 images shown with imshow.  Cell type is auto-detected by file extension:
 `.npy` -> scatter, anything else -> image.
 
-To change which images / point counts are shown, edit IMAGE_PATHS below.
+Reads what grid_size_results_stage_0.py staged and grid_size_results_stage_1.py produced;
+to change which images / grid sizes are shown, edit ROW_IMAGES / GRID_SIZES below (keeping
+GRID_SIZES in step with stage 1).
 
-Run on the cluster (paths in IMAGE_PATHS are the real Linux paths)::
-
-    python3 merge_sample_images.py                  # -> merged_pointcount_figure.pdf
-    python3 merge_sample_images.py -o fig.png --dpi 300
-    python3 merge_sample_images.py --marker 1.5 --auto-marker
+    python experiments/grid_size_results_stage_2.py            # -> pointcount_generalization.pdf
+    python experiments/grid_size_results_stage_2.py -o fig.png --dpi 300
+    python experiments/grid_size_results_stage_2.py --marker 1.5 --auto-marker
 
 Point conventions (matching sample_control.py):
   npy is (N, 2) float in [0, 1]; plotted as scatter(x, 1 - y) with the y axis
@@ -30,30 +30,61 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 # ========================================================================== #
-# EDIT HERE: each row is a list of {label: path} entries (one key per dict).
-# A label that is all digits is shown as "<n> pts"; "Target" etc. shown as-is.
-# Point sets should be .npy paths; targets/images any raster format.
+# Paths are derived from the stage 0/1 layout, so they cannot drift out of sync:
+#   stage 0 -> BASE_DIR/source/<image>
+#   stage 1 -> BASE_DIR/sample_outputs_<grid>/<stem>/npy/<stem>.npy
+# Each row is one image: the Target condition followed by one cell per grid size,
+# labelled with its point count (grid*grid).
 # ========================================================================== #
-IMAGE_PATHS = [
-    # ---- row 1: monkey ----
-    [
-        {"Target": "/groups/asharf_group/ofirgila/ControlNet/training/icons-50_512/source/Icons-50/monkey/emoji-one_4_monkey.png"},
-        {"256":    "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_16/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"},
-        {"576":    "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_24/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"},
-        {"1024":   "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_32/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"},
-        {"2304":   "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_48/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"},
-        {"4096":   "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_64/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"},
-    # ],
-    # # ---- row 2: stress test density ----
-    # [
-        {"Target": "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/original/stress_test_density.png"},
-        {"256":    "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_16/stress_test_density/npy/stress_test_density.npy"},
-        {"576":    "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_24/stress_test_density/npy/stress_test_density.npy"},
-        {"1024":   "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_32/stress_test_density/npy/stress_test_density.npy"},
-        {"2304":   "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_48/stress_test_density/npy/stress_test_density.npy"},
-        {"4096":   "/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/control_v4/sample_outputs_64/stress_test_density/npy/stress_test_density.npy"},
-    ],
+BASE_DIR = "experiments/outputs/grid_size_results"
+
+# Must match grid_size_results_stage_1.GRID_SIZES.
+GRID_SIZES = [16, 24, 32, 48, 64]
+
+# Which images to show, and how to lay them out. Each image contributes a group of cells
+# (its Target followed by one cell per grid size); the nesting controls how the groups are
+# arranged into rows:
+#
+#   ROW_IMAGES = ["a.png", "b.png"]          -> ONE row: a's group then b's group, side by side
+#   ROW_IMAGES = [["a.png"], ["b.png"]]      -> TWO rows, one image each (stacked)
+#   ROW_IMAGES = [["a.png", "b.png"], ["c.png"]]  -> row 1 has a+b side by side, row 2 has c
+#
+# Names are the files stage 0 stages into source/.
+ROW_IMAGES = [
+    "emoji-one_4_monkey.png",
+    "stress_test_density.png",
 ]
+
+
+def _normalize_rows(row_images):
+    """Accept a flat list (one row with every image) or a list of lists (one row each)."""
+    if all(isinstance(x, str) for x in row_images):
+        return [list(row_images)]
+    return [[x] if isinstance(x, str) else list(x) for x in row_images]
+
+
+def _image_group(image_name, base_dir, grid_sizes):
+    """One image's cells: its Target, then one cell per grid size labelled grid*grid."""
+    stem = os.path.splitext(image_name)[0]
+    group = [{"Target": os.path.join(base_dir, "source", image_name)}]
+    for g in grid_sizes:
+        npy = os.path.join(base_dir, "sample_outputs_%d" % g, stem, "npy", "%s.npy" % stem)
+        group.append({str(g * g): npy})
+    return group
+
+
+def _build_image_paths(base_dir=BASE_DIR, grid_sizes=GRID_SIZES, row_images=ROW_IMAGES):
+    """[[{label: path}, ...], ...] -- see ROW_IMAGES for how rows are formed."""
+    rows = []
+    for row in _normalize_rows(row_images):
+        cells = []
+        for image_name in row:
+            cells.extend(_image_group(image_name, base_dir, grid_sizes))
+        rows.append(cells)
+    return rows
+
+
+IMAGE_PATHS = _build_image_paths()
 OUTPUT_PATH = "experiments/outputs/grid_size_results/pointcount_generalization.pdf"
 
 # Labels (the dict keys) rendered in bold.
