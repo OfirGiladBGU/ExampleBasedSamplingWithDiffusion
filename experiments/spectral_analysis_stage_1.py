@@ -91,10 +91,23 @@ def parse_args():
     return p.parse_args()
 
 
-def load_points(npy_path):
+def load_points(npy_path, margin_frac=0.0):
+    """Points in [0,1]^2, with the source image's white margin cropped away.
+
+    Stage 0 insets the pattern by a white margin so that WVS/GBN's per-image min-max
+    density stretch is the identity (see its module docstring). That margin carries no
+    mass, so a correct sampler puts nothing there; any stray point in it is dropped, and
+    the rest are renormalised onto the content square so the unit-square assumption behind
+    the spectrum and PCF maths stays exact.
+    """
     pts = np.load(npy_path).astype(np.float64)
     if pts.ndim != 2 or pts.shape[1] != 2:
         raise ValueError(f"expected (N, 2) points in {npy_path}, got {pts.shape}")
+    if margin_frac > 0.0:
+        lo, hi = margin_frac, 1.0 - margin_frac
+        keep = ((pts[:, 0] >= lo) & (pts[:, 0] < hi)
+                & (pts[:, 1] >= lo) & (pts[:, 1] < hi))
+        pts = (pts[keep] - lo) / (hi - lo)
     return pts
 
 
@@ -227,6 +240,16 @@ def main():
         manifest = json.loads(mpath.read_text())
     # Regions are keyed by pattern, since quad4 and checker define different quadrants.
     # A plain list is accepted too, for manifests written before multi-pattern support.
+    # Stage 0 pads every source image with a white margin (so WVS/GBN's per-image density
+    # stretch is the identity); crop it back off here. Absent/0 -> no cropping, which keeps
+    # manifests written before the margin was introduced working unchanged.
+    _res = int(manifest.get("resolution", 0) or 0)
+    _margin_px = int(manifest.get("margin_px", 0) or 0)
+    margin_frac = (_margin_px / _res) if (_res > 0 and _margin_px > 0) else 0.0
+    if margin_frac > 0.0:
+        print(f"cropping a {_margin_px}px white margin ({margin_frac:.5f} of the image) "
+              f"and renormalising")
+
     regions_raw = manifest.get("regions", {})
     regions_by_pattern = regions_raw if isinstance(regions_raw, dict) else {}
     legacy_regions = regions_raw if isinstance(regions_raw, list) else []
@@ -266,7 +289,7 @@ def main():
         files = sorted(uniform[grey])
         acc, n_pts = None, None
         for i, f in enumerate(files, 1):
-            pts = load_points(f)
+            pts = load_points(f, margin_frac)
             n_pts = len(pts)
             P = power_spectrum(pts, F)
             acc = P if acc is None else acc + P
@@ -295,7 +318,7 @@ def main():
                 continue
             acc, cent, counts, used = None, None, [], 0
             for f in sorted(files):
-                pts = load_points(f)
+                pts = load_points(f, margin_frac)
                 c, g, n_in = region_pcf(pts, reg["box"], args.pcf_max, args.pcf_bins)
                 counts.append(n_in)
                 if g is None:

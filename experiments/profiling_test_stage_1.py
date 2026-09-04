@@ -14,7 +14,7 @@ GRID_SIZES = [16, 32, 48, 64, 80, 96, 112]
 # Path to sample_control.py
 SCRIPT_PATH = Path(__file__).parent.parent / "control_v4" / "sample_control.py"
 # Single input image to profile (passed to sample_control.py as --image_path).
-INPUT_IMAGE_PATH = "/groups/asharf_group/ofirgila/ControlNet/training/Icons-50_1024_GBN/source/Icons-50/monkey/emoji-one_4_monkey.png"
+INPUT_IMAGE_PATH = "experiments/outputs/profiling_test/source/emoji-one_4_monkey.png"
 
 
 # CPU tracking

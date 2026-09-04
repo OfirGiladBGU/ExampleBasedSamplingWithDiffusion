@@ -78,6 +78,13 @@ CHECKER_LEVELS = [0, 255, 255, 128]     # black | white / white | grey
 REALIZATIONS = 25
 
 RESOLUTION = 512
+
+# White margin (px) around every source image. WVS and GBN min-max stretch the density per
+# image, which maps the LIGHTEST level to exactly 0 -- on pattern_quad4 that erased the
+# rho=0.4 quadrant entirely. A genuine 255 in the image makes that stretch the identity, so
+# every level survives and all methods see the same density. The margin carries no mass, so
+# no sampler places points in it; stage 1 crops it and renormalises.
+MARGIN_PX = 1
 POINT_BUDGET = 1024
 METHODS = ["WVS", "BNOT", "GBN", "CN-WVS", "CN-GBN"]
 
@@ -96,28 +103,36 @@ def parse_args():
                    help="TEST 1 grey levels (255 is rejected: no mass)")
     p.add_argument("--realizations", type=int, default=REALIZATIONS)
     p.add_argument("--resolution", type=int, default=RESOLUTION)
+    p.add_argument("--margin-px", type=int, default=MARGIN_PX,
+                   help="White margin around each image; stage 1 crops it. 0 disables.")
     p.add_argument("--point-budget", type=int, default=POINT_BUDGET)
     p.add_argument("--clean", action="store_true", help="Delete existing sources first")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
 
 
-def build_pattern(pattern, res):
-    """Return (image, regions). Each region is a quadrant with its grey level and box."""
+def build_pattern(pattern, res, margin=0):
+    """Return (image, regions).
+
+    The canvas is `res` x `res`; the pattern occupies the inner (res - 2*margin) square and
+    the margin is left white. Region boxes are CONTENT-relative (0 / 0.5 / 1), so stage 1 --
+    which renormalises points into the content frame -- uses them unchanged.
+    """
     levels = QUAD4_LEVELS if pattern == "quad4" else CHECKER_LEVELS
-    img = np.zeros((res, res), dtype=np.uint8)
-    h = res // 2
+    img = np.full((res, res), 255, dtype=np.uint8)      # margin starts white
+    inner = res - 2 * margin
+    h = inner // 2
     # quadrant order: top-left, top-right, bottom-left, bottom-right
-    boxes = [(0, 0, h, h), (h, 0, res, h), (0, h, h, res), (h, h, res, res)]
+    boxes = [(0, 0, h, h), (h, 0, inner, h), (0, h, h, inner), (h, h, inner, inner)]
     regions = []
     for (x0, y0, x1, y1), g in zip(boxes, levels):
-        img[y0:y1, x0:x1] = g
+        img[margin + y0:margin + y1, margin + x0:margin + x1] = g
         regions.append({
             "name": f"q{len(regions)}",
             "grey": int(g),
             "rho": 1.0 - g / 255.0,
-            # normalised [x0, y0, x1, y1] so stage 1 can assign points without the image
-            "box": [x0 / res, y0 / res, x1 / res, y1 / res],
+            # content-relative [x0, y0, x1, y1]; stage 1 crops the margin first
+            "box": [x0 / inner, y0 / inner, x1 / inner, y1 / inner],
             "analysable": g < 255,          # white carries no mass -> no points to analyse
         })
     return img, regions
@@ -149,7 +164,7 @@ def main():
         print(f"ERROR: unknown pattern(s) {bad_pat}; available: quad4, checker")
         return 2
     for pat in pats:
-        img_p, regs = build_pattern(pat, args.resolution)
+        img_p, regs = build_pattern(pat, args.resolution, args.margin_px)
         pattern_imgs[pat] = img_p
         regions_by_pattern[pat] = regs
         planned += [(f"pattern_{pat}_r{r:02d}", "pattern", pat)
@@ -183,7 +198,9 @@ def main():
     written = []
     for stem, kind, grey in planned:
         if kind == "uniform":
-            img = np.full((args.resolution, args.resolution), grey, dtype=np.uint8)
+            img = np.full((args.resolution, args.resolution), 255, dtype=np.uint8)
+            m = args.margin_px
+            img[m:args.resolution - m, m:args.resolution - m] = grey
             meta = {"stem": stem, "kind": "uniform", "grey": grey, "rho": 1.0 - grey / 255.0}
         else:
             img = pattern_imgs[grey]          # `grey` carries the pattern name for this kind
@@ -195,6 +212,8 @@ def main():
 
     manifest = {
         "resolution": args.resolution,
+        # Stage 1 crops this many pixels off every edge and renormalises the remainder.
+        "margin_px": int(args.margin_px),
         "point_budget": args.point_budget,
         "realizations": args.realizations,
         "tests_1": bool(args.tests_1),
