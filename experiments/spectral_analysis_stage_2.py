@@ -148,6 +148,27 @@ def thumb_row(fig, gs_row, n_cols, imgs, boxes=None, titles=None, width=0.42):
         draw_thumb(ax, imgs[i], boxes[i], titles[i])
 
 
+def stipple_row(fig, gs_row, stipples, pad=0.012, gap=0.006):
+    """A strip of point-set panels placed just above the axes, spanning the figure width.
+
+    Used where the curve panels overlay several methods: a single thumbnail cannot stand for
+    all of them, so every method's stippling is shown once across the top. Placed outside the
+    canvas (y > 1) like figure_thumb, so it cannot collide with the row of axes below; save()
+    writes with bbox_inches="tight", which grows the page to include it.
+    """
+    if not stipples:
+        return
+    n = len(stipples)
+    y0 = 1.0 + pad
+    cell = (1.0 - gap * (n - 1)) / n
+    w = min(cell, 0.16)
+    h = w * fig.get_figwidth() / fig.get_figheight()
+    for i, (label, pts) in enumerate(stipples):
+        x = i * (cell + gap) + (cell - w) / 2
+        ax = fig.add_axes([x, y0, w, h])
+        draw_points(ax, pts, title=label)
+
+
 def figure_thumb(fig, img, title=None, size=0.075, pad=0.012):
     """One thumbnail ABOVE the axes, for figures whose panels share a condition.
 
@@ -186,6 +207,20 @@ def save(fig, stem):
 
 
 # ── TEST 1 figures ───────────────────────────────────────────────────────────
+
+def add_legend(ax, fontsize=7):
+    """Curve legend inside the axes, top right.
+
+    Every curve panel gets one: these figures put one method (or one density) per curve and
+    several panels side by side, so a legend on only the first panel forces the reader to
+    match colours across panels.
+    """
+    handles, labels = ax.get_legend_handles_labels()
+    if not handles:
+        return
+    ax.legend(fontsize=fontsize, loc="upper right", framealpha=0.85,
+              borderpad=0.3, handlelength=1.6, labelspacing=0.3)
+
 
 def panel_figure(base, methods, grey, spectra, out_dir):
     cols = [(f, l) for f, l in methods if grey in spectra.get(f, {})]
@@ -264,7 +299,7 @@ def overlay_figure(base, methods, spectra, out_dir, key, ylabel, fname, hline=No
         ax.tick_params(labelsize=7)
         if i == 0:
             ax.set_ylabel(ylabel, fontsize=9)
-            ax.legend(fontsize=7)
+        add_legend(ax)
     fig.tight_layout()
     thumb_row(fig, axes[0], len(greys),
               [load_source(base, f"uniform_g{g:03d}_r00") for g in greys],
@@ -290,12 +325,36 @@ def invariance_figure(folder, label, spectra, out_dir):
     ax[1].set_xlabel("radial freq / $\\sqrt{n}$"); ax[1].set_ylabel("anisotropy (dB)")
     ax[1].set_title(f"{label}: anisotropy across grey levels", fontsize=10)
     for a in ax:
-        a.legend(fontsize=7)
+        add_legend(a)
     fig.tight_layout()
     return save(fig, out_dir / f"spectral_invariance_{label.replace(' ', '_')}")
 
 
 # ── TEST 2 figures ───────────────────────────────────────────────────────────
+
+def draw_points(ax, pts, title=None, box=None):
+    """One point set as a square scatter, in the same orientation as the source image.
+
+    The stored point sets use the y-down image convention (see draw_thumb), so the y axis is
+    inverted here -- otherwise the stippling appears mirrored relative to the conditioning
+    image printed beside it, and the reader cannot match a dense region to its quadrant.
+    """
+    ax.set_xticks([]); ax.set_yticks([])
+    if pts is None:
+        ax.axis("off")
+        return
+    ax.plot(pts[:, 0], pts[:, 1], "k.", ms=POINT_MS)
+    ax.set_xlim(0, 1); ax.set_ylim(1, 0); ax.set_aspect("equal")
+    if box is not None:
+        x0, y0, x1, y1 = box
+        ax.add_patch(plt.Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
+                                   edgecolor="crimson", lw=1.2))
+    for sp in ax.spines.values():
+        sp.set_edgecolor("0.4"); sp.set_linewidth(0.6)
+    if title:
+        ax.set_title(title, fontsize=9, pad=3)
+
+
 
 def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
     keys = sorted({k for f, _ in methods for k in pcfs.get(f, {})})
@@ -313,6 +372,11 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
 
         # one panel per region, methods overlaid
         thumb = load_source(base, f"pattern_{pat}_r00")
+        # A row of stipplings above the region thumbnails: the panels below overlay every
+        # method, so all of them are shown, each with the panel's region outlined. Ragged
+        # counts (more methods than regions) are handled by a separate axes grid.
+        stipples = [(l, load_points(base, f, f"pattern_{pat}_r00")) for f, l in methods]
+        stipples = [(l, p) for l, p in stipples if p is not None]
         fig, axes = plt.subplots(2, len(pkeys), figsize=(3.4 * len(pkeys), 3.9),
                                  gridspec_kw={"height_ratios": [0.30, 1.0]}, squeeze=False)
         for a in axes[0]:
@@ -333,12 +397,13 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
             ax.tick_params(labelsize=7)
             if i == 0:
                 ax.set_ylabel("$g(r)$", fontsize=9)
-                ax.legend(fontsize=7)
+            add_legend(ax)
         record_caption(
             out_dir / f"pcf_{pat}_by_region",
             f"Pair correlation function measured separately in each constant-density region of "
             f"the '{pat}' pattern, averaged over realizations. Each panel shows one region; the "
-            f"thumbnail above it outlines that region within the conditioning image. Distances "
+            f"thumbnail above it outlines that region within the conditioning image, and the "
+            f"top row shows one representative stippling per method. Distances "
             f"are normalised by the local mean spacing, so regions of different density are "
             f"directly comparable. Only points in the interior of a region act as centres, with "
             f"the neighbour radius capped by the margin, so every counted pair lies within a "
@@ -349,34 +414,41 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
         thumb_row(fig, axes[0], len(pkeys), [thumb] * len(pkeys),
                   boxes=[regions_by_name.get((pat, k.split("_")[-1])) for k in pkeys],
                   titles=[k.split("_")[-1] for k in pkeys])
+        stipple_row(fig, axes[0], stipples)
         written.append(save(fig, out_dir / f"pcf_{pat}_by_region"))
 
         # one panel per method, regions overlaid: curves lying on top of each other means the
         # correlation structure is preserved as the local density changes
         have = [(f, l) for f, l in methods if any(k in pcfs.get(f, {}) for k in pkeys)]
         if have:
-            fig, axes = plt.subplots(1, len(have), figsize=(3.4 * len(have), 3.2), squeeze=False)
+            # top row: the stippling each curve was measured from, so the g(r) panel below can
+            # be read against the point set that produced it
+            fig, axes = plt.subplots(2, len(have), figsize=(3.4 * len(have), 6.4),
+                                     gridspec_kw={"height_ratios": [1.0, 0.95]}, squeeze=False)
             for i, (folder, label) in enumerate(have):
-                ax = axes[0, i]
+                draw_points(axes[0, i], load_points(base, folder, f"pattern_{pat}_r00"),
+                            title=label)
+                ax = axes[1, i]
                 for k in pkeys:
                     z = pcfs.get(folder, {}).get(k)
                     if z is None:
                         continue
                     ax.plot(z["r"], z["g"], lw=1.2, label=f"$\\rho$={float(z['rho']):.2f}")
                 ax.axhline(1.0, color="k", ls=":", lw=0.7)
-                ax.set_title(label, fontsize=10)
                 ax.set_xlabel("$r$ / mean spacing", fontsize=9)
                 ax.tick_params(labelsize=7)
                 if i == 0:
                     ax.set_ylabel("$g(r)$", fontsize=9)
-                    ax.legend(fontsize=7)
+                add_legend(ax)
             record_caption(
                 out_dir / f"pcf_{pat}_by_method",
                 f"Density invariance of the correlation structure on the '{pat}' pattern. Each "
                 f"panel shows one method with every region overlaid. Curves that coincide mean "
                 f"the sampler preserves its blue-noise correlation structure as the local "
                 f"density changes; curves that separate mean the structure degrades at some "
-                f"densities. The inset is the conditioning image.")
+                f"densities. The top row is one representative stippling per method, in the "
+                f"orientation of the conditioning image; the inset at the upper left is the "
+                f"conditioning image itself.")
             fig.tight_layout()
             figure_thumb(fig, thumb, title="condition", size=0.16)
             written.append(save(fig, out_dir / f"pcf_{pat}_by_method"))

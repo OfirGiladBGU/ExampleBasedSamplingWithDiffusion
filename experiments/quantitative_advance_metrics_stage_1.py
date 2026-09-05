@@ -33,7 +33,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.stippling_metrics_advance import compute_all_advanced_metrics
 
 # Default input folders
-# Set SOURCE_DIR to the folder icons_results_compare
 SOURCE_DIR = r"experiments/outputs/quantitative_advance_metrics/source"
 TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_WVS_1024"
 # TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_BNOT_1024"

@@ -106,42 +106,44 @@ def main() -> int:
     # TRACK_TIME = False
     # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
 
-
-    # Faces Set Sample
-    # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_GBN/checkpoints/dynamic_ep5000.ckpt"
-    # DATA_PATH = "experiments/outputs/faces_results_compare"
-    # GRID_SIZE = 32
-    # TRACK_TIME = False
-    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
-
-    # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
-    # DATA_PATH = "experiments/outputs/faces_results_compare"
-    # GRID_SIZE = 32
-    # TRACK_TIME = False
-    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
-
-    # Icons-50 - METRICS
+    # Icons-50 - Validation
     # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
-    # DATA_PATH = "experiments/outputs/quantitative_advance_metrics"
+    # DATA_PATH = "experiments/outputs/z_validation_data/Icons-50_1024"
     # GRID_SIZE = 32
     # TRACK_TIME = False
     # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
 
     # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
-    # DATA_PATH = "experiments/outputs/quantitative_advance_metrics"
+    # DATA_PATH = "experiments/outputs/z_validation_data/Icons-50_1024"
     # GRID_SIZE = 32
     # TRACK_TIME = False
     # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
 
-    # Icons-50 - TIMES - V1
-    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep10000.ckpt"
-    # DATA_PATH = "experiments/outputs/icons_results_runtimes"
-    # GRID_SIZE = 24
+    # CelebA - Validation
+    # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_GBN/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/z_validation_data/CelebA-5K_1024"
     # GRID_SIZE = 32
-    # GRID_SIZE = 48
-    # # TRACK_TIME_FULL = True
-    # # TRACK_PROFILE_TRACE = True
-    # TARGET_FOLDER = f"target_CN_{GRID_SIZE**2}"
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/z_validation_data/CelebA-5K_1024"
+    # GRID_SIZE = 32
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
+
+    # ShapeNetRender_Custom - Validation
+    # CONTROL_CKPT = "control_v4/train_outputs_ShapeNetRender_Custom-3K_1600_GBN/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_ShapeNetRender_Custom-3K_1600_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
 
 
     parser = argparse.ArgumentParser(
