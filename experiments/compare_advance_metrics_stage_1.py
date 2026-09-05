@@ -91,16 +91,20 @@ TEXT_SIZE = 15
 DEFAULT_INPUT_IMAGE = "experiments/outputs/images_results_metrics/quadratic/source/quadratic_density_gradient.png"
 DEFAULT_OUT_BASE = "experiments/outputs/images_results_metrics/quadratic/results"
 DEFAULT_COMPARE_LIST = [
-    {"WVS": "experiments/outputs/images_results_metrics/quadratic_V2/target_WVS_1024/quadratic_density_gradient.npy"},
-    {"BNOT": "experiments/outputs/images_results_metrics/quadratic_V2/target_BNOT_1024/quadratic_density_gradient.npy"},
-    {"GBN": "experiments/outputs/images_results_metrics/quadratic_V2/target_GBN_1024/quadratic_density_gradient.npy"},
-    {"Ours-WVS": "experiments/outputs/images_results_metrics/quadratic_V2/target_CN-WVS_1024/quadratic_density_gradient.npy"},
-    {"Ours-GBN": "experiments/outputs/images_results_metrics/quadratic_V2/target_CN-GBN_1024/quadratic_density_gradient.npy"},
+    {"WVS": "experiments/outputs/images_results_metrics/quadratic/target_WVS_1024/quadratic_density_gradient.npy"},
+    {"BNOT": "experiments/outputs/images_results_metrics/quadratic/target_BNOT_1024/quadratic_density_gradient.npy"},
+    {"GBN": "experiments/outputs/images_results_metrics/quadratic/target_GBN_1024/quadratic_density_gradient.npy"},
+    {"Ours-WVS": "experiments/outputs/images_results_metrics/quadratic/target_CN-WVS_1024/quadratic_density_gradient.npy"},
+    {"Ours-GBN": "experiments/outputs/images_results_metrics/quadratic/target_CN-GBN_1024/quadratic_density_gradient.npy"},
 ]
 CLIP_TO_DOMAIN = False
 CAPACITY_TEST = True
 MARK_BEST = False  # Draws a red box around the capacity percentage closest to ground truth
 
+
+#########
+# Tests #
+#########
 
 # DEFAULT_INPUT_IMAGE = "experiments/outputs/images_results_metrics/monkey/source/emoji-one_4_monkey.png"
 # DEFAULT_OUT_BASE = "experiments/outputs/images_results_metrics/monkey/results"

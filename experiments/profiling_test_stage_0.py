@@ -1,14 +1,22 @@
-# COPY only the monkey image from the "z_validation_data/Icons-50_1024/source" folder to the "experiments/outputs/teaser_icons_stage_0/source" folder.
-# and build the dir needed for stage 1
-# later fix stage 1 to point to this image in the "experiments/outputs/profiling_test"
-
-
 #!/usr/bin/env python3
-"""Stage 0: stage the two input images for the profiling test.
+"""profiling_test_stage_0.py -- Part 0: stage the profiling input image.
 
-Copies into OUTPUT_DIR/source/:
+Copies the single image the timing runs are profiled on out of the shared validation
+folder:
 
-    z_validation_data/Icons-50_1024/source/emoji-one_4_monkey.png   a normal icon
+    z_validation_data/Icons-50_1024/source/<image>.png
+        -> OUTPUT_DIR/source/<image>.png
+
+That destination is exactly INPUT_IMAGE_PATH in profiling_test_stage_1.py, so running this
+first is what makes stage 1 runnable from a clean checkout.
+
+There is no selection to make here and so no validation manifest: profiling measures how
+runtime scales with the grid size, not how output quality varies across images, so stage 1
+sweeps GRID_SIZES over this ONE fixed image. It is staged rather than read in place only so
+a profiling run is self-contained and cannot be perturbed by edits to the shared folder.
+
+    python experiments/profiling_test_stage_0.py
+    python experiments/profiling_test_stage_0.py --dry-run
 """
 
 import argparse

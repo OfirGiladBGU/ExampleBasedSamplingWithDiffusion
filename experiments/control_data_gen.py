@@ -67,7 +67,7 @@ def main() -> int:
 
     # Quadratic Sample
     CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
-    DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic_V2"
+    DATA_PATH = r"/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion/experiments/outputs/images_results_metrics/quadratic"
     GRID_SIZE = 32
     TRACK_TIME = False
     TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
