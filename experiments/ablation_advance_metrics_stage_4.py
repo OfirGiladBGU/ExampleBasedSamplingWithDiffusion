@@ -65,9 +65,9 @@ FIG_DPI = 100
 # stage 2/3, just not plotted here by default. M3-M5 have one version each.
 METRIC_ORDER = [
     "M1_v1_cvt_energy",
-    "M1_v2_power_cvt_energy",
+    "M1_v2_hot_energy",
     "M2_v1_capacity_delta_c",
-    "M2_v2_power_displacement",
+    "M2_v2_centroid_displacement",
     "M3_emd_distance",
     "M4_sinkhorn_ot_cost",
     "M5_spatial_measure_rho_mean",
@@ -78,9 +78,9 @@ METRIC_ORDER = [
 # M6 is reserved for the separate loss pipeline (ablation_loss_results_stage_2.py).
 PLOT_STEM = {
     "M1_v1_cvt_energy": "m1_v1",
-    "M1_v2_power_cvt_energy": "m1_v2",
+    "M1_v2_hot_energy": "m1_v2",
     "M2_v1_capacity_delta_c": "m2_v1",
-    "M2_v2_power_displacement": "m2_v2",
+    "M2_v2_centroid_displacement": "m2_v2",
     "M3_emd_distance": "m3",
     "M4_sinkhorn_ot_cost": "m4",
     "M5_spatial_measure_rho_mean": "m5",
@@ -98,14 +98,14 @@ PLOT_STEM = {
 # tessellation. M2_v1/M2_v2 do NOT: M2_v1 is capacity deviation on
 # (zero-weight, i.e. ordinary) Voronoi cells; M2_v2 is centroid displacement on SOLVED
 # power cells, not capacity deviation -- capacity deviation collapses to ~0 for every
-# method once weights are solved (see compute_m2_v2_power_displacement's docstring), so
+# method once weights are solved (see compute_m2_v2_centroid_displacement's docstring), so
 # displacement is the metric that actually discriminates on the power side. Their titles
 # are named for what each one actually measures rather than forced to match.
 METRIC_LABELS = {
     "M1_v1_cvt_energy": {"title": "M1 (Voronoi): CVT Energy", "ylabel": "Energy", "exclude_result_dirs": []},
-    "M1_v2_power_cvt_energy": {"title": "M1 (Power): HOT Energy", "ylabel": "Energy", "exclude_result_dirs": []},
+    "M1_v2_hot_energy": {"title": "M1 (Power): HOT Energy", "ylabel": "Energy", "exclude_result_dirs": []},
     "M2_v1_capacity_delta_c": {"title": r"M2 (Voronoi): Capacity Deviation $\delta_c$", "ylabel": r"$\delta_c$", "exclude_result_dirs": []},
-    "M2_v2_power_displacement": {"title": "M2 (Power): Centroid Displacement", "ylabel": "displacement", "exclude_result_dirs": []},
+    "M2_v2_centroid_displacement": {"title": "M2 (Power): Centroid Displacement", "ylabel": "displacement", "exclude_result_dirs": []},
     "M3_emd_distance": {"title": "M3: EMD Distance", "ylabel": "Distance", "exclude_result_dirs": []},
     "M4_sinkhorn_ot_cost": {"title": "M4: Sinkhorn OT Cost", "ylabel": "Cost", "exclude_result_dirs": []},
     "M5_spatial_measure_rho_mean": {"title": "M5: Spatial Measure ρ Mean", "ylabel": "ρ Mean", "exclude_result_dirs": []},

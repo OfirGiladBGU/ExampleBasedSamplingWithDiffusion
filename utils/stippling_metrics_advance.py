@@ -1048,8 +1048,8 @@ def compute_m2_v3_knn_power_cell(points, image_01=None, k=8, **mc_args):
 
 
 
-def compute_m1_v2_power_cvt_energy(points, image_01, solution=None, **kw):
-    """M1_v2 -- CVT energy under the capacity-optimal POWER partition.
+def compute_m1_v2_hot_energy(points, image_01, solution=None, **kw):
+    """M1_v2 -- HOT energy: the CVT energy under the capacity-optimal POWER partition.
 
     M1_v1 measures the CVT energy on Voronoi cells, which is precisely the objective Weighted
     Voronoi Stippling minimises, so WVS leads that column by construction. The power-diagram
@@ -1059,18 +1059,18 @@ def compute_m1_v2_power_cvt_energy(points, image_01, solution=None, **kw):
     Pass `solution` (from solve_power_diagram) to avoid re-solving the weights when M2_v2 has
     already computed them for the same input.
     """
-    zero = {"power_cvt_energy": 0.0}
+    zero = {"hot_energy": 0.0}
     pts = np.asarray(points, dtype=np.float64)
     if len(pts) < 3:
         return dict(zero)
     pd, w, info = solution if solution is not None else solve_power_diagram(points, image_01, **kw)
     if pd.total_mass <= 1e-15:
-        raise ValueError("compute_m1_v2_power_cvt_energy: target density carries no mass.")
+        raise ValueError("compute_m1_v2_hot_energy: target density carries no mass.")
     _, _, energy = pd.cell_stats(w)
-    return {"power_cvt_energy": float(np.clip(energy, 0, 1000))}
+    return {"hot_energy": float(np.clip(energy, 0, 1000))}
 
 
-def compute_m2_v2_power_displacement(points, image_01, solution=None, **kw):
+def compute_m2_v2_centroid_displacement(points, image_01, solution=None, **kw):
     """M2_v2 -- mean displacement from each point to its power-cell centroid.
 
     Why this and not "capacity under power cells": once the weights are solved, capacity
@@ -1090,7 +1090,7 @@ def compute_m2_v2_power_displacement(points, image_01, solution=None, **kw):
     the count of stranded points -- all three are failure indicators that must stay visible,
     since a silently unconverged solve would otherwise look like a good score.
     """
-    zero = {"power_displacement": 0.0, "power_displacement_norm": 0.0,
+    zero = {"centroid_displacement": 0.0, "centroid_displacement_norm": 0.0,
             "power_solver_residual": 0.0, "power_at_bound": 0.0, "power_stranded": 0.0}
     pts = np.asarray(points, dtype=np.float64)
     n = len(pts)
@@ -1098,15 +1098,15 @@ def compute_m2_v2_power_displacement(points, image_01, solution=None, **kw):
         return dict(zero)
     pd, w, info = solution if solution is not None else solve_power_diagram(points, image_01, **kw)
     if pd.total_mass <= 1e-15:
-        raise ValueError("compute_m2_v2_power_displacement: target density carries no mass.")
+        raise ValueError("compute_m2_v2_centroid_displacement: target density carries no mass.")
 
     _, centroid, _ = pd.cell_stats(w)
     disp = np.linalg.norm(centroid - pd.pts, axis=1)
     # Express displacement in units of the mean point spacing (1/sqrt(n)) so the value is
     # comparable across point budgets.
     return {
-        "power_displacement": float(disp.mean()),
-        "power_displacement_norm": float(disp.mean() * np.sqrt(n)),
+        "centroid_displacement": float(disp.mean()),
+        "centroid_displacement_norm": float(disp.mean() * np.sqrt(n)),
         "power_solver_residual": float(info.get("residual_delta_c", float("nan"))),
         "power_at_bound": float(info.get("at_bound", 0.0)),
         "power_stranded": float(stranded_points(points, image_01).sum()),
@@ -1340,10 +1340,10 @@ def compute_m5_spatial_measure(points, image_01):
 def _format_advanced_text(metrics):
     """Format M1-M5 metrics as a compact monospace string for text axes."""
     return (
-        f"M1v1 CVT (Voronoi)    : {metrics.get('M1_v1_cvt_energy', 0.0):.6f}\n"
-        f"M1v2 CVT (power)      : {metrics.get('M1_v2_power_cvt_energy', 0.0):.6f}\n"
+        f"M1v1 CVT Energy       : {metrics.get('M1_v1_cvt_energy', 0.0):.6f}\n"
+        f"M1v2 HOT Energy       : {metrics.get('M1_v2_hot_energy', 0.0):.6f}\n"
         f"M2v1 Capacity delta_c : {metrics.get('M2_v1_capacity_delta_c', 0.0):.4f}\n"
-        f"M2v2 Power displace.  : {metrics.get('M2_v2_power_displacement', 0.0):.4f}\n"
+        f"M2v2 Centroid displ.  : {metrics.get('M2_v2_centroid_displacement', 0.0):.4f}\n"
         f"M2v3 kNN power cell   : {metrics.get('M2_v3_power_cell_cap_cv', 0.0):.4f}\n"
         f"M3 EMD                : {metrics.get('M3_emd_distance', 0.0):.4f}\n"
         f"M4 Sinkhorn Distance  : {metrics.get('M4_sinkhorn_ot_cost', 0.0):.4f}\n"
@@ -1376,9 +1376,9 @@ def compute_all_advanced_metrics(points, image_01, image_input_u8=None, mc_appro
                           f"omitting M1_v2_* and M2_v2_* for this sample",
                           RuntimeWarning, stacklevel=2)
         else:
-            _collect(result, "M1_v2_", compute_m1_v2_power_cvt_energy, points, image_01,
+            _collect(result, "M1_v2_", compute_m1_v2_hot_energy, points, image_01,
                      solution=solution)
-            _collect(result, "M2_v2_", compute_m2_v2_power_displacement, points, image_01,
+            _collect(result, "M2_v2_", compute_m2_v2_centroid_displacement, points, image_01,
                      solution=solution)
     _collect(result, "M3_", compute_m3_emd, points, None, image_01,
              rng=np.random.default_rng(43), mc_approx=mc_approx)
