@@ -67,6 +67,16 @@ FIG_DPI = 130
 POINT_MS = 1.6
 SPEC_CLIP = 4.0          # display ceiling for the 2-D spectrum, in units of the flat level
 
+# ── Text sizes (points) ──────────────────────────────────────────────────────
+# Every piece of text in these figures is sized from one of these five knobs, so the whole
+# set can be scaled together and stays consistent across figures. The figures are printed
+# small in the paper, hence the deliberately large defaults relative to matplotlib's.
+FS_TITLE = 15        # panel titles (method name, rho = ..., region id)
+FS_LABEL = 14        # x/y axis labels
+FS_TICK = 12          # tick numbers
+FS_LEGEND = 12        # curve legends
+FS_THUMB_TITLE = 12   # captions over the small condition thumbnails (region id, rho)
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="Merge stage-1 results into comparison figures")
@@ -133,7 +143,7 @@ def draw_thumb(ax, img, box=None, title=None):
         sp.set_edgecolor("0.4")
         sp.set_linewidth(0.6)
     if title:
-        ax.set_title(title, fontsize=7, pad=2)
+        ax.set_title(title, fontsize=FS_THUMB_TITLE, pad=2)
 
 
 def thumb_row(fig, gs_row, n_cols, imgs, boxes=None, titles=None, width=0.42):
@@ -208,7 +218,7 @@ def save(fig, stem):
 
 # ── TEST 1 figures ───────────────────────────────────────────────────────────
 
-def add_legend(ax, fontsize=7):
+def add_legend(ax, fontsize=None):
     """Curve legend inside the axes, top right.
 
     Every curve panel gets one: these figures put one method (or one density) per curve and
@@ -218,7 +228,8 @@ def add_legend(ax, fontsize=7):
     handles, labels = ax.get_legend_handles_labels()
     if not handles:
         return
-    ax.legend(fontsize=fontsize, loc="upper right", framealpha=0.85,
+    ax.legend(fontsize=FS_LEGEND if fontsize is None else fontsize,
+              loc="upper right", framealpha=0.85,
               borderpad=0.3, handlelength=1.6, labelspacing=0.3)
 
 
@@ -235,16 +246,16 @@ def panel_figure(base, methods, grey, spectra, out_dir):
         if pts is not None:
             ax.plot(pts[:, 0], pts[:, 1], "k.", ms=POINT_MS)
         ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect("equal")
-        ax.set_xticks([]); ax.set_yticks([]); ax.set_title(label, fontsize=11)
+        ax.set_xticks([]); ax.set_yticks([]); ax.set_title(label, fontsize=FS_TITLE)
         if j == 0:
-            ax.set_ylabel("point set", fontsize=9)
+            ax.set_ylabel("point set", fontsize=FS_LABEL)
 
         ax = axes[1, j]
         ax.imshow(np.clip(z["mean_spectrum"].astype(np.float64), 0, SPEC_CLIP), cmap="gray",
                   origin="lower", vmin=0, vmax=SPEC_CLIP, interpolation="nearest")
         ax.set_xticks([]); ax.set_yticks([]); ax.set_aspect("equal")
         if j == 0:
-            ax.set_ylabel("mean power spectrum", fontsize=9)
+            ax.set_ylabel("mean power spectrum", fontsize=FS_LABEL)
 
         ax = axes[2, j]
         c, v = z["radial_freq"], z["radial_power"]
@@ -253,10 +264,10 @@ def panel_figure(base, methods, grey, spectra, out_dir):
         ax.axhline(1.0, color="k", ls=":", lw=0.7)
         ax.set_xlim(0, float(c.max()))
         ax.set_ylim(0, max(2.6, float(np.nanmax(v[ok])) * 1.1))
-        ax.set_xlabel("radial freq / $\\sqrt{n}$", fontsize=8)
-        ax.tick_params(labelsize=7)
+        ax.set_xlabel("radial freq / $\\sqrt{n}$", fontsize=FS_LABEL)
+        ax.tick_params(labelsize=FS_TICK)
         if j == 0:
-            ax.set_ylabel("radial power", fontsize=9)
+            ax.set_ylabel("radial power", fontsize=FS_LABEL)
 
     z0 = spectra[cols[0][0]][grey]
     record_caption(
@@ -294,11 +305,11 @@ def overlay_figure(base, methods, spectra, out_dir, key, ylabel, fname, hline=No
             ax.plot(c[ok], v[ok], lw=1.3, label=label)
         if hline is not None:
             ax.axhline(hline, color="k", ls=":", lw=0.7)
-        ax.set_title(f"$\\rho$ = {1.0 - grey / 255.0:.2f}", fontsize=10)
-        ax.set_xlabel("radial freq / $\\sqrt{n}$", fontsize=9)
-        ax.tick_params(labelsize=7)
+        ax.set_title(f"$\\rho$ = {1.0 - grey / 255.0:.2f}", fontsize=FS_TITLE)
+        ax.set_xlabel("radial freq / $\\sqrt{n}$", fontsize=FS_LABEL)
+        ax.tick_params(labelsize=FS_TICK)
         if i == 0:
-            ax.set_ylabel(ylabel, fontsize=9)
+            ax.set_ylabel(ylabel, fontsize=FS_LABEL)
         add_legend(ax)
     fig.tight_layout()
     thumb_row(fig, axes[0], len(greys),
@@ -320,11 +331,14 @@ def invariance_figure(folder, label, spectra, out_dir):
             ok = np.isfinite(v)
             a.plot(z["radial_freq"][ok], v[ok], lw=1.3, label=lab)
     ax[0].axhline(1.0, color="k", ls=":", lw=0.7)
-    ax[0].set_xlabel("radial freq / $\\sqrt{n}$"); ax[0].set_ylabel("radial power")
-    ax[0].set_title(f"{label}: radial power across grey levels", fontsize=10)
-    ax[1].set_xlabel("radial freq / $\\sqrt{n}$"); ax[1].set_ylabel("anisotropy (dB)")
-    ax[1].set_title(f"{label}: anisotropy across grey levels", fontsize=10)
+    ax[0].set_xlabel("radial freq / $\\sqrt{n}$", fontsize=FS_LABEL)
+    ax[0].set_ylabel("radial power", fontsize=FS_LABEL)
+    ax[0].set_title(f"{label}: radial power across grey levels", fontsize=FS_TITLE)
+    ax[1].set_xlabel("radial freq / $\\sqrt{n}$", fontsize=FS_LABEL)
+    ax[1].set_ylabel("anisotropy (dB)", fontsize=FS_LABEL)
+    ax[1].set_title(f"{label}: anisotropy across grey levels", fontsize=FS_TITLE)
     for a in ax:
+        a.tick_params(labelsize=FS_TICK)
         add_legend(a)
     fig.tight_layout()
     return save(fig, out_dir / f"spectral_invariance_{label.replace(' ', '_')}")
@@ -352,7 +366,7 @@ def draw_points(ax, pts, title=None, box=None):
     for sp in ax.spines.values():
         sp.set_edgecolor("0.4"); sp.set_linewidth(0.6)
     if title:
-        ax.set_title(title, fontsize=9, pad=3)
+        ax.set_title(title, fontsize=FS_TITLE, pad=3)
 
 
 
@@ -392,11 +406,11 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
                 rho = float(z["rho"])
             ax.axhline(1.0, color="k", ls=":", lw=0.7)
             ax.set_title(f"{k.split('_')[-1]}   $\\rho$ = {rho:.2f}" if rho is not None else k,
-                         fontsize=10)
-            ax.set_xlabel("$r$ / mean spacing", fontsize=9)
-            ax.tick_params(labelsize=7)
+                         fontsize=FS_TITLE)
+            ax.set_xlabel("$r$ / mean spacing", fontsize=FS_LABEL)
+            ax.tick_params(labelsize=FS_TICK)
             if i == 0:
-                ax.set_ylabel("$g(r)$", fontsize=9)
+                ax.set_ylabel("$g(r)$", fontsize=FS_LABEL)
             add_legend(ax)
         record_caption(
             out_dir / f"pcf_{pat}_by_region",
@@ -435,10 +449,10 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
                         continue
                     ax.plot(z["r"], z["g"], lw=1.2, label=f"$\\rho$={float(z['rho']):.2f}")
                 ax.axhline(1.0, color="k", ls=":", lw=0.7)
-                ax.set_xlabel("$r$ / mean spacing", fontsize=9)
-                ax.tick_params(labelsize=7)
+                ax.set_xlabel("$r$ / mean spacing", fontsize=FS_LABEL)
+                ax.tick_params(labelsize=FS_TICK)
                 if i == 0:
-                    ax.set_ylabel("$g(r)$", fontsize=9)
+                    ax.set_ylabel("$g(r)$", fontsize=FS_LABEL)
                 add_legend(ax)
             record_caption(
                 out_dir / f"pcf_{pat}_by_method",

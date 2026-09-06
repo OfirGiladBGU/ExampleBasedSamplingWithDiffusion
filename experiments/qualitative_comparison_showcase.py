@@ -46,28 +46,28 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # Indices into the sorted source stems of each dataset. Faces are ALWAYS below
 # icons. Use [] to show only icons or only faces.
 
-# MAIN left
-VALID_SAMPLES_ICONS = [0, 1, 2, 3]
-VALID_SAMPLES_FACES = [1, 2]
-VALID_SAMPLES_SHAPENET = []
+# MAIN left - 8 rows
+VALID_SAMPLES_ICONS = [9, 18, 22, 25]
+VALID_SAMPLES_FACES = [2, 4]
+VALID_SAMPLES_SHAPENET = [12, 16]
 OUT_NAME = "qualitative_comparison_left"
 
-# MAIN right
-# VALID_SAMPLES_ICONS = [4, 7, 8, 14]
-# VALID_SAMPLES_FACES = [8, 12]
-# VALID_SAMPLES_SHAPENET = []
+# MAIN right - 8 rows
+# VALID_SAMPLES_ICONS = [30, 33, 34, 40]
+# VALID_SAMPLES_FACES = [6, 14]
+# VALID_SAMPLES_SHAPENET = [34, 42]
 # OUT_NAME = "qualitative_comparison_right"
 
-# APPENDIX left
-# VALID_SAMPLES_ICONS = [150, 151, 200, 201, 202, 205, 156, 157, 158, 159, 203, 161]
-# VALID_SAMPLES_FACES = []
-# VALID_SAMPLES_SHAPENET = []
+# APPENDIX left - 12 rows
+# VALID_SAMPLES_ICONS = [102, 104, 106, 108, 109, 110, 114, 116]
+# VALID_SAMPLES_FACES = [102, 106]
+# VALID_SAMPLES_SHAPENET = [100, 107]
 # OUT_NAME = "qualitative_comparison_appendix_left"
 
-# APPENDIX right
-# VALID_SAMPLES_ICONS = [301, 311, 164, 165, 166, 305, 168, 315, 170, 171, 172, 307]
-# VALID_SAMPLES_FACES = []
-# VALID_SAMPLES_SHAPENET = []
+# APPENDIX right - 12 rows
+# VALID_SAMPLES_ICONS = [201, 202, 204, 205, 206, 207, 213, 217]
+# VALID_SAMPLES_FACES = [204, 210]
+# VALID_SAMPLES_SHAPENET = [200, 201]
 # OUT_NAME = "qualitative_comparison_appendix_right"
 
 # ── Fixed columns -> subfolder ────────────────────────────────────────────────

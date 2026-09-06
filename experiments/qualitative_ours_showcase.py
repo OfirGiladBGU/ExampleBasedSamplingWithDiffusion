@@ -58,27 +58,27 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # COLUMN-major: one inner list per column, entries read top-to-bottom. Faces are
 # ALWAYS below icons. A flat list = a single column. Use [] to drop a block.
 
-# MAIN
+# MAIN - 4 rows
 VALID_SAMPLES_ICONS = [
-    [33, 16, 18], 
-    [19, 20, 22], 
-    [23, 24, 26], 
-    [28, 29, 32]
+    [158, 151], 
+    [163, 160], 
+    [161, 155], 
+    [162, 157]
 ]
-VALID_SAMPLES_FACES = [[7], [11], [14], [10]]
-VALID_SAMPLES_SHAPENET = []
+VALID_SAMPLES_FACES = [[161], [159], [171], [157]]
+VALID_SAMPLES_SHAPENET = [[158], [159], [160], [161]]
 OUT_NAME = "qualitative_ours"
 
-# APPENDIX
+# APPENDIX - 12 rows
 # VALID_SAMPLES_ICONS = [
-#     [35, 36, 97, 38, 39, 40, 41, 42, 43, 44, 45], 
-#     [51, 52, 100, 54, 55, 101, 57, 58, 59, 60, 61], 
-#     [67, 68, 69, 104, 106, 72, 73, 74, 75, 76, 109], 
-#     [82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92],
-#     [127, 47, 98, 125, 120, 63, 64, 65, 108, 79, 80]
+#     [300, 301, 302, 303, 304, 305, 306, 307], 
+#     [400, 408, 402, 403, 404, 405, 406, 410], 
+#     [508, 501, 502, 503, 504, 505, 506, 509], 
+#     [600, 601, 602, 603, 604, 605, 608, 607],
+#     [712, 701, 709, 703, 704, 705, 706, 710]
 # ]
-# VALID_SAMPLES_FACES = [[15], [16], [19], [18], [3]]
-# VALID_SAMPLES_SHAPENET = []
+# VALID_SAMPLES_FACES = [[300, 301], [319, 303], [304, 305], [314, 307], [318, 309]]
+# VALID_SAMPLES_SHAPENET = [[250, 260], [252, 274], [261, 262], [276, 278], [265, 266]]
 # OUT_NAME = "qualitative_ours_appendix"
 
 # What each sample cell shows, left to right. Edit to ["Ours"] for result-only.
@@ -92,7 +92,8 @@ COL_TO_DIR = {
 
 CELL = 2.0             # inches per cell
 DOT_SIZE = 2.0         # scatter marker size (pt^2) for the "Ours" cells
-SHOW_HEADERS = False   # off by default (matches the tiled look); True repeats labels on row 0
+SHOW_HEADERS = True    # column labels (Target | Ours-WVS | Ours-GBN) on the top row
+HEADER_FONTSIZE = 12   # size of those labels, in points
 IMG_EXTS = {".png", ".jpg", ".jpeg"}
 MANIFEST_NAME = "validation_manifest.json"
 
@@ -269,7 +270,7 @@ def main():
             dataset, stem, sub = cell
             render_cell(ax, col_dirs[dataset], sub, stem, args.dot_size)
             if r == 0 and show_headers:
-                ax.set_title(sub, fontsize=12)
+                ax.set_title(sub, fontsize=HEADER_FONTSIZE)
 
     fig.subplots_adjust(wspace=0.03, hspace=0.03)
     out_base = Path(args.output)
