@@ -55,7 +55,7 @@ OUT_NAME = "qualitative_comparison_left"
 # MAIN right - 8 rows
 # VALID_SAMPLES_ICONS = [30, 33, 34, 40]
 # VALID_SAMPLES_FACES = [6, 14]
-# VALID_SAMPLES_SHAPENET = [34, 42]
+# VALID_SAMPLES_SHAPENET = [34, 69]
 # OUT_NAME = "qualitative_comparison_right"
 
 # APPENDIX left - 12 rows
