@@ -66,7 +66,7 @@ VALID_SAMPLES_ICONS = [
     [162, 157]
 ]
 VALID_SAMPLES_FACES = [[161], [159], [171], [157]]
-VALID_SAMPLES_SHAPENET = [[158], [159], [160], [161]]
+VALID_SAMPLES_SHAPENET = [[42], [172], [160], [161]]
 OUT_NAME = "qualitative_ours"
 
 # APPENDIX - 12 rows
@@ -78,7 +78,7 @@ OUT_NAME = "qualitative_ours"
 #     [712, 701, 709, 703, 704, 705, 706, 710]
 # ]
 # VALID_SAMPLES_FACES = [[300, 301], [319, 303], [304, 305], [314, 307], [318, 309]]
-# VALID_SAMPLES_SHAPENET = [[250, 260], [252, 274], [261, 262], [276, 278], [265, 266]]
+# VALID_SAMPLES_SHAPENET = [[250, 260], [252, 274], [261, 158], [276, 93], [265, 266]]
 # OUT_NAME = "qualitative_ours_appendix"
 
 # What each sample cell shows, left to right. Edit to ["Ours"] for result-only.

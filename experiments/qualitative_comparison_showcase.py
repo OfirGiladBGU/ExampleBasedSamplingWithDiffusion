@@ -55,7 +55,7 @@ OUT_NAME = "qualitative_comparison_left"
 # MAIN right - 8 rows
 # VALID_SAMPLES_ICONS = [30, 33, 34, 40]
 # VALID_SAMPLES_FACES = [6, 14]
-# VALID_SAMPLES_SHAPENET = [34, 69]
+# VALID_SAMPLES_SHAPENET = [74, 176]
 # OUT_NAME = "qualitative_comparison_right"
 
 # APPENDIX left - 12 rows
@@ -67,7 +67,7 @@ OUT_NAME = "qualitative_comparison_left"
 # APPENDIX right - 12 rows
 # VALID_SAMPLES_ICONS = [201, 202, 204, 205, 206, 207, 213, 217]
 # VALID_SAMPLES_FACES = [204, 210]
-# VALID_SAMPLES_SHAPENET = [200, 201]
+# VALID_SAMPLES_SHAPENET = [200, 95]
 # OUT_NAME = "qualitative_comparison_appendix_right"
 
 # ── Fixed columns -> subfolder ────────────────────────────────────────────────
