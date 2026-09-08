@@ -74,8 +74,14 @@ import matplotlib.pyplot as plt
 DIR_MAP = {
     "icons": "experiments/outputs/z_validation_data/Icons-50_1024",
     "faces": "experiments/outputs/z_validation_data/CelebA-5K_1024",
+    # The combined 3K set, superseded by the per-category sets below. Kept so old index
+    # lists stay readable; nothing selects from it any more.
     "shapenet": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600",
+    # Fixed stacking order. HOLE (-1) can drop a dataset out of a column, but it cannot
+    # reorder datasets within one -- that is always DIR_MAP order.
     "airplanes": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Airplanes_1600",
+    "cars": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Cars_1600",
+    "watercrafts": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Watercrafts_1600",
 }
 OUT_DIR = "experiments/outputs/qualitative_showcase"
 
@@ -84,12 +90,17 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # top-to-bottom. A flat list is a single column. A key absent here, or mapped to [],
 # contributes no rows.
 
+# NOTE: Use the following script to remap the ShapeNet indices:
+# qualitative_shapenet_index_remap.py
+
 # MAIN - 4 rows
 SAMPLES_MAP = {
     "icons": [[158, 151], [163, 160], [161, 155], [162, 157]],
     "faces": [[161], [159], [171], [157]],
-    "shapenet": [[-1], [174], [184], [-1]],
-    "airplanes": [[1], [-1], [-1], [12]]
+    # "shapenet": [[-1], [174], [184], [-1]],
+    "airplanes": [[1], [-1], [-1], [12]],
+    "cars":        [[-1], [-1], [787], [-1]],
+    "watercrafts": [[-1], [380], [-1], [-1]],
 }
 OUT_NAME = "qualitative_ours"
 
@@ -104,8 +115,10 @@ OUT_NAME = "qualitative_ours"
 #         [712, 701, 709, 703, 704, 705, 706, 710],
 #     ],
 #     "faces": [[300, 301], [319, 303], [304, 305], [314, 307], [318, 309]],
-#     "shapenet": [[250, 260], [252, 274], [261, -1], [276, 93], [225, 266]],
+#     # "shapenet": [[250, 260], [252, 274], [261, -1], [276, 93], [225, 266]],
 #     "airplanes": [[-1], [-1], [33], [-1], [-1]],
+#     "cars":        [[129, 482], [994], [972], [600], [536, 826]],
+#     "watercrafts": [[-1], [342], [-1], [524], [-1]],
 # }
 # OUT_NAME = "qualitative_ours_appendix"
 

@@ -39,7 +39,7 @@ MULTIPLIERS_STR   = ",".join(str(m) for m in MULTIPLIERS)
 STEPS             = 150
 LIMIT             = 12
 CONFIGS           = "none,curve,field"
-CONTROL_CKPT_PATH = "control_v4/train_outputs_Icons-50_1024_GBN_full/dynamic_ep5000.ckpt"
+CONTROL_CKPT_PATH = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
 
 
 def parse_args():

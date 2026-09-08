@@ -50,8 +50,12 @@ import matplotlib.pyplot as plt
 DIR_MAP = {
     "icons": "experiments/outputs/z_validation_data/Icons-50_1024",
     "faces": "experiments/outputs/z_validation_data/CelebA-5K_1024",
+    # The combined 3K set, superseded by the per-category sets below. Kept so old index
+    # lists stay readable; nothing selects from it any more.
     "shapenet": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600",
     "airplanes": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Airplanes_1600",
+    "cars": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Cars_1600",
+    "watercrafts": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Watercrafts_1600",
 }
 OUT_DIR = "experiments/outputs/qualitative_showcase"
 
@@ -59,11 +63,17 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # {dataset name: flat list of sample indices}. A key absent here, or mapped to [],
 # contributes no rows -- there is no separate on/off switch to keep in sync.
 
+# NOTE: Use the following script to remap the ShapeNet indices:
+# qualitative_shapenet_index_remap.py
+
 # MAIN left - 8 rows
 SAMPLES_MAP = {
     "icons": [9, 18, 22, 25], 
     "faces": [2, 4], 
-    "shapenet": [29, 33]
+    # "shapenet": [29, 33],
+    "airplanes": [],
+    "cars": [757, 637],
+    "watercrafts": []
 }
 OUT_NAME = "qualitative_comparison_left"
 
@@ -71,8 +81,10 @@ OUT_NAME = "qualitative_comparison_left"
 # SAMPLES_MAP = {
 #     "icons": [30, 33, 34, 40], 
 #     "faces": [6, 14], 
-#     "shapenet": [8],
-#     "airplanes": [60]
+#     # "shapenet": [8],
+#     "airplanes": [60],
+#     "cars": [],
+#     "watercrafts": [328],
 # }
 # OUT_NAME = "qualitative_comparison_right"
 
@@ -80,7 +92,10 @@ OUT_NAME = "qualitative_comparison_left"
 # SAMPLES_MAP = {
 #     "icons": [102, 104, 106, 108, 109, 110, 114, 116], 
 #     "faces": [102, 106],
-#     "shapenet": [100, 138]
+#     # "shapenet": [100, 138],
+#     "airplanes": [],
+#     "cars": [605],
+#     "watercrafts": [951]
 # }
 # OUT_NAME = "qualitative_comparison_appendix_left"
 
@@ -88,7 +103,10 @@ OUT_NAME = "qualitative_comparison_left"
 # SAMPLES_MAP = {
 #     "icons": [201, 202, 204, 205, 206, 207, 213, 217], 
 #     "faces": [204, 210],
-#     "shapenet": [200, 242]
+#     # "shapenet": [200, 242],
+#     "airplanes": [],
+#     "cars": [236],
+#     "watercrafts": [780]
 # }
 # OUT_NAME = "qualitative_comparison_appendix_right"
 

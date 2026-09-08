@@ -61,7 +61,9 @@ KNOTS = 17
 # Defaults for every command-line argument. Edit here, not in parse_args.
 # --------------------------------------------------------------------------
 MANIFEST                       = f"{ROOT_DIR}/manifest.json"
-CONFIGS                        = "none,curve,field"
+# "random" is the gradient-free control and the comparison the paper leads with, so it is
+# ON by default -- a bare run must reproduce the reported figures and table.
+CONFIGS                        = "none,random,curve,field"
 LIMIT                          = -1
 CALIB_IMAGES                   = 6
 MODE                           = "onestep"

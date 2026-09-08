@@ -366,6 +366,11 @@ def improvement_figure(rows, out_dir):
     means = {}
     for cfg in ("random", "curve", "field"):
         if not all(cfg in by[st] for st in stems):
+            # Silently dropping a series makes two runs look different for no visible
+            # reason; say so instead. Most likely stage 1 ran without this config.
+            print(f"WARNING: config '{cfg}' is missing for some images, so it is absent "
+                  f"from tone_improvement. Re-run stage 1 with --configs "
+                  f"none,random,curve,field to get the full figure.")
             continue
         d = [float(by[st][cfg]["psnr"]) - float(by[st]["none"]["psnr"]) for st in stems]
         means[cfg] = sum(d) / len(d)
@@ -587,6 +592,10 @@ def main():
         for r in rows:
             agg.setdefault(r["config"], []).append(r)
         lines = ["| configuration | PSNR (dB) | SSIM | MAE | seconds |", "|---|---|---|---|---|"]
+        absent = [c for c in ORDER if c not in agg]
+        if absent:
+            print(f"WARNING: tone_table.md is missing row(s) for {absent} -- stage 1 was run "
+                  f"without them. Re-run stage 1 with --configs none,random,curve,field.")
         for c in ORDER:
             if c in agg:
                 g = agg[c]
