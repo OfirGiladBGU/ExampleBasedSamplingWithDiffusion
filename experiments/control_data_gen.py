@@ -51,7 +51,7 @@ def main() -> int:
 
     # I/O
     DEVICE = "cuda"
-    OVERWRITE = True
+    OVERWRITE = False
     EXPORT_PNG = True
     EXPORT_NPY = True
 

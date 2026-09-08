@@ -25,8 +25,12 @@ import argparse
 import shutil
 from pathlib import Path
 
-SRC_DIR = "experiments/outputs/z_validation_data/Icons-50_1024"
-DST_DIR = "experiments/outputs/quantitative_advance_metrics"
+FOLDER = "Icons-50_1024"
+# FOLDER = "CelebA-5K_1024"
+# FOLDER = "ShapeNetRender_Custom-3K_1600"
+
+SRC_DIR = f"experiments/outputs/z_validation_data/{FOLDER}"
+DST_DIR = f"experiments/outputs/quantitative_advance_metrics-{FOLDER}"
 
 
 def parse_args():

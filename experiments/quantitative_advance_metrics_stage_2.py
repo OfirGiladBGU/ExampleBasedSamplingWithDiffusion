@@ -22,17 +22,26 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Default input folders
+FOLDER = "Icons-50_1024"
+POINTS = 1024
+
+# FOLDER = "CelebA-5K_1024"
+# POINTS = 1024
+
+# FOLDER = "ShapeNetRender_Custom-3K_1600"
+# POINTS = 1600
 
 RESULTS_DIR_LIST = [
-    r"experiments/outputs/quantitative_advance_metrics/target_WVS_1024_json",
-    r"experiments/outputs/quantitative_advance_metrics/target_BNOT_1024_json",
-    r"experiments/outputs/quantitative_advance_metrics/target_GBN_1024_json",
-    r"experiments/outputs/quantitative_advance_metrics/target_CN-WVS_1024_json",
-    r"experiments/outputs/quantitative_advance_metrics/target_CN-GBN_1024_json",
+    f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/target_WVS_{POINTS}_json",
+    f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/target_BNOT_{POINTS}_json",
+    f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/target_GBN_{POINTS}_json",
+    f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/target_CN-WVS_{POINTS}_json",
+    f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/target_CN-GBN_{POINTS}_json",
 ]
 
 RESULTS_SUMMERY_FILE = "metrics_avg.json"
-OUTPUT_DIR = "experiments/outputs/quantitative_advance_metrics"
+OUTPUT_DIR = f"experiments/outputs/quantitative_advance_metrics-{FOLDER}"
 
 NUM_SAMPLES = -1
 NUM_EPOCHS = -1

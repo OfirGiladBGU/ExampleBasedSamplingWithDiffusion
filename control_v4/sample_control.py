@@ -6,6 +6,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -680,7 +681,20 @@ def run_inference_on_directory(
     Extended exports to paths: target_npy_path for NPY, timestamps_path for timing.
     """
     source_path = Path(source_path) if source_path else Path("./source")
-    
+
+    # Which ControlNet weights this run actually used. Printed as an absolute path with its
+    # size and mtime: a whole directory is generated from one checkpoint, and the argument
+    # is usually a relative path or a default, so the log otherwise does not record which
+    # of the many train_outputs_*/ checkpoints produced these results.
+    _ckpt = Path(control_ckpt_path)
+    if _ckpt.exists():
+        _st = _ckpt.stat()
+        _when = datetime.fromtimestamp(_st.st_mtime).strftime("%Y-%m-%d %H:%M")
+        print(f"Control weights: {_ckpt.resolve()}  "
+              f"({_st.st_size / 1e6:.1f} MB, modified {_when})")
+    else:
+        print(f"Control weights: {_ckpt.resolve()}  [MISSING]")
+
     print(f"Initializing models on {device}...")
     diffusion, control_net = load_pipeline(
         base_config_path, base_ckpt_path, control_ckpt_path, 

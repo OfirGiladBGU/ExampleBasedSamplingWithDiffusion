@@ -33,12 +33,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.stippling_metrics_advance import compute_all_advanced_metrics
 
 # Default input folders
-SOURCE_DIR = r"experiments/outputs/quantitative_advance_metrics/source"
-TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_WVS_1024"
-# TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_BNOT_1024"
-# TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_GBN_1024"
-# TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_CN-WVS_1024"
-# TARGET_DIR = r"experiments/outputs/quantitative_advance_metrics/target_CN-GBN_1024"
+FOLDER = "Icons-50_1024"
+POINTS = 1024
+
+# FOLDER = "CelebA-5K_1024"
+# POINTS = 1024
+
+# FOLDER = "ShapeNetRender_Custom-3K_1600"
+# POINTS = 1600
+
+SOURCE_DIR = f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/source"
+TARGET_DIR = f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/target_WVS_{POINTS}"
+# TARGET_DIR = f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/target_BNOT_{POINTS}"
+# TARGET_DIR = f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/target_GBN_{POINTS}"
+# TARGET_DIR = f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/target_CN-WVS_{POINTS}"
+# TARGET_DIR = f"experiments/outputs/quantitative_advance_metrics-{FOLDER}/target_CN-GBN_{POINTS}"
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 POINTS_SOURCE = "npy"
