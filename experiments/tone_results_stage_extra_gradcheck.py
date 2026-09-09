@@ -53,7 +53,7 @@ UNROLL_STEPS                   = 4
 T_PROBE                        = 120
 BASE_CONFIG_PATH               = "config/GBN/config.json"
 BASE_CKPT_PATH                 = ""
-CONTROL_CKPT_PATH              = "control_v4/train_outputs_Icons-50_1024_GBN_full/dynamic_ep5000.ckpt"
+CONTROL_CKPT_PATH              = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
 GRID_SIZE                      = 32
 EVAL_TIMESTEPS                 = 1000
 INFER_TRUNCATION_RATIO         = 0.5
@@ -104,6 +104,10 @@ def parse_args():
 
 def main():
     a = parse_args()
+    # Create the output folder up front, not at the write. The gradient check is minutes of
+    # GPU work and its only write is the very last statement, so a missing directory used to
+    # discard the whole run; failing here costs nothing.
+    Path(a.output).mkdir(parents=True, exist_ok=True)
     device = a.device if (torch.cuda.is_available() or a.device == "cpu") else "cpu"
     man = json.loads(Path(a.manifest).read_text())
     entry = next((e for e in man["images"] if e["stem"] == a.image), man["images"][0])
