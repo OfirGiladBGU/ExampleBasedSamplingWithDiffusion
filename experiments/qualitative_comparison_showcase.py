@@ -69,11 +69,14 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # MAIN left - 8 rows
 SAMPLES_MAP = {
     "icons": [9, 18, 22, 25], 
-    "faces": [2, 4], 
-    # "shapenet": [29, 33],
-    "airplanes": [],
-    "cars": [757, 637],
-    "watercrafts": []
+    "faces": [2, 4],
+    # (SHAPENET weights)
+    "shapenet": [29, 33],
+    # (ICONS weights)
+    # # "shapenet": [29, 33],
+    # "airplanes": [],
+    # "cars": [757, 637],
+    # "watercrafts": []
 }
 OUT_NAME = "qualitative_comparison_left"
 
@@ -81,10 +84,14 @@ OUT_NAME = "qualitative_comparison_left"
 # SAMPLES_MAP = {
 #     "icons": [30, 33, 34, 40], 
 #     "faces": [6, 14], 
-#     # "shapenet": [8],
+#     # (SHAPENET weights)
+#     "shapenet": [46],
 #     "airplanes": [60],
-#     "cars": [],
-#     "watercrafts": [328],
+#     # (ICONS weights)
+#     # # "shapenet": [8],
+#     # "airplanes": [60],
+#     # "cars": [],
+#     # "watercrafts": [328],
 # }
 # OUT_NAME = "qualitative_comparison_right"
 
@@ -92,10 +99,13 @@ OUT_NAME = "qualitative_comparison_left"
 # SAMPLES_MAP = {
 #     "icons": [102, 104, 106, 108, 109, 110, 114, 116], 
 #     "faces": [102, 106],
-#     # "shapenet": [100, 138],
-#     "airplanes": [],
-#     "cars": [605],
-#     "watercrafts": [951]
+#     # (SHAPENET weights)
+#     "shapenet": [100, 138],
+#     # (ICONS weights)
+#     # # "shapenet": [100, 138],
+#     # "airplanes": [],
+#     # "cars": [605],
+#     # "watercrafts": [951]
 # }
 # OUT_NAME = "qualitative_comparison_appendix_left"
 
@@ -103,10 +113,13 @@ OUT_NAME = "qualitative_comparison_left"
 # SAMPLES_MAP = {
 #     "icons": [201, 202, 204, 205, 206, 207, 213, 217], 
 #     "faces": [204, 210],
-#     # "shapenet": [200, 242],
-#     "airplanes": [],
-#     "cars": [236],
-#     "watercrafts": [780]
+#     # (SHAPENET weights)
+#     "shapenet": [200, 74],
+#     # (ICONS weights)
+#     # # "shapenet": [200, 242],
+#     # "airplanes": [],
+#     # "cars": [236],
+#     # "watercrafts": [780]
 # }
 # OUT_NAME = "qualitative_comparison_appendix_right"
 

@@ -146,6 +146,90 @@ def main() -> int:
     # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
 
 
+    # ShapeNetRender_Custom - Validation - (ICONS Weights)
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN-ICONS_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS-ICONS_{GRID_SIZE**2}"
+
+
+    # ShapeNetRender_Custom - Validation - (FACES Weights)
+    # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_GBN/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN-FACES_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_CelebA-5K_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS-FACES_{GRID_SIZE**2}"
+
+
+    # Airplanes - (OG Weights)
+    # CONTROL_CKPT = "control_v4/train_outputs_ShapeNetRender_Custom-3K_1600_GBN/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Airplanes_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_ShapeNetRender_Custom-3K_1600_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Airplanes_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
+
+
+    # Airplanes (NEW) - (ICONS Weights)
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Airplanes_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN-ICONS_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Airplanes_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS-ICONS_{GRID_SIZE**2}"
+
+
+    # Cars - (ICONS Weights)
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Cars_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Cars_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
+
+
+    # Watercarft - (ICONS Weights)
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Watercrafts_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_Icons-50_1024_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = r"experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Watercrafts_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
+
+
     parser = argparse.ArgumentParser(
         description="Generate stipple targets using ControlNet V4 inference",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
