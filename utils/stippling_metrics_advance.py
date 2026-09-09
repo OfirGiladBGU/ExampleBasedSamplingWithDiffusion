@@ -85,9 +85,27 @@ def _warn_metric_failure(metric, exc):
     these warnings cover the direct callers that still rely on the zero fallback.
     """
     import warnings
-    warnings.warn(f"{metric} failed ({type(exc).__name__}: {exc}); reporting 0.0 for this "
-                  f"sample -- treat it as MISSING, not as a perfect score",
+    warnings.warn(f"{metric} failed ({type(exc).__name__}: {exc}); this sample is MISSING for "
+                  f"that metric -- it is NOT a perfect score",
                   RuntimeWarning, stacklevel=3)
+
+
+def _require_ot(metric):
+    """Import POT, or fail with a message that names the cause.
+
+    M3 and M4 are the only metrics needing POT. When it was missing they returned 0.0, which
+    is a PERFECT score for a lower-is-better metric, so a whole evaluation could read as a
+    clean sweep with `count` intact. Raising lets `_collect` omit the keys instead.
+    """
+    try:
+        import ot
+        return ot
+    except Exception as exc:
+        raise ImportError(
+            f"{metric} needs POT (pip install pot) but importing it failed "
+            f"({type(exc).__name__}: {exc}). Check you are running the interpreter that has "
+            f"it: a missing POT used to yield 0.0 for every sample, which scores as perfect."
+        ) from exc
 
 
 def _collect(result, prefix, fn, *args, **kwargs):
@@ -1132,11 +1150,11 @@ def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_appro
     a uniform rectangle (~14x error on real icons). That was a bug, not an approximation.
     """
     try:
-        import ot
+        ot = _require_ot("M3 compute_m3_emd")
         target_mass = None
         N = len(points)
         if N < 2:
-            return {"emd_distance": 0.0}
+            raise ValueError(f"M3 needs at least 2 points, got {N}")
         if target_points is None:
             if image_01 is None:
                 target_points = points.copy()
@@ -1148,7 +1166,7 @@ def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_appro
                 density_weights = rho.ravel().astype(np.float64)
                 density_sum = density_weights.sum()
                 if density_sum <= 1e-12:
-                    return {"emd_distance": 0.0}
+                    raise ValueError("M3 target density carries no mass")
                 density_weights = density_weights / density_sum
                 if mc_approx:
                     # Legacy estimator: draw 5000 grid points with probability proportional
@@ -1168,7 +1186,7 @@ def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_appro
                     # not a valid approximation of this quantity.
                     target_points, target_mass = _coarsen_density(rho, budget=8000)
         if len(target_points) == 0:
-            return {"emd_distance": 0.0}
+            raise ValueError("M3 target quadrature produced no points")
         # W_2 uses squared-Euclidean ground cost; the distance is the sqrt of
         # the optimal transport cost.  (metric="euclidean" would give W_1.)
         M = ot.dist(points, target_points, metric="sqeuclidean")
@@ -1185,12 +1203,15 @@ def compute_m3_emd(points, target_points=None, image_01=None, rng=None, mc_appro
             # converges those cases for ~0.5s more and leaves normal inputs untouched.
             cost = ot.emd2(source_w, target_w, M, numItermax=1_000_000)
             emd = float(np.sqrt(max(cost, 0.0)))
-        except Exception:
-            emd = 0.0
+        except Exception as exc:
+            # This used to set emd = 0.0 with no warning, making a solver failure
+            # indistinguishable from a perfect match. Fail instead; _collect omits.
+            raise RuntimeError(
+                f"M3 ot.emd2 failed ({type(exc).__name__}: {exc})") from exc
         return {"emd_distance": float(np.clip(emd, 0, 100))}
     except Exception as exc:
         _warn_metric_failure("M3 compute_m3_emd", exc)
-        return {"emd_distance": 0.0}
+        raise
 
 
 # ============================================================================
@@ -1206,7 +1227,7 @@ def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.0
     probability proportional to rho, uniform weights), which depends on `rng`.
     """
     try:
-        import ot
+        ot = _require_ot("M4 compute_m4_sinkhorn")
         if rng is None:
             rng = np.random.default_rng(42)
         # Use the same target density convention as every other metric: dark = high mass.
@@ -1217,7 +1238,7 @@ def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.0
         N = len(points)
         H, W = image_01.shape
         if N == 0:
-            return {"sinkhorn_ot_cost": 0.0, "sinkhorn_transport_cost": 0.0}
+            raise ValueError("M4 received an empty point set")
         if mc_approx:
             # Legacy estimator: 10k random draws with p ~ rho, then uniform weights.
             yy, xx = np.mgrid[0:H, 0:W]
@@ -1269,7 +1290,7 @@ def compute_m4_sinkhorn(points, image_01, target_density=None, rng=None, reg=0.0
         }
     except Exception as exc:
         _warn_metric_failure("M4 compute_m4_sinkhorn", exc)
-        return {"sinkhorn_ot_cost": 0.0, "sinkhorn_transport_cost": 0.0}
+        raise
 
 
 # ============================================================================
