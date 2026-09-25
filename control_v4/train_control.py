@@ -173,6 +173,9 @@ BEST_MAX_CLUMPED_PCT = 100.0
 
 # Training configuration
 WANDB_ACTIVE = True
+# Comma-separated wandb run tags. Empty -> one tag derived from the target dataset folder:
+# .../Disney-Characters_576_GBN/target -> "Disney_GBN" (first name token + sampling method).
+WANDB_TAGS = ""
 
 BATCH_SIZE = 16
 LR = 1e-4
@@ -512,6 +515,16 @@ def extract_points_from_target(img_path, n_points, points_source=None):
     return extract_points_from_png(img_path, n_points), "png"
 
 
+def wandb_run_tags(args):
+    """Tags for the wandb run: --wandb-tags if given, else '<name>_<method>' from the dataset folder."""
+    tags = [t.strip() for t in (args.wandb_tags or "").split(",") if t.strip()]
+    if tags:
+        return tags
+    dataset = os.path.basename(os.path.dirname(os.path.normpath(args.target)))
+    parts = dataset.split("_")
+    return [f"{parts[0].split('-')[0]}_{parts[-1]}"] if len(parts) > 1 else [dataset]
+
+
 def ensure_offsets_dir(source_dir, target_dir, offsets_dir, grid_size, points_source=None,
                        drop_white_points=False, white_threshold=WHITE_THRESHOLD):
     """Ensure offsets exist; auto-export from targets when missing/empty."""
@@ -761,7 +774,8 @@ def sample_eval_batch(diffusion, denoiser, control_net, batch, device, n_samples
     smart_init_offsets = batch.get("smart_init_offsets")
     if smart_init_offsets is None:
         smart_init_offsets_list = []
-        for image_01 in high_res_img[:, 0].detach().cpu().numpy():
+        for image in high_res_img:
+            image_01 = image[0].detach().cpu().numpy()
             _, smart_offsets_np, _ = build_smart_init_from_image(
                 image_01,
                 grid_size=target_density.shape[-1],
@@ -929,7 +943,7 @@ def save_val_panel(
     if not visible_columns:
         raise ValueError("At least one show_selected_* flag must be True")
 
-    n = min(max_samples, cond_batch.shape[0], gt_offsets_batch.shape[0], pred_offsets_batch.shape[0])
+    n = min(max_samples, len(cond_batch), gt_offsets_batch.shape[0], pred_offsets_batch.shape[0])
     if n <= 0:
         return False
 
@@ -938,7 +952,7 @@ def save_val_panel(
     axes = np.array(axes, dtype=object).reshape(n, num_columns)
 
     for i in range(n):
-        cond = cond_batch[i, 0]
+        cond = cond_batch[i][0]
         gt_offsets = gt_offsets_batch[i]
         pred_offsets = pred_offsets_batch[i]
 
@@ -1012,35 +1026,22 @@ def save_val_panel(
 
 
 def dynamic_collate(batch):
-    """Collate samples with variable high-res image sizes by padding per batch."""
+    """Collate samples WITHOUT padding: variable-size images stay a list, one tensor per sample.
+
+    ``high_res`` (and ``high_res_sdf``) are lists of (1, H_i, W_i) tensors, each at its own
+    resolution; the control net encodes them one by one, so normalised point coordinates always
+    address the real pixels of their own image. Everything on the fixed G x G grid is stacked.
+    """
     sample0 = batch[0]
 
-    max_h = max(sample["high_res"].shape[-2] for sample in batch)
-    max_w = max(sample["high_res"].shape[-1] for sample in batch)
-
-    padded_high_res = []
-    for sample in batch:
-        img = sample["high_res"]
-        pad_h = max_h - img.shape[-2]
-        pad_w = max_w - img.shape[-1]
-        padded = F.pad(img, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
-        padded_high_res.append(padded.contiguous())
-
     collated = {
-        "high_res": torch.stack(padded_high_res, dim=0),
+        "high_res": [sample["high_res"].contiguous() for sample in batch],
         "target_density": torch.stack([sample["target_density"].contiguous() for sample in batch], dim=0),
         "offsets": torch.stack([sample["offsets"].contiguous() for sample in batch], dim=0),
     }
 
     if "high_res_sdf" in sample0:
-        padded_high_res_sdf = []
-        for sample in batch:
-            sdf = sample["high_res_sdf"]
-            pad_h = max_h - sdf.shape[-2]
-            pad_w = max_w - sdf.shape[-1]
-            padded = F.pad(sdf, (0, pad_w, 0, pad_h), mode="constant", value=1.0)
-            padded_high_res_sdf.append(padded.contiguous())
-        collated["high_res_sdf"] = torch.stack(padded_high_res_sdf, dim=0)
+        collated["high_res_sdf"] = [sample["high_res_sdf"].contiguous() for sample in batch]
         collated["target_sdf"] = torch.stack([sample["target_sdf"].contiguous() for sample in batch], dim=0)
 
     if "smart_init_grid" in sample0:
@@ -1048,6 +1049,39 @@ def dynamic_collate(batch):
         collated["smart_init_offsets"] = torch.stack([sample["smart_init_offsets"].contiguous() for sample in batch], dim=0)
 
     return collated
+
+
+def _is_image_list(value):
+    return isinstance(value, (list, tuple)) and len(value) > 0 and all(torch.is_tensor(v) for v in value)
+
+
+def move_batch_to_device(batch, device):
+    """Move tensors and lists of variable-size image tensors to ``device``."""
+    moved = {}
+    for key, value in batch.items():
+        if torch.is_tensor(value):
+            moved[key] = value.to(device)
+        elif _is_image_list(value):
+            moved[key] = [v.to(device) for v in value]
+        else:
+            moved[key] = value
+    return moved
+
+
+def slice_batch(batch, keep):
+    """First ``keep`` samples of a batch (detached), for previews; non-batch entries are dropped."""
+    return {
+        key: (value[:keep].detach() if torch.is_tensor(value) else [v.detach() for v in value[:keep]])
+        for key, value in batch.items()
+        if torch.is_tensor(value) or _is_image_list(value)
+    }
+
+
+def images_to_numpy(images):
+    """Condition images as numpy: one (1, H_i, W_i) array per sample (or a stacked array)."""
+    if torch.is_tensor(images):
+        return images.detach().cpu().numpy()
+    return [image.detach().cpu().numpy() for image in images]
 
 
 def main():
@@ -1315,6 +1349,8 @@ def main():
         help="Show the last panel column (GT Offset Quiver)",
     )
     parser.add_argument("--device", default=DEVICE)
+    parser.add_argument("--wandb-tags", dest="wandb_tags", default=WANDB_TAGS,
+                        help="Comma-separated wandb tags; empty derives one from the target dataset")
     args = parser.parse_args()
     run(args=args)
 
@@ -1437,6 +1473,7 @@ def run(args):
                 project="Stipple-ControlNet",
                 name=run_name,
                 config=vars(args),
+                tags=wandb_run_tags(args),
             )
             # Log metrics organized by section: metrics, chart, visual.
             wandb.define_metric("epoch")
@@ -1695,7 +1732,7 @@ def run(args):
         control_net.train()
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [train]", leave=False)
         for batch in train_pbar:
-            batch = {key: value.to(device) if torch.is_tensor(value) else value for key, value in batch.items()}
+            batch = move_batch_to_device(batch, device)
             high_res_img = batch["high_res"]
             target_density = batch["target_density"]
             x_0 = batch["offsets"]
@@ -1705,12 +1742,8 @@ def run(args):
             smart_init_offsets = batch.get("smart_init_offsets")
 
             if preview_batch is None:
-                keep_train = max(1, min(args.wandb_train_images, high_res_img.shape[0]))
-                preview_batch = {
-                    key: value[:keep_train].detach()
-                    for key, value in batch.items()
-                    if torch.is_tensor(value)
-                }
+                keep_train = max(1, min(args.wandb_train_images, len(high_res_img)))
+                preview_batch = slice_batch(batch, keep_train)
 
                 if should_save_epoch and use_wandb and HAS_MPL and args.sdf_features and args.smart_init_features:
                     fig, axes = plt.subplots(1, 3, figsize=(9, 3), dpi=140)
@@ -1847,7 +1880,7 @@ def run(args):
         avg_loss = epoch_loss / max(len(train_loader), 1)
         avg_density_loss = epoch_density_loss / max(len(train_loader), 1)
 
-        if should_save_epoch and args.wandb_train_images > 0 and preview_batch is not None and preview_batch["high_res"].shape[0] > 0:
+        if should_save_epoch and args.wandb_train_images > 0 and preview_batch is not None and len(preview_batch["high_res"]) > 0:
             control_net.eval()
             train_pred_raw = sample_eval_batch(
                 diffusion,
@@ -1855,7 +1888,7 @@ def run(args):
                 control_net,
                 preview_batch,
                 device,
-                n_samples=preview_batch["high_res"].shape[0],
+                n_samples=len(preview_batch["high_res"]),
                 eval_timesteps=args.eval_timesteps,
                 resample_jumps=args.resample_jumps,
                 show_tqdm=True,
@@ -1865,7 +1898,7 @@ def run(args):
             train_panel_path = os.path.join(args.out, f"train_panel_ep{epoch+1}.png")
             train_saved = save_val_panel(
                 train_panel_path,
-                preview_batch["high_res"].cpu().numpy(),
+                images_to_numpy(preview_batch["high_res"]),
                 preview_batch["offsets"].cpu().numpy(),
                 train_pred_raw.cpu().numpy(),
                 max_samples=args.wandb_train_images,
@@ -1894,7 +1927,7 @@ def run(args):
             val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [val]", leave=False)
             with torch.no_grad():
                 for batch in val_pbar:
-                    batch = {key: value.to(device) if torch.is_tensor(value) else value for key, value in batch.items()}
+                    batch = move_batch_to_device(batch, device)
                     high_res_img = batch["high_res"]
                     target_density = batch["target_density"]
                     high_res_sdf = batch.get("high_res_sdf")
@@ -1917,12 +1950,8 @@ def run(args):
                         target_sdf = None
 
                     if val_preview_batch is None:
-                        keep = min(args.wandb_valid_images, high_res_img.shape[0])
-                        val_preview_batch = {
-                            key: value[:keep].detach()
-                            for key, value in batch.items()
-                            if torch.is_tensor(value)
-                        }
+                        keep = min(args.wandb_valid_images, len(high_res_img))
+                        val_preview_batch = slice_batch(batch, keep)
                         if args.smart_init_features and args.enable_smart_init_splat_sigma and val_preview_batch.get("smart_init_offsets") is not None:
                             smart_coords = offsets_to_coords_gpu(val_preview_batch["smart_init_offsets"], args.grid_size, grid_centers_flat)
                             val_preview_batch["smart_init_grid"] = render_smart_init_gpu(
@@ -1976,7 +2005,7 @@ def run(args):
                     control_net,
                     val_preview_batch,
                     device,
-                    n_samples=val_preview_batch["high_res"].shape[0],
+                    n_samples=val_len(preview_batch["high_res"]),
                     eval_timesteps=args.eval_timesteps,
                     resample_jumps=args.resample_jumps,
                     show_tqdm=True,
@@ -1987,7 +2016,7 @@ def run(args):
                 panel_path = os.path.join(args.out, f"val_panel_ep{epoch+1}.png")
                 saved = save_val_panel(
                     panel_path,
-                    val_preview_batch["high_res"].cpu().numpy(),
+                    val_images_to_numpy(preview_batch["high_res"]),
                     val_preview_batch["offsets"].cpu().numpy(),
                     pred_raw.cpu().numpy(),
                     max_samples=args.wandb_valid_images,
@@ -2008,7 +2037,7 @@ def run(args):
 
             # Geometry-gated best checkpoint based on CV + clumped% score.
             # Only compute geometry on epochs where we save checkpoints.
-            if should_save_epoch and val_preview_batch is not None and val_preview_batch["high_res"].shape[0] > 0:
+            if should_save_epoch and val_preview_batch is not None and val_len(preview_batch["high_res"]) > 0:
                 control_net.eval()
                 if pred_raw_for_geom is None:
                     pred_raw_for_geom = sample_eval_batch(

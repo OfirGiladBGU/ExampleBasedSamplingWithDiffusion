@@ -22,6 +22,7 @@ import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.patches import FancyArrowPatch  # noqa: E402
 
 ROOT_DIR = "experiments/outputs/tone_results"
 BASE = f"{ROOT_DIR}/main"
@@ -407,11 +408,23 @@ def improvement_figure(rows, out_dir):
     return st_
 
 
-def explain_compact_figure(z, stem, out_dir, dot_scale=1.8):
-    """The mechanism in one compact figure, laid out as a 2x3 comparison.
+# tone_explain_compact_*: all six panels on one row (True) or the original 2x3 grid.
+EXPLAIN_COMPACT_ONE_ROW = True
+# Arrows between the panels of each path (asked for -> rendered -> error). Deliberately NOT
+# between the two paths: the corrected half is not derived from the uncorrected error map.
+EXPLAIN_COMPACT_ARROWS = True
+# Where the shared error scale goes: "below" (a short horizontal bar under each error panel),
+# "right" (one vertical bar at the end of the figure), or None (no bar; the caption then has
+# to carry the scale).
+EXPLAIN_COMPACT_COLORBAR = "below"
 
-    Columns read "what was asked for -> what rendered -> how wrong it is"; rows are the
-    uncorrected and the corrected path. Including the optimized density itself matters: it is
+
+def explain_compact_figure(z, stem, out_dir, dot_scale=1.8):
+    """The mechanism in one compact figure: six panels, one row (or 2x3, see the flag).
+
+    Each path reads "what was asked for -> what rendered -> how wrong it is"; the uncorrected
+    path comes first, then the corrected one. On one row that is the left three panels then
+    the right three; in the 2x3 grid it is the top row then the bottom row. Including the optimized density itself matters: it is
     what the optimizer produces, and seeing it lighter than the target in the crowded regions
     is what makes "pre-compensation" concrete. Sub-decibel differences between the two renders
     are invisible by eye, which is why the error columns carry the argument.
@@ -440,18 +453,25 @@ def explain_compact_figure(z, stem, out_dir, dot_scale=1.8):
         except Exception:
             pass
 
-    fig, axes = plt.subplots(2, 3, figsize=(8.0, 5.4))
+    if EXPLAIN_COMPACT_ONE_ROW:
+        fig, grid = plt.subplots(1, 6, figsize=(13.2, 2.6))
+        # (path, stage) -> panel: path 0 = uncorrected, 1 = corrected, laid end to end
+        axes = {(r, c): grid[3 * r + c] for r in range(2) for c in range(3)}
+    else:
+        fig, grid = plt.subplots(2, 3, figsize=(8.0, 5.4))
+        axes = {(r, c): grid[r, c] for r in range(2) for c in range(3)}
 
     # column 1 -- the conditioning that was asked for, before and after optimization
-    show(axes[0, 0], 1.0 - rho0_full, u"target = requested density ρ₀")
+    # show(axes[(0, 0)], 1.0 - rho0_full, u"target = requested density ρ₀")
+    show(axes[(0, 0)], 1.0 - rho0_full, u"requested density ρ₀")
     if rho_star is not None:
-        show(axes[1, 0], 1.0 - rho_star, u"optimized density ρ*")
+        show(axes[(1, 0)], 1.0 - rho_star, u"optimized density ρ*")
     else:
-        axes[1, 0].axis("off")
+        axes[(1, 0)].axis("off")
 
     # column 2 -- the stipple each conditioning produces, drawn as vector dots so the
     # points stay sharp when the PDF is zoomed (see show_points for the caveat)
-    for ax, cfg in ((axes[0, 1], "none"), (axes[1, 1], "field")):
+    for ax, cfg in ((axes[(0, 1)], "none"), (axes[(1, 1)], "field")):
         ck = f"{cfg}_coords"
         if ck in z:
             show_points(ax, z[ck], LABEL[cfg], res=res, sigma_px=dot_sigma_px,
@@ -460,33 +480,72 @@ def explain_compact_figure(z, stem, out_dir, dot_scale=1.8):
             show(ax, 1.0 - z[f"{cfg}_darkness"], LABEL[cfg])
 
     # column 3 -- signed error against the target, one shared scale
-    for ax, e in ((axes[0, 2], e_none), (axes[1, 2], e_field)):
+    err_panels = []
+    for ax, e in ((axes[(0, 2)], e_none), (axes[(1, 2)], e_field)):
         im = ax.imshow(e, cmap="coolwarm", vmin=-lim, vmax=lim, interpolation="nearest")
         ax.set_xticks([]); ax.set_yticks([])
         ax.set_title(f"error, RMS {float(np.sqrt((e ** 2).mean())):.4f}", fontsize=8)
-    cb = fig.colorbar(im, ax=axes[:, 2], fraction=0.046, pad=0.02)
-    cb.ax.tick_params(labelsize=7)
+        err_panels.append((ax, im))
 
-    for ax in axes.ravel():
+    if EXPLAIN_COMPACT_COLORBAR == "below":
+        # Inset in the panel's own axes coordinates, just under its frame: it follows the
+        # panel wherever the layout puts it and steals no width from the row, so all six
+        # panels stay equal-sized. save() crops with bbox_inches="tight", which keeps it.
+        for ax, im in err_panels:
+            cax = ax.inset_axes([0.1, -0.11, 0.8, 0.045])
+            cb = fig.colorbar(im, cax=cax, orientation="horizontal")
+            cb.set_ticks([-lim, 0.0, lim])
+            cb.set_ticklabels([f"−{lim:.2f}", "0", f"{lim:.2f}"])  # U+2212 minus, as matplotlib uses
+            cb.ax.tick_params(labelsize=6, length=2, pad=1)
+    elif EXPLAIN_COMPACT_COLORBAR == "right":
+        # On one row it spans the whole strip so every panel shrinks by the same amount and
+        # they stay equal-sized; in the grid it sits beside the error column only.
+        cb_axes = (list(grid.ravel()) if EXPLAIN_COMPACT_ONE_ROW
+                   else [axes[(0, 2)], axes[(1, 2)]])
+        cb = fig.colorbar(err_panels[-1][1], ax=cb_axes,
+                          fraction=0.012 if EXPLAIN_COMPACT_ONE_ROW else 0.046, pad=0.02)
+        cb.ax.tick_params(labelsize=7)
+
+    for ax in axes.values():
         ax.title.set_fontsize(8)
+
+    if EXPLAIN_COMPACT_ARROWS:
+        # Positions are final here: nothing below re-lays-out the figure (no tight_layout;
+        # save() only crops the canvas). apply_aspect() first, because the panels are
+        # equal-aspect and their drawn box is narrower than the gridspec slot -- measuring
+        # the slot would start the arrows inside the white margin instead of at the frame.
+        for ax in axes.values():
+            ax.apply_aspect()
+        for r in range(2):
+            for c in range(2):
+                a = axes[(r, c)].get_position()
+                b = axes[(r, c + 1)].get_position()
+                gap = b.x0 - a.x1
+                y = 0.5 * (a.y0 + a.y1)
+                fig.add_artist(FancyArrowPatch(
+                    (a.x1 + 0.18 * gap, y), (b.x0 - 0.18 * gap, y),
+                    transform=fig.transFigure, arrowstyle="-|>", mutation_scale=11,
+                    lw=1.1, color="0.25"))
 
     r_none = float(np.sqrt((e_none ** 2).mean()))
     r_field = float(np.sqrt((e_field ** 2).mean()))
     st_ = save(fig, out_dir / f"tone_explain_compact_{stem}")
+    first, second, err = (("Left three panels", "Right three panels", "Third and sixth panels")
+                          if EXPLAIN_COMPACT_ONE_ROW else
+                          ("Top row", "Bottom row", "Right column"))
     record_caption(st_, (
         "What the correction does, read left to right as requested conditioning, rendered "
-        "result, and error against the target. Top row: the target tone, which is also the "
-        "density the sampler is normally asked for, and the stipple rendered from it. Bottom "
-        "row: the density recovered by optimizing through the sampler, and the stipple it "
-        "produces. The stipple panels are drawn as vector dots at the renderer's dot radius, "
-        "so they stay sharp in print; the error panels are computed from the rasterized "
-        "render the metrics use. "
-        "produces -- lighter than the target exactly where dots would otherwise crowd and "
-        "over-darken the page. Right column: signed error on a shared scale, red where the "
-        "page comes out too dark and blue where it is too light. The uncorrected render is "
-        "systematically too dark wherever dots overlap, which is dot gain; the correction "
-        f"trades that large, concentrated error for a smaller and more uniform one (RMS "
-        f"{r_none:.4f} to {r_field:.4f}, a "
+        f"result, and error against the target. {first}: the target tone, which is also the "
+        "density the sampler is normally asked for, and the stipple rendered from it. "
+        f"{second}: the density recovered by optimizing through the sampler -- lighter than "
+        "the target exactly where dots would otherwise crowd and over-darken the page -- and "
+        "the stipple it produces. The stipple panels are drawn as vector dots at the "
+        "renderer's dot radius, so they stay sharp in print; the error panels are computed "
+        f"from the rasterized render the metrics use. {err}: signed error on a shared scale, "
+        "red where the page comes out too dark and blue where it is too light. The "
+        "uncorrected render is systematically too dark wherever dots overlap, which is dot "
+        "gain; the correction trades that large, concentrated error for a smaller and more "
+        f"uniform one (RMS {r_none:.4f} to {r_field:.4f}, a "
         f"{100.0 * (1.0 - r_field / r_none):.0f}% reduction). The correction varies across "
         "the image, so no single global transfer curve can express it."))
     return st_

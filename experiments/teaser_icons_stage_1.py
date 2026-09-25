@@ -37,7 +37,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.Transforms import to_pointset_optimal_transport
 from control_v4.DynamicStippleDataset import DynamicStippleDataset
-from control_v4.train_control import dynamic_collate, ensure_offsets_dir, sample_eval_batch
+from control_v4.train_control import (dynamic_collate, ensure_offsets_dir, images_to_numpy,
+                                      move_batch_to_device, sample_eval_batch)
 # Reuse eval_dataset's model loader + tiny render helpers (Target / Result / OT-Map previews).
 from control_v4.eval_dataset import (
     _load_models,
@@ -217,17 +218,17 @@ def main():
 
     device = torch.device(args.device)
     batch = dynamic_collate(selected)
-    batch = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in batch.items()}
+    batch = move_batch_to_device(batch, device)
 
     diffusion, denoiser, control_net = _load_models(args, device)
     pred_raw = sample_eval_batch(
         diffusion, denoiser, control_net, batch, device,
-        n_samples=batch["high_res"].shape[0], eval_timesteps=args.eval_timesteps,
+        n_samples=len(batch["high_res"]), eval_timesteps=args.eval_timesteps,
         resample_jumps=args.resample_jumps, show_tqdm=True, tqdm_desc="teaser sampling",
         truncation_ratio=args.infer_truncation_ratio,
     )
 
-    cond = batch["high_res"].detach().cpu().numpy()      # (B,1,H,W)
+    cond = images_to_numpy(batch["high_res"])          # per sample (1,H,W), each at its own size
     gt_offsets = batch["offsets"].detach().cpu().numpy()  # (B,2,G,G)  GT GBN offsets
     pred_offsets = pred_raw.detach().cpu().numpy()        # (B,2,G,G)  SDEdit prediction
 
@@ -238,7 +239,7 @@ def main():
         print(f"  [{i+1}/{len(meta_rows)}] {stem}", flush=True)
 
         # Target: the condition image the model conditioned on.
-        _save_condition_image(os.path.join(out, "target", f"{stem}.png"), cond[i, 0])
+        _save_condition_image(os.path.join(out, "target", f"{stem}.png"), cond[i][0])
 
         # Result: SDEdit predicted points (N,2) in [0,1], canonical x-then-y.
         pts = to_pointset_optimal_transport(pred_offsets[i]).reshape(2, -1).T

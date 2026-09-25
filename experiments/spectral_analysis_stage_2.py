@@ -77,6 +77,21 @@ FS_TICK = 12          # tick numbers
 FS_LEGEND = 12        # curve legends
 FS_THUMB_TITLE = 12   # captions over the small condition thumbnails (region id, rho)
 
+# -- What to draw ------------------------------------------------------------
+# The small conditioning image pinned at the upper left of a figure. Off: the condition is
+# already stated by the panel titles and the caption, and the thumbnail adds a second thing
+# to look at in the corner.
+SHOW_CONDITION_THUMB = False
+# Curve legends inside the axes -- the boxes naming one curve each. Column/panel TITLES and
+# AXIS LABELS are not affected by this: titles are how the reader tells the methods apart and
+# are always drawn, and the axis labels have their own switch below.
+SHOW_LEGENDS = False
+# Axis labels: the text down the left edge ("point set", "mean power spectrum", "radial power",
+# "g(r)") and along the bottom ("radial freq / sqrt(n)", "r / mean spacing"). Off: the figures
+# are printed small and every axis is already named in the caption, so the labels cost space
+# without adding information. Turn back on when a figure has to stand on its own.
+SHOW_AXIS_LABELS = False
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="Merge stage-1 results into comparison figures")
@@ -225,12 +240,30 @@ def add_legend(ax, fontsize=None):
     several panels side by side, so a legend on only the first panel forces the reader to
     match colours across panels.
     """
+    if not SHOW_LEGENDS:
+        return
     handles, labels = ax.get_legend_handles_labels()
     if not handles:
         return
     ax.legend(fontsize=FS_LEGEND if fontsize is None else fontsize,
               loc="upper right", framealpha=0.85,
               borderpad=0.3, handlelength=1.6, labelspacing=0.3)
+
+
+def set_axis_labels(ax, xlabel=None, ylabel=None):
+    """Axis labels, suppressed together by SHOW_AXIS_LABELS.
+
+    Deliberately separate from SHOW_LEGENDS: a legend names the curves within one panel, an
+    axis label names the quantity the panel plots. Hiding one is no reason to hide the other,
+    so each gets its own switch and every set_xlabel/set_ylabel in this module goes through
+    here -- a direct call would silently escape the flag.
+    """
+    if not SHOW_AXIS_LABELS:
+        return
+    if xlabel:
+        ax.set_xlabel(xlabel, fontsize=FS_LABEL)
+    if ylabel:
+        ax.set_ylabel(ylabel, fontsize=FS_LABEL)
 
 
 def panel_figure(base, methods, grey, spectra, out_dir):
@@ -248,14 +281,14 @@ def panel_figure(base, methods, grey, spectra, out_dir):
         ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect("equal")
         ax.set_xticks([]); ax.set_yticks([]); ax.set_title(label, fontsize=FS_TITLE)
         if j == 0:
-            ax.set_ylabel("point set", fontsize=FS_LABEL)
+            set_axis_labels(ax, ylabel="point set")
 
         ax = axes[1, j]
         ax.imshow(np.clip(z["mean_spectrum"].astype(np.float64), 0, SPEC_CLIP), cmap="gray",
                   origin="lower", vmin=0, vmax=SPEC_CLIP, interpolation="nearest")
         ax.set_xticks([]); ax.set_yticks([]); ax.set_aspect("equal")
         if j == 0:
-            ax.set_ylabel("mean power spectrum", fontsize=FS_LABEL)
+            set_axis_labels(ax, ylabel="mean power spectrum")
 
         ax = axes[2, j]
         c, v = z["radial_freq"], z["radial_power"]
@@ -264,10 +297,10 @@ def panel_figure(base, methods, grey, spectra, out_dir):
         ax.axhline(1.0, color="k", ls=":", lw=0.7)
         ax.set_xlim(0, float(c.max()))
         ax.set_ylim(0, max(2.6, float(np.nanmax(v[ok])) * 1.1))
-        ax.set_xlabel("radial freq / $\\sqrt{n}$", fontsize=FS_LABEL)
+        set_axis_labels(ax, xlabel="radial freq / $\\sqrt{n}$")
         ax.tick_params(labelsize=FS_TICK)
         if j == 0:
-            ax.set_ylabel("radial power", fontsize=FS_LABEL)
+            set_axis_labels(ax, ylabel="radial power")
 
     z0 = spectra[cols[0][0]][grey]
     record_caption(
@@ -280,7 +313,8 @@ def panel_figure(base, methods, grey, spectra, out_dir):
         f"principal frequency, and a flat tail at one; a flat profile throughout indicates "
         f"white noise. The inset at the upper left is the conditioning image.")
     fig.tight_layout()
-    figure_thumb(fig, load_source(base, f"uniform_g{grey:03d}_r00"), title="condition")
+    if SHOW_CONDITION_THUMB:
+        figure_thumb(fig, load_source(base, f"uniform_g{grey:03d}_r00"), title="condition")
     return save(fig, out_dir / f"spectral_comparison_g{grey:03d}")
 
 
@@ -306,10 +340,10 @@ def overlay_figure(base, methods, spectra, out_dir, key, ylabel, fname, hline=No
         if hline is not None:
             ax.axhline(hline, color="k", ls=":", lw=0.7)
         ax.set_title(f"$\\rho$ = {1.0 - grey / 255.0:.2f}", fontsize=FS_TITLE)
-        ax.set_xlabel("radial freq / $\\sqrt{n}$", fontsize=FS_LABEL)
+        set_axis_labels(ax, xlabel="radial freq / $\\sqrt{n}$")
         ax.tick_params(labelsize=FS_TICK)
         if i == 0:
-            ax.set_ylabel(ylabel, fontsize=FS_LABEL)
+            set_axis_labels(ax, ylabel=ylabel)
         add_legend(ax)
     fig.tight_layout()
     thumb_row(fig, axes[0], len(greys),
@@ -331,11 +365,9 @@ def invariance_figure(folder, label, spectra, out_dir):
             ok = np.isfinite(v)
             a.plot(z["radial_freq"][ok], v[ok], lw=1.3, label=lab)
     ax[0].axhline(1.0, color="k", ls=":", lw=0.7)
-    ax[0].set_xlabel("radial freq / $\\sqrt{n}$", fontsize=FS_LABEL)
-    ax[0].set_ylabel("radial power", fontsize=FS_LABEL)
+    set_axis_labels(ax[0], xlabel="radial freq / $\\sqrt{n}$", ylabel="radial power")
     ax[0].set_title(f"{label}: radial power across grey levels", fontsize=FS_TITLE)
-    ax[1].set_xlabel("radial freq / $\\sqrt{n}$", fontsize=FS_LABEL)
-    ax[1].set_ylabel("anisotropy (dB)", fontsize=FS_LABEL)
+    set_axis_labels(ax[1], xlabel="radial freq / $\\sqrt{n}$", ylabel="anisotropy (dB)")
     ax[1].set_title(f"{label}: anisotropy across grey levels", fontsize=FS_TITLE)
     for a in ax:
         a.tick_params(labelsize=FS_TICK)
@@ -407,10 +439,10 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
             ax.axhline(1.0, color="k", ls=":", lw=0.7)
             ax.set_title(f"{k.split('_')[-1]}   $\\rho$ = {rho:.2f}" if rho is not None else k,
                          fontsize=FS_TITLE)
-            ax.set_xlabel("$r$ / mean spacing", fontsize=FS_LABEL)
+            set_axis_labels(ax, xlabel="$r$ / mean spacing")
             ax.tick_params(labelsize=FS_TICK)
             if i == 0:
-                ax.set_ylabel("$g(r)$", fontsize=FS_LABEL)
+                set_axis_labels(ax, ylabel="$g(r)$")
             add_legend(ax)
         record_caption(
             out_dir / f"pcf_{pat}_by_region",
@@ -449,10 +481,10 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
                         continue
                     ax.plot(z["r"], z["g"], lw=1.2, label=f"$\\rho$={float(z['rho']):.2f}")
                 ax.axhline(1.0, color="k", ls=":", lw=0.7)
-                ax.set_xlabel("$r$ / mean spacing", fontsize=FS_LABEL)
+                set_axis_labels(ax, xlabel="$r$ / mean spacing")
                 ax.tick_params(labelsize=FS_TICK)
                 if i == 0:
-                    ax.set_ylabel("$g(r)$", fontsize=FS_LABEL)
+                    set_axis_labels(ax, ylabel="$g(r)$")
                 add_legend(ax)
             record_caption(
                 out_dir / f"pcf_{pat}_by_method",
@@ -464,7 +496,8 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
                 f"orientation of the conditioning image; the inset at the upper left is the "
                 f"conditioning image itself.")
             fig.tight_layout()
-            figure_thumb(fig, thumb, title="condition", size=0.16)
+            if SHOW_CONDITION_THUMB:
+                figure_thumb(fig, thumb, title="condition", size=0.16)
             written.append(save(fig, out_dir / f"pcf_{pat}_by_method"))
     return written
 

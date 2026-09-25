@@ -43,6 +43,8 @@ from control_v4.DynamicStippleDataset import DynamicStippleDataset
 from control_v4.train_control import (
     _grid_centers_flat,
     dynamic_collate,
+    images_to_numpy,
+    move_batch_to_device,
     ensure_offsets_dir,
     offsets_to_coords_gpu,
     render_smart_init_gpu,
@@ -547,7 +549,7 @@ def main():
 
     batch = dynamic_collate(selected)
     device = torch.device(args.device)
-    batch = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in batch.items()}
+    batch = move_batch_to_device(batch, device)
 
     diffusion, denoiser, control_net = _load_models(args, device)
 
@@ -571,7 +573,7 @@ def main():
         control_net,
         batch,
         device,
-        n_samples=batch["high_res"].shape[0],
+        n_samples=len(batch["high_res"]),
         eval_timesteps=args.eval_timesteps,
         resample_jumps=args.resample_jumps,
         show_tqdm=True,
@@ -582,7 +584,7 @@ def main():
     panel_path = os.path.join(args.out, args.panel_name)
     saved = save_val_panel(
         panel_path,
-        batch["high_res"].detach().cpu().numpy(),
+        images_to_numpy(batch["high_res"]),
         batch["offsets"].detach().cpu().numpy(),
         pred_raw.detach().cpu().numpy(),
         max_samples=len(selected),
@@ -598,7 +600,7 @@ def main():
     _export_selected_columns(
         args.out,
         meta_rows,
-        batch["high_res"].detach().cpu().numpy(),
+        images_to_numpy(batch["high_res"]),
         batch["offsets"].detach().cpu().numpy(),
         pred_raw.detach().cpu().numpy(),
         store_inputs=args.store_selected_inputs,

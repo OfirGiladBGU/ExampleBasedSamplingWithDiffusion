@@ -34,15 +34,39 @@ MANIFEST_NAME = "validation_manifest.json"
 # Column groups, left to right. First group = the Target condition image (special "Target"
 # column). Remaining groups = method result columns (each name -> <name>/<stem>.npy). A vertical
 # separator line is drawn between consecutive groups. Default split = 1, 5, 1.
+# GROUPS = [
+#     ["Target"],
+#     ["vanilla", "unfrozen", "gecco", "agi", "full"],   # train-based
+#     ["sdedit"],                                        # inference-based
+# ]
+# COL_LABELS = {
+#     "Target": "Target", 
+#     "vanilla": "Vanilla", 
+#     "unfrozen": "Unfrozen",
+#     "gecco": "GECCO", 
+#     "agi": "Gated", 
+#     "full": "Full", 
+#     "sdedit": "SDEdit",
+# }
+# OUT_NAME = "ablation_visual_panel_full"
+
+
+# Without Target column
 GROUPS = [
-    ["Target"],
+    # ["Target"],
     ["vanilla", "unfrozen", "gecco", "agi", "full"],   # train-based
-    ["sdedit"],                                          # inference-based
+    ["sdedit"],                                        # inference-based
 ]
 COL_LABELS = {
-    "Target": "Target", "vanilla": "Vanilla", "unfrozen": "Unfrozen",
-    "gecco": "GECCO", "agi": "Gated", "full": "Full", "sdedit": "SDEdit",
+    # "Target": "Target", 
+    "vanilla": "Vanilla", 
+    "unfrozen": "Unfrozen",
+    "gecco": "GECCO", 
+    "agi": "Gated", 
+    "full": "Full", 
+    "sdedit": "SDEdit",
 }
+OUT_NAME = "ablation_visual_panel"
 
 # Which samples to show, as indices into the staged manifest. None -> every sample that has
 # a prediction in one of the method folders (i.e. whatever stage 1 actually ran).
@@ -70,7 +94,7 @@ def parse_args():
     ap.add_argument("--valid-samples", default=("null" if VALID_SAMPLES is None else json.dumps(VALID_SAMPLES)),
                     help="JSON list of manifest indices (null/omit = every sample stage 1 ran).")
     ap.add_argument("--dot-size", type=float, default=DOT_SIZE)
-    ap.add_argument("--out-name", default="ablation_visual_panel")
+    ap.add_argument("--out-name", default=OUT_NAME, help="Base name for the output image.")
     ap.add_argument("--no-headers", action="store_true", help="Hide the column labels row.")
     return ap.parse_args()
 

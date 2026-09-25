@@ -38,10 +38,15 @@ OUTPUT_DIR = "experiments/outputs/teaser_icons_results"
 
 # Layout: list-of-lists -> one inner list per big column (entries are split_index
 # values shown as rows). A flat list is a single big column.
-VALID_SAMPLES = [[1, 2, 4, 5], [6, 7, 8, 9]]
+# VALID_SAMPLES = [[1, 2, 4, 5], [6, 7, 8, 9]]
 
 # The three sub-columns of every big column, left to right.
-SUBCOLS = ["Target", "Result", "OT Map"]
+# SUBCOLS = ["Target", "Result", "OT Map"]
+
+# Small
+VALID_SAMPLES = [[1, 2], [5, 7]]
+SUBCOLS = ["Target", "Result"]
+
 
 DOT_SIZE = 1.0        # vector scatter marker size (pt^2) for the Result column
 QUIVER_CMAP = "viridis"

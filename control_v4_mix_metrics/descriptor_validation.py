@@ -92,12 +92,57 @@ def rho_cells(src_path, G):
                       for i in range(G)] for j in range(G)])
 
 
+def grad_cells(gray, G):
+    """Mean gradient magnitude per grid cell.
+
+    Used to stratify the analysis by how much CONTOUR a cell contains. Descriptors that describe
+    alignment to structure (edge_align) can only mean anything where structure exists, so pooling
+    flat and edge cells together dilutes exactly the signal that distinguishes a contour-following
+    sampler from an isotropic one.
+    """
+    import descriptor_fields as _DF
+    g = _DF.gradient_magnitude(gray)
+    h, w = g.shape
+    ys = np.linspace(0, h, G + 1).astype(int)
+    xs = np.linspace(0, w, G + 1).astype(int)
+    return np.array([[g[ys[j]:ys[j + 1], xs[i]:xs[i + 1]].mean()
+                      for i in range(G)] for j in range(G)])
+
+
+def _load_points(target_dir, stem, min_points):
+    """Exact coordinates when present, else PNG centroids -- matching precompute_descriptors."""
+    npy = os.path.join(target_dir, stem + ".npy")
+    if os.path.exists(npy):
+        pts = PIO.load_points(npy)
+        if len(pts) >= min_points:
+            return pts
+    png = os.path.join(target_dir, stem + ".png")
+    if os.path.exists(png):
+        pts = PIO.extract_centroids(png, n_points=None)
+        if len(pts) >= min_points:
+            return pts
+    return None
+
+
 def _one_icon(payload):
-    """Return per-cell rows for every oracle of one icon, already normalised."""
-    stem, src_path, root, oracles, keys, lo, hi, max_cells, seed = payload
+    """Return per-cell rows for every oracle of one icon, already normalised.
+
+    Candidate descriptors are computed from POINTS here rather than read from disk, because they
+    are deliberately not precomputed -- nothing is promoted into CONDITIONING_KEYS (and so nothing
+    triggers a 70k-file recompute or a FiLM width change) until it has earned a place.
+    """
+    # NOT `p`: the loop below already binds `p` to the descriptor path, which would shadow this.
+    pl = payload
+    stem, src_path, root = pl["stem"], pl["src"], pl["root"]
+    oracles, keys = pl["oracles"], pl["keys"]
+    lo, hi, max_cells, seed = pl["lo"], pl["hi"], pl["max_cells"], pl["seed"]
+    cand = pl["candidates"]
     try:
+        if cand:
+            import candidate_descriptors as CD
         out = {}
         rho = None
+        grd = None
         for m in oracles:
             p = os.path.join(root, f"descriptors_{m}", stem + ".npy")
             if not os.path.exists(p):
@@ -108,14 +153,40 @@ def _one_icon(payload):
                 continue
             G = arr.shape[-1]
             if rho is None:
-                rho = rho_cells(src_path, G)
+                gray = PIO.load_gray01(src_path)
+                rho = np.clip(1.0 - gray, 0.0, 1.0)
+                h, w = rho.shape
+                ys = np.linspace(0, h, G + 1).astype(int)
+                xs = np.linspace(0, w, G + 1).astype(int)
+                rho = np.array([[rho[ys[j]:ys[j + 1], xs[i]:xs[i + 1]].mean()
+                                 for i in range(G)] for j in range(G)])
+                grd = grad_cells(gray, G)
             feats = np.stack([(arr[i] - lo[k]) / (hi[k] - lo[k]) for i, k in enumerate(keys)])
             feats = np.clip(feats, 0.0, 1.0)             # the Dataset clips; saturation is legitimate
             finite = np.isfinite(feats).all(0) & valid
             if not finite.any():
                 continue
-            cells = np.stack([feats[i][finite] for i in range(len(keys))], 1)   # (n, K)
-            r = rho[finite]
+            cols = [feats[i][finite] for i in range(len(keys))]
+            if cand:
+                # Same point set the stored descriptors were measured on: exact .npy when present,
+                # and the SAME background filter. Measuring a candidate on a different point set
+                # than the incumbents would make every comparison between them meaningless.
+                pts = _load_points(os.path.join(root, f"target_{m}"), stem, pl["min_points"])
+                cf = None
+                if pts is not None:
+                    if pl["drop_white"]:
+                        gray_full = PIO.load_gray01(src_path)
+                        pts, _ = PIO.drop_white_area_points(pts, gray_full,
+                                                            threshold=pl["white_thr"])
+                    cf = CD.candidate_fields(pts, G=G, window=pl["window"], k=pl["cand_k"])
+                for c in cand:
+                    if cf is None:
+                        cols.append(np.full(int(finite.sum()), np.nan))
+                    else:
+                        v = np.where(cf["valid"], cf[c], np.nan)
+                        cols.append(v[finite])
+            cells = np.stack(cols, 1)                                          # (n, K + C) RAW cand
+            r = np.stack([rho[finite], grd[finite]], 1)                        # (n, 2)
             if max_cells and len(cells) > max_cells:
                 # zlib.crc32, NOT hash(): Python randomises str hashing per PROCESS, and this runs
                 # in a ProcessPoolExecutor, so hash() would give each worker a different subsample
@@ -234,7 +305,8 @@ def classifier_report(X, y, oracles, keys, out, label, seed=0):
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=seed, stratify=y)
     sc = StandardScaler().fit(Xtr)
     # multi_class= is deprecated in sklearn 1.5 and removed in 1.7; lbfgs is multinomial by default.
-    clf = LogisticRegression(max_iter=2000, n_jobs=-1)
+    # n_jobs has no effect on lbfgs since 1.8 and warns, so it is not passed.
+    clf = LogisticRegression(max_iter=2000)
     clf.fit(sc.transform(Xtr), ytr)
     pred = clf.predict(sc.transform(Xte))
     acc = float((pred == yte).mean())
@@ -266,6 +338,182 @@ def classifier_report(X, y, oracles, keys, out, label, seed=0):
                                   "labels": list(oracles), "confusion": cm.tolist(),
                                   "confused_pairs": [[a, b, v] for a, b, v in confused]}
     return acc, confused
+
+
+def stratified_confusion(X, y, grad, oracles, out, label, sub=400000, seed=0):
+    """5.4c -- does oracle identity depend on how much CONTOUR a cell contains?
+
+    The motivating asymmetry: `edge_align` separates gbn from all six other oracles and separates
+    no other pair, yet gbn is the WORST-identified class per cell. Both can hold if gbn's identity
+    is spatially localised -- contour alignment can only exist where a contour does, so in flat
+    interior cells gbn, bnot and wvs are all just isotropic blue noise and are genuinely the same
+    thing. Pooling flat and edge cells then dilutes gbn's signature with cells that carry none.
+
+    If accuracy rises sharply with gradient, the flat-cell confusion is NOT a missing descriptor --
+    it is real local equivalence, section 3's "same descriptors AND same arrangement". The response
+    is to scope the claim (control is over contour behaviour where contours exist), not to add a
+    descriptor or drop an oracle.
+    """
+    try:
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import confusion_matrix
+        from sklearn.model_selection import train_test_split
+        from sklearn.preprocessing import StandardScaler
+    except ImportError:
+        return None
+
+    print(f"\n{'=' * 100}")
+    print(f"5.4c  CONFUSION vs LOCAL GRADIENT ({label})")
+    print("=" * 100)
+    rng = np.random.RandomState(seed)
+    if len(X) > sub:
+        sel = rng.choice(len(X), sub, replace=False)
+        X, y, grad = X[sel], y[sel], grad[sel]
+    edges = np.percentile(grad, [0, 33.3, 66.7, 100])
+    names = ["flat (low 1/3)", "mid", "contour (top 1/3)"]
+    print(f"  {'stratum':22s}{'gradient range':>22s}{'n':>10s}{'accuracy':>11s}"
+          f"{'gbn diag':>10s}{'gbn->bnot':>11s}")
+    res = {}
+    gi = list(oracles).index("gbn") if "gbn" in oracles else None
+    bi = list(oracles).index("bnot") if "bnot" in oracles else None
+    for s in range(3):
+        m = (grad >= edges[s]) & (grad <= edges[s + 1] if s == 2 else grad < edges[s + 1])
+        if m.sum() < 2000 or len(np.unique(y[m])) < 2:
+            print(f"  {names[s]:22s}{'(too few samples)':>22s}")
+            continue
+        Xtr, Xte, ytr, yte = train_test_split(X[m], y[m], test_size=0.3,
+                                              random_state=seed, stratify=y[m])
+        sc = StandardScaler().fit(Xtr)
+        clf = LogisticRegression(max_iter=2000).fit(sc.transform(Xtr), ytr)
+        pred = clf.predict(sc.transform(Xte))
+        acc = float((pred == yte).mean())
+        cm = confusion_matrix(yte, pred, labels=list(range(len(oracles))))
+        cmn = cm / np.maximum(cm.sum(1, keepdims=True), 1)
+        gd = float(cmn[gi, gi]) if gi is not None else float("nan")
+        gb = float(cmn[gi, bi]) if (gi is not None and bi is not None) else float("nan")
+        print(f"  {names[s]:22s}{f'[{edges[s]:.4f}, {edges[s + 1]:.4f}]':>22s}"
+              f"{int(m.sum()):10d}{acc:11.4f}{gd:10.3f}{gb:11.3f}")
+        res[names[s]] = {"accuracy": acc, "gbn_diag": gd, "gbn_to_bnot": gb,
+                         "n": int(m.sum())}
+    out["stratified_" + label] = res
+    if len(res) == 3:
+        lo_a = res[names[0]]["accuracy"]
+        hi_a = res[names[2]]["accuracy"]
+        print(f"\n  accuracy flat -> contour: {lo_a:.3f} -> {hi_a:.3f}  ({hi_a - lo_a:+.3f})")
+        if hi_a - lo_a > 0.05:
+            print("  Identity is GRADIENT-DEPENDENT. Flat-cell confusion is local equivalence, not")
+            print("  a missing descriptor: where there is no contour there is nothing to align to,")
+            print("  and the oracles genuinely agree. Scope the claim rather than add a descriptor.")
+        else:
+            print("  Identity does NOT depend on gradient, so the confusion is not explained by")
+            print("  flat cells -- it is a genuine descriptor gap. Adding one is justified.")
+    return res
+
+
+def ablation_report(X, y, oracles, keys, out, label, sub=400000, seed=0):
+    """Leave-one-out: what does each descriptor actually contribute?
+
+    Two costs are reported because they answer different questions. Classifier accuracy says how
+    much a descriptor helps DISCRIMINATE; "pairs losing separation" says whether any oracle pair
+    depends on it as its ONLY separator. A descriptor can be near-useless for accuracy and still be
+    the sole thing keeping one pair apart -- dropping that one would be a mistake -- so the decision
+    needs both columns, not just the accuracy delta.
+
+    Subsampled: this refits K+1 times, and the ranking is what matters, not the third decimal.
+    """
+    try:
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.model_selection import train_test_split
+        from sklearn.preprocessing import StandardScaler
+    except ImportError:
+        return None
+
+    print(f"\n{'=' * 100}")
+    print(f"5.4b  DESCRIPTOR ABLATION -- leave-one-out ({label})")
+    print("=" * 100)
+    rng = np.random.RandomState(seed)
+    if len(X) > sub:
+        sel = rng.choice(len(X), sub, replace=False)
+        X, y = X[sel], y[sel]
+
+    def acc_without(drop):
+        cols = [i for i in range(len(keys)) if i != drop]
+        Xtr, Xte, ytr, yte = train_test_split(X[:, cols], y, test_size=0.3,
+                                              random_state=seed, stratify=y)
+        sc = StandardScaler().fit(Xtr)
+        clf = LogisticRegression(max_iter=2000).fit(sc.transform(Xtr), ytr)
+        return float((clf.predict(sc.transform(Xte)) == yte).mean())
+
+    base = acc_without(-1)
+    sep = out.get("separation_" + label, {})
+    print(f"  {'removed':14s}{'accuracy':>10s}{'delta':>9s}{'pairs losing separation':>26s}")
+    print(f"  {'(none)':14s}{base:10.4f}{'':>9s}{'':>26s}")
+    rows = {}
+    for d, k in enumerate(keys):
+        a = acc_without(d)
+        lost = []
+        for pair, dd in sep.items():
+            rest = [abs(v) for kk, v in dd.items() if kk != k and np.isfinite(v)]
+            if max(rest, default=0.0) < D_THRESHOLD <= max(
+                    [abs(v) for v in dd.values() if np.isfinite(v)], default=0.0):
+                lost.append(pair)
+        rows[k] = {"accuracy": a, "delta": a - base, "pairs_lost": lost}
+        note = ", ".join(lost[:3]) if lost else "none"
+        print(f"  {k:14s}{a:10.4f}{a - base:+9.4f}{note:>26s}")
+    out["ablation_" + label] = {"base_accuracy": base, "per_descriptor": rows, "n": int(len(X))}
+    dead = [k for k, v in rows.items() if abs(v["delta"]) < 0.005 and not v["pairs_lost"]]
+    print()
+    if dead:
+        print(f"  CANDIDATES FOR REMOVAL (accuracy delta < 0.005 AND sole separator for no pair):")
+        for k in dead:
+            print(f"    {k}")
+        print("  Removing one changes CONDITIONING_KEYS, the (K+1,G,G) arrays and the FiLM input")
+        print("  width -- a descriptor recompute and a model-shape change, not just a config edit.")
+    else:
+        print("  every descriptor either moves accuracy or is the sole separator for some pair.")
+    return rows
+
+
+def gap_anatomy(X, keys, out, label, pairs, thr):
+    """5.6b -- is a gap UNSAMPLED or UNREACHABLE? They need opposite responses.
+
+    The occupancy threshold marks a bin empty at < thr samples, but a bin holding 1..thr-1 samples
+    is a very different object from one holding exactly 0:
+
+      thin (1..thr-1)  reachable, just undersampled -> a procedural sweep fills it.
+      hard-empty (0)   not one cell in the whole dataset landed there. Either no available sampler
+                       reaches it, or the combination is geometrically impossible (descriptors are
+                       not independent -- e.g. a highly periodic set cannot also be highly
+                       irregular). Generating data for an infeasible region is not possible, and
+                       the honest response is to exclude it from the claimed control region.
+    """
+    print(f"\n{'=' * 100}")
+    print(f"5.6b  GAP ANATOMY ({label}) -- unsampled vs unreachable")
+    print("=" * 100)
+    res = {}
+    for a, b in pairs:
+        i, j = keys.index(a), keys.index(b)
+        m = np.isfinite(X[:, i]) & np.isfinite(X[:, j])
+        H, xe, ye = np.histogram2d(X[m, i], X[m, j], bins=COVERAGE_BINS, range=[[0, 1], [0, 1]])
+        hard = (H == 0)
+        thin = (H > 0) & (H < thr)
+        print(f"\n  {a} x {b}")
+        print(f"    bins {H.size}   occupied {int((H >= thr).sum())}   "
+              f"thin(1..{thr - 1}) {int(thin.sum())}   HARD EMPTY(0) {int(hard.sum())}")
+        if hard.any():
+            hi, hj = np.where(hard)
+            print(f"    hard-empty spans {a} in [{xe[hi.min()]:.2f}, {xe[hi.max() + 1]:.2f}]  "
+                  f"x  {b} in [{ye[hj.min()]:.2f}, {ye[hj.max() + 1]:.2f}]")
+            # Which corner? Names the shape of the missing sampler, or the impossibility.
+            ci = "high" if hi.mean() > COVERAGE_BINS / 2 else "low"
+            cj = "high" if hj.mean() > COVERAGE_BINS / 2 else "low"
+            print(f"    concentrated at {ci} {a} + {cj} {b}")
+        res[f"{a}|{b}"] = {"occupied": int((H >= thr).sum()), "thin": int(thin.sum()),
+                           "hard_empty": int(hard.sum())}
+    out["gap_anatomy_" + label] = res
+    print("\n  THIN bins are sweep targets. HARD-EMPTY bins are the boundary of the reachable set:")
+    print("  verify one is actually achievable before planning to generate data for it.")
+    return res
 
 
 def coverage_report(X, keys, out, label):
@@ -407,6 +655,19 @@ def main():
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--out", default=None, help="default: <root>/../descriptor_validation")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--candidates", default="",
+                    help="comma list or 'all' from candidate_descriptors.CANDIDATE_KEYS. Computed "
+                         "from points on the fly and EVALUATED ONLY -- nothing is written to disk "
+                         "and CONDITIONING_KEYS is untouched.")
+    ap.add_argument("--candidate-k", type=int, default=6,
+                    help="neighbours per point for the candidates (6 = the hexatic convention)")
+    ap.add_argument("--window", type=int, default=5, help="candidate window in cells")
+    ap.add_argument("--min-points", type=int, default=256,
+                    help="skip a target with fewer points than this when loading for candidates")
+    ap.add_argument("--drop-white-points", action=argparse.BooleanOptionalAction, default=True,
+                    help="must match precompute_descriptors.py, or candidates are measured on a "
+                         "different point set than the stored descriptors")
+    ap.add_argument("--white-threshold", type=float, default=255)
     args = ap.parse_args()
 
     oracles = [m.strip() for m in args.oracles.split(",") if m.strip()]
@@ -435,7 +696,21 @@ def main():
     print(f"descriptors: {keys}")
     print(f"out       : {out_dir}")
 
-    tasks = [(s, src_map[s], args.root, oracles, keys, lo, hi, args.max_cells, args.seed)
+    candidates = []
+    if args.candidates:
+        import candidate_descriptors as CD
+        candidates = (list(CD.CANDIDATE_KEYS) if args.candidates.strip().lower() == "all"
+                      else [c.strip() for c in args.candidates.split(",") if c.strip()])
+        bad = [c for c in candidates if c not in CD.CANDIDATE_KEYS]
+        if bad:
+            raise SystemExit(f"unknown candidate(s) {bad}; available: {list(CD.CANDIDATE_KEYS)}")
+        print(f"candidates: {candidates}  (evaluated only -- NOT added to CONDITIONING_KEYS)")
+
+    tasks = [{"stem": s, "src": src_map[s], "root": args.root, "oracles": oracles, "keys": keys,
+              "lo": lo, "hi": hi, "max_cells": args.max_cells, "seed": args.seed,
+              "candidates": candidates, "min_points": args.min_points,
+              "drop_white": args.drop_white_points, "white_thr": args.white_threshold,
+              "window": args.window, "cand_k": args.candidate_k}
              for s in stems]
     cells = defaultdict(list)
     rhos = defaultdict(list)
@@ -474,7 +749,35 @@ def main():
     marketed = [m for m in marketed if m in present]
     per_cell = {m: np.concatenate(cells[m]) for m in oracles}
     per_rho = {m: np.concatenate(rhos[m]) for m in oracles}
-    per_icon = {m: np.stack(icons[m]) for m in oracles}
+
+    if candidates:
+        # Candidates have no DESCRIPTOR_STATS entry, so their bounds come from this sample, using
+        # the SAME percentiles the incumbents were normalised with -- otherwise a candidate would
+        # be judged on a different scale than the descriptors it is being compared against.
+        allc = np.concatenate([per_cell[m] for m in oracles])
+        for c_i, c in enumerate(candidates):
+            col = len(keys) + c_i
+            v = allc[:, col]
+            v = v[np.isfinite(v)]
+            if v.size == 0:
+                print(f"  WARNING: candidate '{c}' produced no finite values")
+                continue
+            c_lo, c_hi = np.percentile(v, 1.0), np.percentile(v, 99.0)
+            if c_hi - c_lo < 1e-9:
+                c_hi = c_lo + 1e-9
+            print(f"  candidate '{c}': lo(p1)={c_lo:.4f} hi(p99)={c_hi:.4f} "
+                  f"median={np.median(v):.4f}  ({(~np.isfinite(allc[:, col])).sum()} cells invalid)")
+            for m in oracles:
+                per_cell[m][:, col] = np.clip((per_cell[m][:, col] - c_lo) / (c_hi - c_lo), 0, 1)
+        keys = list(keys) + list(candidates)
+        # NaN cells (candidate invalid where the descriptor stack was valid) would break the
+        # classifier; the field convention elsewhere is 0 for "nothing measurable here".
+        for m in oracles:
+            per_cell[m] = np.nan_to_num(per_cell[m], nan=0.0)
+
+    per_icon = {m: np.stack([c.mean(0) for c in
+                             np.split(per_cell[m], np.cumsum([len(x) for x in cells[m]])[:-1])])
+                for m in oracles}
     print(f"\n  loaded {sum(len(v) for v in per_cell.values())} cells / "
           f"{sum(len(v) for v in per_icon.values())} (icon, oracle) pairs in {time.time() - t0:.0f}s")
     if errors:
@@ -489,16 +792,24 @@ def main():
     unsep_icon = separation_table(per_icon, oracles, keys, out, "per_icon")
 
     Xc = np.concatenate([per_cell[m] for m in oracles])
-    rc = np.concatenate([per_rho[m] for m in oracles])
+    aux = np.concatenate([per_rho[m] for m in oracles])       # (n, 2): rho, gradient
+    rc, gc = aux[:, 0], aux[:, 1]
     yc = np.concatenate([np.full(len(per_cell[m]), i) for i, m in enumerate(oracles)])
     redundancy_table(Xc, rc, keys, out, "per_cell")
     clf_cell = classifier_report(Xc, yc, oracles, keys, out, "per_cell", seed=args.seed)
+    stratified_confusion(Xc, yc, gc, oracles, out, "per_cell", seed=args.seed)
 
     Xi = np.concatenate([per_icon[m] for m in oracles])
     yi = np.concatenate([np.full(len(per_icon[m]), i) for i, m in enumerate(oracles)])
     classifier_report(Xi, yi, oracles, keys, out, "per_icon", seed=args.seed)
 
+    ablation_report(Xc, yc, oracles, keys, out, "per_cell", seed=args.seed)
     _cov, clustered = coverage_report(Xc, keys, out, "per_cell")
+    # Anatomy of the three sparsest joints -- the ones a sweep plan would target.
+    sparsest = sorted(_cov.items(), key=lambda kv: kv[1]["occupied"])[:3]
+    gap_anatomy(Xc, keys, out, "per_cell",
+                [tuple(p.split("|")) for p, _ in sparsest],
+                max(COVERAGE_MIN_COUNT, int(COVERAGE_MIN_FRAC * len(Xc))))
 
     os.makedirs(out_dir, exist_ok=True)
     make_plots(per_cell, per_icon, oracles, keys, out_dir)

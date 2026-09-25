@@ -66,12 +66,26 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # NOTE: Use the following script to remap the ShapeNet indices:
 # qualitative_shapenet_index_remap.py
 
-# MAIN left - 8 rows
+# MAIN left - 8 rows (big)
+# SAMPLES_MAP = {
+#     "icons": [9, 18, 22, 25], 
+#     "faces": [2, 4],
+#     # (SHAPENET weights)
+#     "shapenet": [29, 33],
+#     # (ICONS weights)
+#     # # "shapenet": [29, 33],
+#     # "airplanes": [],
+#     # "cars": [757, 637],
+#     # "watercrafts": []
+# }
+# OUT_NAME = "qualitative_comparison_left"
+
+# MAIN left - 5 rows (small)
 SAMPLES_MAP = {
-    "icons": [9, 18, 22, 25], 
+    "icons": [22, 25], 
     "faces": [2, 4],
     # (SHAPENET weights)
-    "shapenet": [29, 33],
+    "shapenet": [33],
     # (ICONS weights)
     # # "shapenet": [29, 33],
     # "airplanes": [],
@@ -80,12 +94,27 @@ SAMPLES_MAP = {
 }
 OUT_NAME = "qualitative_comparison_left"
 
-# MAIN right - 8 rows
+# MAIN right - 8 rows (big)
 # SAMPLES_MAP = {
 #     "icons": [30, 33, 34, 40], 
 #     "faces": [6, 14], 
 #     # (SHAPENET weights)
-#     "shapenet": [46],
+#     "shapenet": [100],
+#     "airplanes": [60],
+#     # (ICONS weights)
+#     # # "shapenet": [8],
+#     # "airplanes": [60],
+#     # "cars": [],
+#     # "watercrafts": [328],
+# }
+# OUT_NAME = "qualitative_comparison_right"
+
+# MAIN right - 5 rows (small)
+# SAMPLES_MAP = {
+#     "icons": [34, 40], 
+#     "faces": [6], 
+#     # (SHAPENET weights)
+#     "shapenet": [100],
 #     "airplanes": [60],
 #     # (ICONS weights)
 #     # # "shapenet": [8],
@@ -100,9 +129,9 @@ OUT_NAME = "qualitative_comparison_left"
 #     "icons": [102, 104, 106, 108, 109, 110, 114, 116], 
 #     "faces": [102, 106],
 #     # (SHAPENET weights)
-#     "shapenet": [100, 138],
+#     "shapenet": [46, 138],
 #     # (ICONS weights)
-#     # # "shapenet": [100, 138],
+#     # # "shapenet": [46, 138],
 #     # "airplanes": [],
 #     # "cars": [605],
 #     # "watercrafts": [951]

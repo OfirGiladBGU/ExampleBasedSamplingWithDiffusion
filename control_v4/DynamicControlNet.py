@@ -360,6 +360,14 @@ class DynamicControlNet(nn.Module):
         positions = grid_centers + offsets_t / H
         sample_coords = positions.permute(0, 2, 3, 1) * 2.0 - 1.0
 
+        if isinstance(high_res_image, (list, tuple)):
+            return self._time_block(
+                timing_breakdown,
+                "ctrl.gecco_sample",
+                lambda: self._gecco_variable_size(sample_coords, high_res_image, high_res_sdf),
+                cuda_timing_enabled,
+            )
+
         gecco_input = high_res_image if not self.sdf_features else torch.cat([high_res_image, high_res_sdf], dim=1)
         gecco_feats_hr = self._time_block(
             timing_breakdown,
@@ -380,6 +388,34 @@ class DynamicControlNet(nn.Module):
             cuda_timing_enabled,
         )
         return grid_sampled
+
+    def _gecco_one_image(self, sample_coords, image, sdf):
+        """GECCO features of ONE image (C, H, W) at its own resolution, sampled at sample_coords."""
+        gecco_input = image.unsqueeze(0)
+        if self.sdf_features:
+            gecco_input = torch.cat([gecco_input, sdf.unsqueeze(0)], dim=1)
+        feats = self.gecco_extractor(gecco_input)
+        if sample_coords.shape[0] > 1:
+            feats = feats.expand(sample_coords.shape[0], -1, -1, -1)
+        return F.grid_sample(feats, sample_coords, mode="bilinear", padding_mode="border", align_corners=False)
+
+    def _gecco_variable_size(self, sample_coords, images, sdfs):
+        """GECCO features for a batch given as a list of (C, H_i, W_i) images of any sizes.
+
+        No padding: each image is encoded at its own resolution and sampled at its own points, so
+        normalised point coordinates always address that image's pixels. The sampled features are
+        a fixed (C, G, G) map per sample, so they stack into a regular batch. A single image is
+        shared by every sample (inference with several samples of one condition).
+        """
+        B = sample_coords.shape[0]
+        if sdfs is None:
+            sdfs = [None] * len(images)
+        if len(images) == 1:
+            return self._gecco_one_image(sample_coords, images[0], sdfs[0])
+        if len(images) != B:
+            raise ValueError(f"got {len(images)} condition images for a batch of {B}")
+        return torch.cat([self._gecco_one_image(sample_coords[i:i + 1], images[i], sdfs[i])
+                          for i in range(B)], dim=0)
 
     @staticmethod
     def _extract_control_state_dict(ctrl_state):
@@ -490,9 +526,10 @@ class DynamicControlledDenoiser(nn.Module):
         tgt = self._target_density
         tgt_sdf = self._target_sdf
         smart = self._smart_init_grid
-        if hrs.shape[0] != x.shape[0]:
+        # A list of variable-size images is matched to the batch inside the control net.
+        if torch.is_tensor(hrs) and hrs.shape[0] != x.shape[0]:
             hrs = hrs.expand(x.shape[0], -1, -1, -1)
-        if hrs_sdf is not None and hrs_sdf.shape[0] != x.shape[0]:
+        if torch.is_tensor(hrs_sdf) and hrs_sdf.shape[0] != x.shape[0]:
             hrs_sdf = hrs_sdf.expand(x.shape[0], -1, -1, -1)
         if tgt.shape[0] != x.shape[0]:
             tgt = tgt.expand(x.shape[0], -1, -1, -1)

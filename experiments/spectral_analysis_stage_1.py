@@ -60,9 +60,13 @@ TARGET_DIR = r"experiments/outputs/spectral_analysis/target_WVS_1024"
 # TARGET_DIR = r"experiments/outputs/spectral_analysis/target_CN-WVS_1024"
 # TARGET_DIR = r"experiments/outputs/spectral_analysis/target_CN-GBN_1024"
 
-# TEST 1 -- half-width of the integer frequency grid. The principal frequency of n points in
-# the unit square is sqrt(n) (32 for n=1024), so 64 covers ~2x that per axis.
-FREQ_HALF_WIDTH = 64
+# TEST 1 -- half-width of the integer frequency grid, in cycles per unit square.
+# 0 (the default) means "derive it from RADIAL_MAX": F = ceil(RADIAL_MAX * sqrt(n)), which
+# inscribes the circle of radius RADIAL_MAX in the frequency square so every plotted radius
+# has a COMPLETE ring of frequencies behind it. A fixed F that is too small does not fail
+# loudly -- it quietly averages only the corners of the square at large radii -- so prefer
+# the automatic value and treat any override as a deliberate, checked choice.
+FREQ_HALF_WIDTH = 0
 RADIAL_BINS = 96
 RADIAL_MAX = 3.0
 ANGULAR_SECTORS = 16
@@ -127,6 +131,22 @@ def power_spectrum(pts, F):
     P = (np.abs(A @ B.T) ** 2) / max(n, 1)
     P[F, F] = 0.0
     return P
+
+
+def resolve_freq_half_width(requested, n, r_max):
+    """Frequency half-width to use for a point set of n points, with a coverage check.
+
+    Full angular coverage out to r_max needs F >= r_max * sqrt(n): the ring of radius r sits
+    at r * sqrt(n) pixels, and only rings inscribed in [-F, F]^2 are complete.
+    """
+    need = int(np.ceil(r_max * np.sqrt(max(n, 1))))
+    if not requested:
+        return need
+    if requested < need:
+        print(f"  [warn] --freq-half-width {requested} covers only "
+              f"r <= {requested / np.sqrt(max(n, 1)):.2f}, but radial-max is {r_max:.2f}; "
+              f"bins past that average the corners of the grid only (use >= {need})")
+    return int(requested)
 
 
 def radial_and_anisotropy(P, F, n, n_bins, r_max, sectors):
@@ -284,13 +304,18 @@ def main():
     summary = {}
 
     # ── TEST 1 ──
-    F = args.freq_half_width
     for grey in sorted(uniform):
         files = sorted(uniform[grey])
-        acc, n_pts = None, None
+        acc, n_pts, F = None, None, None
         for i, f in enumerate(files, 1):
             pts = load_points(f, margin_frac)
             n_pts = len(pts)
+            if F is None:
+                # Sized once per grey level, from the first realization: every realization of
+                # one source has the same budget, and the accumulator needs a fixed shape.
+                F = resolve_freq_half_width(args.freq_half_width, n_pts, args.radial_max)
+                print(f"  [T1] grey {grey:3d}: n={n_pts}, frequency half-width F={F} "
+                      f"(full rings to r={F / np.sqrt(max(n_pts, 1)):.2f})", flush=True)
             P = power_spectrum(pts, F)
             acc = P if acc is None else acc + P
             print(f"  [T1] grey {grey:3d} [{i}/{len(files)}] {f.stem}  n={n_pts}", flush=True)
