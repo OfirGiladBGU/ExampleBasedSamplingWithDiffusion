@@ -93,20 +93,59 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # NOTE: Use the following script to remap the ShapeNet indices:
 # qualitative_shapenet_index_remap.py
 
-# MAIN - 4 rows
+#################
+# Single Column #
+#################
+
+# MAIN left - 4 rows
 SAMPLES_MAP = {
-    "icons": [[158, 151], [163, 160], [161, 155], [162, 157]],
-    "faces": [[161], [159], [171], [157]],
+    "icons": [[158, 151], [163, 160]],
+    "faces": [[161], [159]],
     # (SHAPENET weights)
-    "shapenet": [[-1], [174], [184], [-1]],
-    "airplanes": [[360], [-1], [-1], [377]],
+    "shapenet": [[-1], [174]],
+    "airplanes": [[360], [-1]],
     # (ICONS weights)
-    # # "shapenet": [[-1], [174], [184], [-1]],
-    # "airplanes": [[1], [-1], [-1], [12]],
-    # "cars":        [[-1], [-1], [787], [-1]],
-    # "watercrafts": [[-1], [380], [-1], [-1]],
+    # # "shapenet": [[-1], [174]],
+    # "airplanes": [[1], [-1]],
+    # "cars":        [[-1], [-1]],
+    # "watercrafts": [[-1], [380]],
 }
-OUT_NAME = "qualitative_ours"
+OUT_NAME = "qualitative_ours_left"
+
+# MAIN right - 4 rows
+# SAMPLES_MAP = {
+#     "icons": [[161, 155], [162, 157]],
+#     "faces": [[171], [157]],
+#     # (SHAPENET weights)
+#     "shapenet": [[184], [-1]],
+#     "airplanes": [[-1], [377]],
+#     # (ICONS weights)
+#     # # "shapenet": [[184], [-1]],
+#     # "airplanes": [[-1], [12]],
+#     # "cars":        [[787], [-1]],
+#     # "watercrafts": [[[-1], [-1]],
+# }
+# OUT_NAME = "qualitative_ours_right"
+
+
+############
+# Full Row #
+############
+
+# MAIN - 4 rows - (SKIP)
+# SAMPLES_MAP = {
+#     "icons": [[158, 151], [163, 160], [161, 155], [162, 157]],
+#     "faces": [[161], [159], [171], [157]],
+#     # (SHAPENET weights)
+#     "shapenet": [[-1], [174], [184], [-1]],
+#     "airplanes": [[360], [-1], [-1], [377]],
+#     # (ICONS weights)
+#     # # "shapenet": [[-1], [174], [184], [-1]],
+#     # "airplanes": [[1], [-1], [-1], [12]],
+#     # "cars":        [[-1], [-1], [787], [-1]],
+#     # "watercrafts": [[-1], [380], [-1], [-1]],
+# }
+# OUT_NAME = "qualitative_ours"
 
 
 # APPENDIX - 12 rows

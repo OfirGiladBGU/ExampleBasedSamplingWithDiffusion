@@ -2005,7 +2005,7 @@ def run(args):
                     control_net,
                     val_preview_batch,
                     device,
-                    n_samples=val_len(preview_batch["high_res"]),
+                    n_samples=len(val_preview_batch["high_res"]),
                     eval_timesteps=args.eval_timesteps,
                     resample_jumps=args.resample_jumps,
                     show_tqdm=True,
@@ -2016,7 +2016,7 @@ def run(args):
                 panel_path = os.path.join(args.out, f"val_panel_ep{epoch+1}.png")
                 saved = save_val_panel(
                     panel_path,
-                    val_images_to_numpy(preview_batch["high_res"]),
+                    images_to_numpy(val_preview_batch["high_res"]),
                     val_preview_batch["offsets"].cpu().numpy(),
                     pred_raw.cpu().numpy(),
                     max_samples=args.wandb_valid_images,
@@ -2037,7 +2037,7 @@ def run(args):
 
             # Geometry-gated best checkpoint based on CV + clumped% score.
             # Only compute geometry on epochs where we save checkpoints.
-            if should_save_epoch and val_preview_batch is not None and val_len(preview_batch["high_res"]) > 0:
+            if should_save_epoch and val_preview_batch is not None and len(val_preview_batch["high_res"]) > 0:
                 control_net.eval()
                 if pred_raw_for_geom is None:
                     pred_raw_for_geom = sample_eval_batch(
