@@ -5,13 +5,21 @@ from collections import defaultdict
 from pathlib import Path
 
 
-# Compact figure size (inches). The component plot keeps an outside legend so it is a
-# little wider than the txt plots, but far narrower than before.
-FIG_WIDTH = 11.5
-FIG_HEIGHT = 4.5
+# Compact figure size (inches): the same as the txt (profiler) plots, so text renders at the
+# same size when the plots are placed side by side. The legend is inside the axes now.
+FIG_WIDTH = 9.0
+FIG_HEIGHT = 4.0
 # Components whose time stays below this (seconds) at every grid size are merged into a
 # single summed "Others" line, so only the interesting high-time model blocks stand out.
 MERGE_THRESHOLD = 1.0
+
+# Titles / axis labels / legend
+SHOW_TITLE = False             # the file name already says what the plot is
+X_LABEL = "Points Budget"
+LEGEND_LOC = "upper left"      # legend inset inside the axes
+LEGEND_NCOL = 1                # one entry per row
+LEGEND_FONTSIZE = 11           # same as the txt (profiler) plots
+LEGEND_GAP = 0.04              # min gap (fraction of axes height) between the legend box and the lines under it
 
 
 # Toggle this between "grid" and "points"
@@ -133,9 +141,10 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
         fig_width = max(10, len(grid_sizes) * 2.5)
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         
-        x = grid_sizes  
-        ax.set_xlabel('Grid Size Resolution', fontsize=12, fontweight='bold')
-        ax.set_title('Component Scaling by Grid Size', fontsize=15, fontweight='bold')
+        x = grid_sizes
+        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_TITLE:
+            ax.set_title('Component Scaling by Grid Size', fontsize=15, fontweight='bold')
         rotation = 0
         ha = 'center'
         
@@ -144,9 +153,10 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
         fig_width = max(10, len(grid_sizes) * 3.5)
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         
-        x = [g**2 for g in grid_sizes]  
-        ax.set_xlabel('Number of Points (Grid Size × Grid Size)', fontsize=12, fontweight='bold')
-        ax.set_title('Component Scaling by Point Count', fontsize=15, fontweight='bold')
+        x = [g**2 for g in grid_sizes]
+        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_TITLE:
+            ax.set_title('Component Scaling by Point Count', fontsize=15, fontweight='bold')
         rotation = 15  # Angle the text to prevent bounding box collision
         ha = 'right'   # Align to the tick mark
         
@@ -192,7 +202,23 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=9, rotation=30, ha='right')
     
-    ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=9, ncol=1)
+    # Legend inset in the plot. Its real box is measured and the y-axis top is raised just
+    # enough that no line under the box reaches it (the box size depends on the number of
+    # entries, the font and the figure size, so it is measured rather than guessed).
+    series = [v for _, v in significant] + ([others] if others is not None else [])
+    ymax = max(max(v) for v in series)
+    y0 = ax.get_ylim()[0]
+    ax.set_ylim(bottom=y0, top=ymax * 1.05)
+    leg = ax.legend(loc=LEGEND_LOC, fontsize=LEGEND_FONTSIZE, ncol=LEGEND_NCOL, framealpha=0.9)
+    plt.tight_layout()                      # final axes size, so the measured box matches the saved figure
+    fig.canvas.draw()
+    box = leg.get_window_extent().transformed(ax.transAxes.inverted())   # axes fractions
+    x_lo, x_hi = ax.get_xlim()
+    x_right = x_lo + box.x1 * (x_hi - x_lo)                               # data x under the box
+    under = [yv for v in series for xv, yv in zip(x, v) if xv <= x_right] or [y0]
+    free = box.y0 - LEGEND_GAP                                            # usable fraction below the box
+    top = y0 + (max(under) - y0) / max(free, 0.05)
+    ax.set_ylim(bottom=y0, top=max(top, ymax * 1.05))
     
     ax.grid(True, which="major", ls="-", alpha=0.5)
     ax.grid(True, which="minor", ls=":", alpha=0.3)

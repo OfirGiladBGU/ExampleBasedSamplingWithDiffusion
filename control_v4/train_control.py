@@ -156,6 +156,7 @@ LOGIT_NORMAL_S = 1.0
 #   matches indirectly. Weight 0.0 -> OFF (bit-exact original behaviour).
 # DENSITY_LOSS_WEIGHT = 0.0
 DENSITY_LOSS_WEIGHT = 0.8
+# NOTE: Consider setting DENSITY_KDE_GRID = GRID_SIZE
 DENSITY_KDE_GRID = 32          # KDE map resolution (coarser than GRID_SIZE = low-pass)
 DENSITY_KDE_SIGMA_PX = 1.0     # Gaussian sigma, in KDE-grid pixels
 DENSITY_LOSS_T_FRAC = 0.4      # only apply where t < frac * eval_timesteps

@@ -70,7 +70,8 @@ OUT_NAME = "ablation_visual_panel"
 
 # Which samples to show, as indices into the staged manifest. None -> every sample that has
 # a prediction in one of the method folders (i.e. whatever stage 1 actually ran).
-VALID_SAMPLES = [1, 2, 4, 7]
+# VALID_SAMPLES = [1, 2, 4, 7]
+VALID_SAMPLES = [1, 2, 4]
 
 DOT_SIZE = 1.2       # vector scatter marker size (pt^2)
 SEP_RATIO = 0.10     # width of a separator column relative to a content column

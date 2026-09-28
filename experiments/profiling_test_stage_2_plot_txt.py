@@ -8,6 +8,10 @@ from pathlib import Path
 FIG_WIDTH = 9.0
 FIG_HEIGHT = 4.0
 
+# Titles / axis labels
+SHOW_TITLE = False             # the file name already says what the plot is
+X_LABEL = "Points Budget"
+
 
 # Toggle this between "grid" and "points"
 DEFAULT_X_AXIS_MODE = "grid" 
@@ -192,8 +196,9 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
         fig_width = max(10, len(grid_sizes) * 2.5)
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = grid_sizes
-        ax.set_xlabel('Grid Size Resolution', fontsize=12, fontweight='bold')
-        ax.set_title('CPU Denoising Time by Grid Size', fontsize=15, fontweight='bold')
+        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_TITLE:
+            ax.set_title('CPU Denoising Time by Grid Size', fontsize=15, fontweight='bold')
         rotation = 0
         ha = 'center'
 
@@ -201,8 +206,9 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
         fig_width = max(10, len(grid_sizes) * 3.5)
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = [g**2 for g in grid_sizes]
-        ax.set_xlabel('Number of Points (Grid Size × Grid Size)', fontsize=12, fontweight='bold')
-        ax.set_title('CPU Denoising Time by Point Count', fontsize=15, fontweight='bold')
+        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_TITLE:
+            ax.set_title('CPU Denoising Time by Point Count', fontsize=15, fontweight='bold')
         rotation = 15
         ha = 'right'
 
@@ -266,8 +272,9 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
         fig_width = max(10, len(grid_sizes) * 2.5)
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = grid_sizes
-        ax.set_xlabel('Grid Size Resolution', fontsize=12, fontweight='bold')
-        ax.set_title('GPU Profiler Times by Grid Size', fontsize=15, fontweight='bold')
+        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_TITLE:
+            ax.set_title('GPU Profiler Times by Grid Size', fontsize=15, fontweight='bold')
         rotation = 0
         ha = 'center'
 
@@ -275,8 +282,9 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
         fig_width = max(10, len(grid_sizes) * 3.5)
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = [g**2 for g in grid_sizes]
-        ax.set_xlabel('Number of Points (Grid Size × Grid Size)', fontsize=12, fontweight='bold')
-        ax.set_title('GPU Profiler Times by Point Count', fontsize=15, fontweight='bold')
+        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_TITLE:
+            ax.set_title('GPU Profiler Times by Point Count', fontsize=15, fontweight='bold')
         rotation = 15
         ha = 'right'
 

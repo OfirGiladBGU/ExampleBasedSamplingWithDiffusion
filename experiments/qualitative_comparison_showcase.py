@@ -81,18 +81,18 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # OUT_NAME = "qualitative_comparison_left"
 
 # MAIN left - 5 rows (small)
-SAMPLES_MAP = {
-    "icons": [22, 25], 
-    "faces": [2, 4],
-    # (SHAPENET weights)
-    "shapenet": [33],
-    # (ICONS weights)
-    # # "shapenet": [29, 33],
-    # "airplanes": [],
-    # "cars": [757, 637],
-    # "watercrafts": []
-}
-OUT_NAME = "qualitative_comparison_left"
+# SAMPLES_MAP = {
+#     "icons": [22, 25], 
+#     "faces": [2, 4],
+#     # (SHAPENET weights)
+#     "shapenet": [33],
+#     # (ICONS weights)
+#     # # "shapenet": [29, 33],
+#     # "airplanes": [],
+#     # "cars": [757, 637],
+#     # "watercrafts": []
+# }
+# OUT_NAME = "qualitative_comparison_left"
 
 # MAIN right - 8 rows (big)
 # SAMPLES_MAP = {
@@ -110,19 +110,19 @@ OUT_NAME = "qualitative_comparison_left"
 # OUT_NAME = "qualitative_comparison_right"
 
 # MAIN right - 5 rows (small)
-# SAMPLES_MAP = {
-#     "icons": [34, 40], 
-#     "faces": [6], 
-#     # (SHAPENET weights)
-#     "shapenet": [100],
-#     "airplanes": [60],
-#     # (ICONS weights)
-#     # # "shapenet": [8],
-#     # "airplanes": [60],
-#     # "cars": [],
-#     # "watercrafts": [328],
-# }
-# OUT_NAME = "qualitative_comparison_right"
+SAMPLES_MAP = {
+    "icons": [34, 40], 
+    "faces": [6], 
+    # (SHAPENET weights)
+    "shapenet": [100],
+    "airplanes": [60],
+    # (ICONS weights)
+    # # "shapenet": [8],
+    # "airplanes": [60],
+    # "cars": [],
+    # "watercrafts": [328],
+}
+OUT_NAME = "qualitative_comparison_right"
 
 # APPENDIX left - 12 rows
 # SAMPLES_MAP = {

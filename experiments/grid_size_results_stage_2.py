@@ -39,7 +39,8 @@ import matplotlib.image as mpimg
 BASE_DIR = "experiments/outputs/grid_size_results"
 
 # Must match grid_size_results_stage_1.GRID_SIZES.
-GRID_SIZES = [16, 24, 32, 48, 64]
+# GRID_SIZES = [16, 24, 32, 48, 64]
+GRID_SIZES = [24, 32, 48, 64]
 
 # Which images to show, and how to lay them out. Each image contributes a group of cells
 # (its Target followed by one cell per grid size); the nesting controls how the groups are
@@ -50,11 +51,14 @@ GRID_SIZES = [16, 24, 32, 48, 64]
 #   ROW_IMAGES = [["a.png", "b.png"], ["c.png"]]  -> row 1 has a+b side by side, row 2 has c
 #
 # Names are the files stage 0 stages into source/.
+# ROW_IMAGES = [
+#     "emoji-one_4_monkey.png",
+#     "stress_test_density.png",
+# ]
 ROW_IMAGES = [
-    "emoji-one_4_monkey.png",
-    "stress_test_density.png",
+    ["emoji-one_4_monkey.png"],
+    ["stress_test_density.png"],
 ]
-
 
 def _normalize_rows(row_images):
     """Accept a flat list (one row with every image) or a list of lists (one row each)."""

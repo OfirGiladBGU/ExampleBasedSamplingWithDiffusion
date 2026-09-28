@@ -244,6 +244,8 @@ def main() -> int:
                         help="Path to ControlNet checkpoint")
     parser.add_argument("--eval_timesteps", type=int, default=EVAL_TIMESTEPS)
     parser.add_argument("--grid_size", type=int, default=GRID_SIZE)
+    parser.add_argument("--target_folder", type=str, default=TARGET_FOLDER,
+                        help="Output folder name under --data_path, e.g. target_CN-GBN_1600")
     parser.add_argument("--infer-truncation-ratio", type=float, default=INFER_TRUNCATION_RATIO,
                         help="Fraction of full schedule to use (< 1.0 uses Smart Init)")
     parser.add_argument("--enable_gecco", action=argparse.BooleanOptionalAction, default=ENABLE_GECCO)
@@ -278,7 +280,7 @@ def main() -> int:
     # NOTE: Build paths
     data_path = args.data_path
     SOURCE_PATH = os.path.join(args.data_path, "source")
-    TARGET_PATH = os.path.join(args.data_path, TARGET_FOLDER)
+    TARGET_PATH = os.path.join(args.data_path, args.target_folder)
     JSON_PATH = os.path.join(args.data_path, "prompt.json")
     # TARGET_NPY_PATH = os.path.join(args.data_path, "target_npy")
     TARGET_NPY_PATH = TARGET_PATH

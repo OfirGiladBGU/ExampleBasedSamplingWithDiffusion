@@ -345,7 +345,248 @@ def gain_sweep_figure(base, out_dir):
     return s
 
 
+# tone_improvement: "bars" = mean gain per strategy as a bar, with every test image as a dot on
+# top of it (one glance: which strategy helps most, and how consistently); "grouped" = for each
+# test image, three side-by-side bars, one colour per strategy; "lines" = the original
+# per-image series. Both per-image styles order the images by uncorrected PSNR.
+IMPROVEMENT_STYLE = "lines"
+# "lines" style: join each strategy's markers across images (True) or show the markers only.
+IMPROVEMENT_LINES_CONNECT = False
+# "lines" style: print each strategy's mean gain in its legend label. Off: the paper text
+# gives the values, and the dashed lines show them on the plot.
+IMPROVEMENT_LEGEND_MEANS = False
+# "lines" style: a light dotted vertical line per image, from the x axis up to that image's
+# highest point, so every marker can be read off against its image index.
+IMPROVEMENT_DROP_LINES = True
+# "lines" style: dotted reference line at 0 dB ("no improvement").
+IMPROVEMENT_ZERO_LINE = False
+# "dots" style: at each test image the three strategies' markers stand one above the other,
+# not connected across images. Figure size (inches) and marker size.
+IMPROVEMENT_DOTS_FIGSIZE = (7.0, 2.8)
+IMPROVEMENT_DOTS_MS = 5
+# "grouped" style: figure size (inches) and the fraction of each image's slot the three bars
+# fill together (the rest is the gap between images).
+IMPROVEMENT_GROUPED_FIGSIZE = (7.0, 2.8)
+IMPROVEMENT_GROUP_WIDTH = 0.8
+# "grouped" style: draw each strategy's mean over all images as a dashed line in its colour
+# (the values themselves are left to the paper text, not the legend).
+IMPROVEMENT_GROUPED_MEAN_LINES = True
+# Bars style only: print the ours-vs-random-search summary as a title above the plot. Off: the
+# paper text states it, and the caption file still records it.
+IMPROVEMENT_TITLE = False
+
+
 def improvement_figure(rows, out_dir):
+    """PSNR gain over uncorrected for each strategy (style set by IMPROVEMENT_STYLE)."""
+    if IMPROVEMENT_STYLE == "bars":
+        return improvement_bars_figure(rows, out_dir)
+    if IMPROVEMENT_STYLE == "grouped":
+        return improvement_grouped_figure(rows, out_dir)
+    if IMPROVEMENT_STYLE == "dots":
+        return improvement_dots_figure(rows, out_dir)
+    return improvement_lines_figure(rows, out_dir)
+
+
+def improvement_bars_figure(rows, out_dir):
+    """Mean PSNR gain over uncorrected per strategy, with each test image as a dot.
+
+    Bars in increasing order of mean gain (tone curve, random search, ours), so the eye reads
+    left to right from the classical fix to ours. The dots are the per-image gains, jittered
+    horizontally only for legibility; the dotted line at 0 is "no improvement".
+    """
+    by = {}
+    for r in rows:
+        by.setdefault(r["stem"], {})[r["config"]] = r
+    stems = [st for st in by if "none" in by[st] and "field" in by[st]]
+    if len(stems) < 2:
+        return None
+
+    cfgs, gains = [], {}
+    for cfg in ("curve", "random", "field"):
+        if not all(cfg in by[st] for st in stems):
+            print(f"WARNING: config '{cfg}' is missing for some images, so it is absent "
+                  f"from tone_improvement. Re-run stage 1 with --configs "
+                  f"none,random,curve,field to get the full figure.")
+            continue
+        cfgs.append(cfg)
+        gains[cfg] = [float(by[st][cfg]["psnr"]) - float(by[st]["none"]["psnr"]) for st in stems]
+
+    colors = {"random": "tab:orange", "curve": "tab:green", "field": "tab:blue"}
+    short = {"curve": "Global\ntone curve", "random": "Random search\n(no gradients)",
+             "field": "Ours\n(optimized density)"}
+    fig, ax = plt.subplots(figsize=(4.4, 3.2))
+    rng = np.random.default_rng(0)
+    for i, cfg in enumerate(cfgs):
+        d = np.asarray(gains[cfg])
+        m = float(d.mean())
+        ax.bar(i, m, width=0.62, color=colors[cfg], alpha=0.35, edgecolor=colors[cfg], lw=1.2)
+        ax.scatter(i + rng.uniform(-0.18, 0.18, len(d)), d, s=12, color=colors[cfg],
+                   edgecolor="white", linewidths=0.4, zorder=3)
+        ax.text(i, max(float(d.max()), m) + 0.08, f"{m:+.2f} dB", ha="center", va="bottom",
+                fontsize=8, fontweight="bold" if cfg == "field" else "normal")
+    ax.axhline(0.0, color="k", lw=0.8, ls=":")
+    ax.set_xticks(range(len(cfgs)))
+    ax.set_xticklabels([short[c] for c in cfgs], fontsize=8)
+    ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
+    ax.tick_params(axis="y", labelsize=8)
+    top = max(float(np.max(gains[c])) for c in cfgs)
+    ax.set_ylim(min(0.0, min(float(np.min(gains[c])) for c in cfgs)) - 0.05, top + 0.35)
+
+    note = None
+    if "random" in gains:
+        d = np.asarray(gains["field"]) - np.asarray(gains["random"])
+        note = (f"ours $-$ random search: {float(d.mean()):+.2f} dB mean, "
+                f"better on {int((d > 0).sum())}/{len(d)} images")
+        if IMPROVEMENT_TITLE:
+            ax.set_title(note, fontsize=8)
+    fig.tight_layout()
+    st_ = save(fig, out_dir / "tone_improvement")
+    record_caption(st_, (
+        f"Tone agreement gained over the uncorrected render by each correction strategy, on "
+        f"{len(stems)} test images. Bars give the mean gain and dots the individual images. "
+        "Every strategy is given the same objective and the same budget of sampler "
+        "evaluations; the only difference is whether gradients are used. Optimizing the "
+        "conditioning through the sampler improves every image and beats both a global "
+        "transfer curve and a gradient-free search over the identical parameters"
+        + (f" ({note.replace('$-$', '-')})." if note else ".")))
+    return st_
+
+
+def improvement_grouped_figure(rows, out_dir):
+    """Per-image PSNR gain over uncorrected as grouped bars: for every test image, one bar per
+    strategy side by side, one colour per strategy.
+
+    Images are ordered by uncorrected PSNR (hardest first), as in the lines style; the legend
+    carries each strategy's mean gain.
+    """
+    by = {}
+    for r in rows:
+        by.setdefault(r["stem"], {})[r["config"]] = r
+    stems = [st for st in by if "none" in by[st] and "field" in by[st]]
+    if len(stems) < 2:
+        return None
+    stems.sort(key=lambda st: float(by[st]["none"]["psnr"]))
+
+    cfgs, gains = [], {}
+    for cfg in ("curve", "random", "field"):
+        if not all(cfg in by[st] for st in stems):
+            print(f"WARNING: config '{cfg}' is missing for some images, so it is absent "
+                  f"from tone_improvement. Re-run stage 1 with --configs "
+                  f"none,random,curve,field to get the full figure.")
+            continue
+        cfgs.append(cfg)
+        gains[cfg] = np.asarray([float(by[st][cfg]["psnr"]) - float(by[st]["none"]["psnr"])
+                                 for st in stems])
+
+    colors = {"random": "tab:orange", "curve": "tab:green", "field": "tab:blue"}
+    x = np.arange(1, len(stems) + 1)
+    w = IMPROVEMENT_GROUP_WIDTH / len(cfgs)
+    fig, ax = plt.subplots(figsize=IMPROVEMENT_GROUPED_FIGSIZE)
+    for i, cfg in enumerate(cfgs):
+        off = (i - (len(cfgs) - 1) / 2.0) * w
+        ax.bar(x + off, gains[cfg], width=w, color=colors[cfg], edgecolor="none",
+               label=LABEL[cfg])
+        if IMPROVEMENT_GROUPED_MEAN_LINES:
+            ax.axhline(float(gains[cfg].mean()), color=colors[cfg], lw=1.1, ls="--", zorder=3)
+    ax.axhline(0.0, color="k", lw=0.8)
+    ax.set_xlim(0.4, len(stems) + 0.6)
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(i) for i in x], fontsize=7)
+    ax.set_xlabel("test image, ordered by uncorrected PSNR", fontsize=9)
+    ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
+    ax.tick_params(axis="y", labelsize=8)
+    handles, labels = ax.get_legend_handles_labels()
+    if IMPROVEMENT_GROUPED_MEAN_LINES:
+        from matplotlib.lines import Line2D
+        handles.append(Line2D([], [], color="0.3", lw=1.1, ls="--"))
+        labels.append(f"mean over all {len(stems)} images")
+    ax.legend(handles, labels, fontsize=8, loc="upper left", frameon=False)
+    fig.tight_layout()
+    st_ = save(fig, out_dir / "tone_improvement")
+
+    note = ""
+    if "random" in gains:
+        d = gains["field"] - gains["random"]
+        note = (f" (ours - random search: {float(d.mean()):+.2f} dB mean, "
+                f"better on {int((d > 0).sum())}/{len(d)} images)")
+    record_caption(st_, (
+        f"Tone agreement gained over the uncorrected render by each correction strategy, on "
+        f"each of the {len(stems)} test images, ordered by the agreement of the uncorrected "
+        "render so the hardest images come first. Every strategy is given the same objective "
+        "and the same budget of sampler evaluations; the only difference is whether gradients "
+        "are used. Optimizing the conditioning through the sampler improves every image and "
+        "beats both a global transfer curve and a gradient-free search over the identical "
+        "parameters" + note + "."))
+    return st_
+
+
+def improvement_dots_figure(rows, out_dir):
+    """Per-image PSNR gain over uncorrected as unconnected markers: at every test image, the
+    three strategies' markers stand one above the other (no lines between images).
+
+    Images are ordered by uncorrected PSNR (hardest first); the legend names the strategies
+    only, and each strategy's mean over all images is a dashed line in its colour.
+    """
+    by = {}
+    for r in rows:
+        by.setdefault(r["stem"], {})[r["config"]] = r
+    stems = [st for st in by if "none" in by[st] and "field" in by[st]]
+    if len(stems) < 2:
+        return None
+    stems.sort(key=lambda st: float(by[st]["none"]["psnr"]))
+    x = np.arange(1, len(stems) + 1)
+
+    styles = {"curve": ("s", "tab:green"), "random": ("^", "tab:orange"),
+              "field": ("o", "tab:blue")}
+    fig, ax = plt.subplots(figsize=IMPROVEMENT_DOTS_FIGSIZE)
+    gains = {}
+    for cfg in ("curve", "random", "field"):
+        if not all(cfg in by[st] for st in stems):
+            print(f"WARNING: config '{cfg}' is missing for some images, so it is absent "
+                  f"from tone_improvement. Re-run stage 1 with --configs "
+                  f"none,random,curve,field to get the full figure.")
+            continue
+        d = np.asarray([float(by[st][cfg]["psnr"]) - float(by[st]["none"]["psnr"])
+                        for st in stems])
+        gains[cfg] = d
+        mk, col = styles[cfg]
+        ax.plot(x, d, ls="none", marker=mk, ms=IMPROVEMENT_DOTS_MS, color=col,
+                markeredgecolor="white", markeredgewidth=0.4, label=LABEL[cfg], zorder=3)
+        if IMPROVEMENT_GROUPED_MEAN_LINES:
+            ax.axhline(float(d.mean()), color=col, lw=1.1, ls="--", zorder=2)
+    ax.axhline(0.0, color="k", lw=0.8, ls=":")
+    ax.set_xlim(0.4, len(stems) + 0.6)
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(i) for i in x], fontsize=7)
+    ax.set_xlabel("test image, ordered by uncorrected PSNR", fontsize=9)
+    ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
+    ax.tick_params(axis="y", labelsize=8)
+    handles, labels = ax.get_legend_handles_labels()
+    if IMPROVEMENT_GROUPED_MEAN_LINES:
+        from matplotlib.lines import Line2D
+        handles.append(Line2D([], [], color="0.3", lw=1.1, ls="--"))
+        labels.append(f"mean over all {len(stems)} images")
+    ax.legend(handles, labels, fontsize=8, loc="upper left", frameon=False)
+    fig.tight_layout()
+    st_ = save(fig, out_dir / "tone_improvement")
+
+    note = ""
+    if "random" in gains:
+        dd = gains["field"] - gains["random"]
+        note = (f" (ours - random search: {float(dd.mean()):+.2f} dB mean, "
+                f"better on {int((dd > 0).sum())}/{len(dd)} images)")
+    record_caption(st_, (
+        f"Tone agreement gained over the uncorrected render by each correction strategy, on "
+        f"each of the {len(stems)} test images, ordered by the agreement of the uncorrected "
+        "render so the hardest images come first; dashed lines give each strategy's mean. "
+        "Every strategy is given the same objective and the same budget of sampler "
+        "evaluations; the only difference is whether gradients are used. Optimizing the "
+        "conditioning through the sampler improves every image and beats both a global "
+        "transfer curve and a gradient-free search over the identical parameters" + note + "."))
+    return st_
+
+
+def improvement_lines_figure(rows, out_dir):
     """Per-image PSNR gain over uncorrected, one series per strategy.
 
     Ordered by uncorrected PSNR so the x axis reads as "hardest image first". Preferred over a
@@ -365,6 +606,7 @@ def improvement_figure(rows, out_dir):
     styles = {"random": ("^", "tab:orange"), "curve": ("s", "tab:green"),
               "field": ("o", "tab:blue")}
     means = {}
+    top = None
     for cfg in ("random", "curve", "field"):
         if not all(cfg in by[st] for st in stems):
             # Silently dropping a series makes two runs look different for no visible
@@ -376,9 +618,26 @@ def improvement_figure(rows, out_dir):
         d = [float(by[st][cfg]["psnr"]) - float(by[st]["none"]["psnr"]) for st in stems]
         means[cfg] = sum(d) / len(d)
         mk, col = styles[cfg]
-        ax.plot(x, d, marker=mk, ms=4, lw=1.2, color=col,
-                label=f"{LABEL[cfg]}  (mean {means[cfg]:+.2f} dB)")
-    ax.axhline(0.0, color="k", lw=0.8, ls=":")
+        ax.plot(x, d, marker=mk, ms=4, lw=1.2 if IMPROVEMENT_LINES_CONNECT else 0.0,
+                ls="-" if IMPROVEMENT_LINES_CONNECT else "none", color=col,
+                label=(f"{LABEL[cfg]}  (mean {means[cfg]:+.2f} dB)" if IMPROVEMENT_LEGEND_MEANS
+                       else LABEL[cfg]), zorder=3)
+        if IMPROVEMENT_GROUPED_MEAN_LINES:
+            ax.axhline(means[cfg], color=col, lw=1.0, ls="--", zorder=2)
+        top = d if top is None else [max(a, b) for a, b in zip(top, d)]
+    if IMPROVEMENT_ZERO_LINE:
+        ax.axhline(0.0, color="k", lw=0.8, ls=":")
+    if IMPROVEMENT_DROP_LINES and top is not None:
+        # one dotted guide per image, from the x axis itself (the bottom spine, below 0 dB) up
+        # to the image's highest point, so each marker can be read off against its index
+        lo = ax.get_ylim()[0]
+        ax.vlines(list(x), lo, top, colors="0.65", linestyles=":", lw=0.8, zorder=1)
+        ax.set_ylim(bottom=lo)
+        # an unlabelled tick at every image index, where each guide meets the axis
+        from matplotlib.ticker import MultipleLocator, NullFormatter
+        ax.xaxis.set_minor_locator(MultipleLocator(1))
+        ax.xaxis.set_minor_formatter(NullFormatter())
+        ax.tick_params(axis="x", which="minor", length=2.5)
     ax.set_xlabel("test image, ordered by uncorrected PSNR", fontsize=9)
     ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
     ax.tick_params(labelsize=8)
@@ -389,8 +648,20 @@ def improvement_figure(rows, out_dir):
         d = [float(by[st]["field"]["psnr"]) - float(by[st]["random"]["psnr"]) for st in stems]
         w = sum(1 for v in d if v > 0)
         note = f"ours - random search: {sum(d) / len(d):+.2f} dB mean, {w}/{len(d)} images"
-    leg = ax.legend(fontsize=8, loc="upper left", title=note, title_fontsize=8)
-    if note:
+    handles, labels = ax.get_legend_handles_labels()
+    if IMPROVEMENT_GROUPED_MEAN_LINES:
+        # each entry shows its marker on a dashed line, tying "(mean ...)" to the dashed line
+        from matplotlib.lines import Line2D
+        handles = [Line2D([], [], marker=h.get_marker(), ms=4, color=h.get_color(),
+                          ls="--", lw=1.0) for h in handles]
+        if not IMPROVEMENT_LEGEND_MEANS:
+            # the values live in the paper text; the legend only says what the dashes are
+            handles.append(Line2D([], [], color="0.3", lw=1.0, ls="--"))
+            labels.append(f"mean over all {len(stems)} images")
+    title = note if IMPROVEMENT_TITLE else None
+    leg = ax.legend(handles, labels, fontsize=8, loc="upper left", title=title,
+                    title_fontsize=8)
+    if title:
         leg.get_title().set_ha("left")
     fig.tight_layout()
     st_ = save(fig, out_dir / "tone_improvement")
@@ -410,9 +681,20 @@ def improvement_figure(rows, out_dir):
 
 # tone_explain_compact_*: all six panels on one row (True) or the original 2x3 grid.
 EXPLAIN_COMPACT_ONE_ROW = True
-# Arrows between the panels of each path (asked for -> rendered -> error). Deliberately NOT
-# between the two paths: the corrected half is not derived from the uncorrected error map.
+# Arrows between the panels of each path (asked for -> rendered -> error).
 EXPLAIN_COMPACT_ARROWS = True
+# One-row layout only: a blue arrow from the uncorrected error to the optimized density (the
+# iterative optimization, which the paper text and caption explain).
+EXPLAIN_COMPACT_BRIDGE_ARROW = True
+# Optional text over the blue arrow. Empty (the default): no label, and no extra gap -- the
+# arrow sits in a normal gap like the black ones, only slightly bolder.
+EXPLAIN_COMPACT_BRIDGE_LABEL = ""
+# Width of the empty column between the two halves, relative to one panel; used only when
+# there is a label to hold.
+EXPLAIN_COMPACT_BRIDGE_GAP = 0.4
+# Blue-arrow style relative to the black ones (mutation_scale 11, lw 1.1).
+EXPLAIN_COMPACT_BRIDGE_HEAD = 14
+EXPLAIN_COMPACT_BRIDGE_LW = 1.6
 # Where the shared error scale goes: "below" (a short horizontal bar under each error panel),
 # "right" (one vertical bar at the end of the figure), or None (no bar; the caption then has
 # to carry the scale).
@@ -454,9 +736,19 @@ def explain_compact_figure(z, stem, out_dir, dot_scale=1.8):
             pass
 
     if EXPLAIN_COMPACT_ONE_ROW:
-        fig, grid = plt.subplots(1, 6, figsize=(13.2, 2.6))
+        bridge = EXPLAIN_COMPACT_ARROWS and EXPLAIN_COMPACT_BRIDGE_ARROW and bool(EXPLAIN_COMPACT_BRIDGE_LABEL)
+        if bridge:
+            # an empty spacer column between the halves holds the labelled bridge arrow
+            gap = EXPLAIN_COMPACT_BRIDGE_GAP
+            fig, grid = plt.subplots(1, 7, figsize=(13.2 * (6 + gap) / 6, 2.6),
+                                     gridspec_kw={"width_ratios": [1, 1, 1, gap, 1, 1, 1]})
+            grid[3].axis("off")
+            panels = [grid[i] for i in (0, 1, 2, 4, 5, 6)]
+        else:
+            fig, grid = plt.subplots(1, 6, figsize=(13.2, 2.6))
+            panels = list(grid)
         # (path, stage) -> panel: path 0 = uncorrected, 1 = corrected, laid end to end
-        axes = {(r, c): grid[3 * r + c] for r in range(2) for c in range(3)}
+        axes = {(r, c): panels[3 * r + c] for r in range(2) for c in range(3)}
     else:
         fig, grid = plt.subplots(2, 3, figsize=(8.0, 5.4))
         axes = {(r, c): grid[r, c] for r in range(2) for c in range(3)}
@@ -527,6 +819,24 @@ def explain_compact_figure(z, stem, out_dir, dot_scale=1.8):
                     transform=fig.transFigure, arrowstyle="-|>", mutation_scale=11,
                     lw=1.1, color="0.25"))
 
+    if EXPLAIN_COMPACT_ARROWS and EXPLAIN_COMPACT_BRIDGE_ARROW and EXPLAIN_COMPACT_ONE_ROW:
+        a = axes[(0, 2)].get_position()
+        b = axes[(1, 0)].get_position()
+        gap = b.x0 - a.x1
+        y = 0.5 * (a.y0 + a.y1)
+        # with a label the spacer column is wide, so the arrow spans most of it; without one it
+        # sits in a normal gap and uses the same insets as the black arrows
+        inset = 0.10 if EXPLAIN_COMPACT_BRIDGE_LABEL else 0.18
+        fig.add_artist(FancyArrowPatch(
+            (a.x1 + inset * gap, y), (b.x0 - inset * gap, y),
+            transform=fig.transFigure, arrowstyle="-|>",
+            mutation_scale=EXPLAIN_COMPACT_BRIDGE_HEAD,
+            lw=EXPLAIN_COMPACT_BRIDGE_LW, color="tab:blue"))
+        if EXPLAIN_COMPACT_BRIDGE_LABEL:
+            fig.text(0.5 * (a.x1 + b.x0), y + 0.04, EXPLAIN_COMPACT_BRIDGE_LABEL,
+                     transform=fig.transFigure, ha="center", va="bottom", fontsize=6.5,
+                     color="tab:blue", linespacing=1.1)
+
     r_none = float(np.sqrt((e_none ** 2).mean()))
     r_field = float(np.sqrt((e_field ** 2).mean()))
     st_ = save(fig, out_dir / f"tone_explain_compact_{stem}")
@@ -564,7 +874,8 @@ def gain_sweep_compact_figure(base, out_dir):
     for k, lab in (("gain_over_none", "vs uncorrected"), ("gain_over_curve", "vs tone curve")):
         if all(k in r for r in rows):
             ax.plot(x, [float(r[k]) for r in rows], marker="o", ms=4, label=lab)
-    ax.axhline(0.0, color="k", lw=0.8, ls=":")
+    if IMPROVEMENT_ZERO_LINE:
+        ax.axhline(0.0, color="k", lw=0.8, ls=":")
     ax.set_xscale("log", base=2)
     ax.set_xlabel("ink gain / calibrated", fontsize=9)
     ax.set_ylabel("PSNR advantage (dB)", fontsize=9)
