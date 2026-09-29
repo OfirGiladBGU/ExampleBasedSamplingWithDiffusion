@@ -270,10 +270,15 @@ class ShotScene(MovingCameraScene):
     def _speech(self):
         return self.speech_s or max(self.shot_len - self.settings["lead_in_s"] - self.settings["tail_s"], 1.0)
 
+    def line_span(self, k):
+        """(start, end) of narration line k on the shot clock."""
+        _, spans = subtitle_timeline(self.shot.get("narration", ""), self._speech(), self.line_spans)
+        a, b = spans[min(k, len(spans) - 1)]
+        return self.settings["lead_in_s"] + a, self.settings["lead_in_s"] + b
+
     def line_end(self, k):
         """Shot-clock time at which narration line k ends."""
-        _, spans = subtitle_timeline(self.shot.get("narration", ""), self._speech(), self.line_spans)
-        return self.settings["lead_in_s"] + spans[min(k, len(spans) - 1)][1]
+        return self.line_span(k)[1]
 
     # ── title ────────────────────────────────────────────────────────────────────────
     def shot_title(self, v):
@@ -331,13 +336,46 @@ class ShotScene(MovingCameraScene):
             arr = self._tile_grid([t[:, :wmin] for t in tiles], cols or n)
         return arr
 
+    def _animated_samples(self, r, height, cols):
+        """Grid of point panels playing a recorded trajectory (K,S,N,2) from pure noise."""
+        traj, steps = r["trajectory"], r["steps"].astype(np.float64)
+        n = traj.shape[1]
+        rows = int(np.ceil(n / cols))
+        gap = 0.18
+        size = (height - gap * (rows - 1)) / rows
+        times = steps / max(steps[-1], 1.0)
+        t0, t1 = FADE_S + 0.4, self.shot_len - 1.2
+        state = {"k": 0}
+
+        def on_frame(k, a):
+            state["k"] = min(k + (1 if a > 0.5 else 0), len(steps) - 1)
+        panels = []
+        for j in range(n):
+            panel, border = self._point_panel(traj[:, j], size, times, t0, t1, on_frame if j == 0 else None)
+            panels.append((panel, border))
+        grid = Group(*[p for p, _ in panels]).arrange_in_grid(rows=rows, cols=cols, buff=gap)
+        t_last = int(r["t_start"]) if "t_start" in r else int(steps[-1])
+        counter = lambda: f"reverse diffusion   t = {max(t_last - int(steps[state['k']]), 0)}"  # noqa: E731
+        return grid, [b for _, b in panels], counter
+
     def shot_figure(self, v):
         row_h = self.content_height() - 0.9
-        crops = [(self._figure_item(c, v, row_h), c.get("label", ""))
-                 for c in v.get("crops") or [{"box": [0, 0, 1, 1], "label": ""}]]
-        items = []
-        for arr, label in crops:
-            m = image_mobject(arr, row_h)
+        items_spec = v.get("crops") or [{"box": [0, 0, 1, 1], "label": ""}]
+        animated = {}
+        for i, c in enumerate(items_spec):
+            r = load_result(c["points"]) if "points" in c else None
+            if r is not None and "trajectory" in r:
+                animated[i] = self._animated_samples(r, row_h, int(c.get("grid_cols", 2)))
+        crops = [(None if i in animated else self._figure_item(c, v, row_h), c.get("label", ""))
+                 for i, c in enumerate(items_spec)]
+        items, borders, counters = [], [], []
+        for i, (arr, label) in enumerate(crops):
+            if i in animated:
+                m, b, counter = animated[i]
+                borders += b
+                counters.append(counter)
+            else:
+                m = image_mobject(arr, row_h)
             cap = self.text(label, size=26) if label else None
             items.append(Group(m, cap).arrange(UP, buff=0.25) if cap else m)
         g = Group(*items).arrange(RIGHT, buff=0.5)
@@ -347,6 +385,11 @@ class ShotScene(MovingCameraScene):
         for i, it in enumerate(items):
             self.fade_in(it, 0.3 * i, 0.3 * i + FADE_S)
             self.add(it)
+        for b in borders:
+            self.fade_in(b)
+            self.add(b)
+        for counter in counters:
+            self.add(self._counter("{}", g.get_bottom() + DOWN * 0.35, counter))
 
     # ── pipeline figure: highlights or zoom ──────────────────────────────────────────
     def _pipeline_source(self, v):
@@ -388,9 +431,9 @@ class ShotScene(MovingCameraScene):
         w_px, h_px = int(round(w_u * px_per_unit())), int(round(h_u * px_per_unit()))
         aspect = w_px / h_px
         sw, sh = src.size
-        # white margin around the source, so views near an edge never read outside the image
-        pad_x = int(max(sh * aspect - sw, 0) / 2 + 0.05 * sw)
-        pad_y = int(max(sw / aspect - sh, 0) / 2 + 0.05 * sh)
+        # white margin around the source, so views centred near an edge never read outside it
+        pad_x = int(max(sh * aspect - sw, 0) / 2 + 0.25 * sw)
+        pad_y = int(max(sw / aspect - sh, 0) / 2 + 0.25 * sh)
         canvas = Image.new("RGB", (sw + 2 * pad_x, sh + 2 * pad_y), self.settings["background"])
         canvas.paste(src, (pad_x, pad_y))
 
@@ -400,22 +443,23 @@ class ShotScene(MovingCameraScene):
                 return sw / 2, sh / 2, max(sw, sh * aspect) * 1.02
             x0, y0, x1, y1 = box[0] * sw, box[1] * sh, box[2] * sw, box[3] * sh
             w = max(x1 - x0, (y1 - y0) * aspect) * 1.04
-            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-            if w < sw:          # stay inside the figure horizontally, with a small white margin
-                margin = 0.015 * sw
-                cx = float(np.clip(cx, w / 2 - margin, sw - w / 2 + margin))
-            return cx, cy, w
+            # centred on the region even past the figure's edge: the canvas is padded with white
+            return (x0 + x1) / 2, (y0 + y1) / 2, w
 
         a0, a1 = view(self.prev_zoom), view(v["zoom"])
         move = float(v.get("move_s", 1.4))
 
-        def frame_at(t):
+        def view_at(t):
+            """(center x, center y, width, height) of the view in source pixels."""
             a = ramp(t, 0.0, move)
             cx = a0[0] + (a1[0] - a0[0]) * a
             cy = a0[1] + (a1[1] - a0[1]) * a
             w = float(np.exp(np.log(a0[2]) + (np.log(a1[2]) - np.log(a0[2])) * a))   # even zoom speed
             w *= 1.0 - 0.03 * ramp(t, move, self.shot_len)                          # slow push-in
-            h = w / aspect
+            return cx, cy, w, w / aspect
+
+        def frame_at(t):
+            cx, cy, w, h = view_at(t)
             box = (cx - w / 2 + pad_x, cy - h / 2 + pad_y, cx + w / 2 + pad_x, cy + h / 2 + pad_y)
             return np.asarray(canvas.resize((w_px, h_px), Image.LANCZOS, box=box))
 
@@ -433,19 +477,68 @@ class ShotScene(MovingCameraScene):
         m.add_updater(upd)
         self.add(m)
 
+        # boxes marking the part the narration is talking about, one narration line each
+        center_y = reserve / 2.0
+        for hl in v.get("highlights", []):
+            self._zoom_highlight(hl, view_at, sw, sh, w_u, h_u, center_y)
+
+    def _zoom_highlight(self, hl, view_at, sw, sh, w_u, h_u, center_y):
+        """A rounded box around a normalized figure region, following the camera, visible while
+        narration line hl["on_line"] is spoken."""
+        start, end = self.line_span(int(hl.get("on_line", 0)))
+        color = hl.get("color", self.accent)
+        x0, y0, x1, y1 = hl["box"]
+        pad = float(hl.get("pad", 0.006))
+        x0, y0, x1, y1 = x0 - pad, y0 - pad * 3.1, x1 + pad, y1 + pad * 3.1   # figure is ~3.1:1
+
+        def geometry(t):
+            cx, cy, w, h = view_at(t)
+            sx = lambda x: (x * sw - (cx - w / 2)) / w * w_u - w_u / 2           # noqa: E731
+            sy = lambda y: center_y + h_u / 2 - (y * sh - (cy - h / 2)) / h * h_u  # noqa: E731
+            return (sx(x0) + sx(x1)) / 2, (sy(y0) + sy(y1)) / 2, sx(x1) - sx(x0), sy(y0) - sy(y1)
+
+        cxs, cys, ws, hs = geometry(0.0)
+        rect = RoundedRectangle(corner_radius=0.1, width=ws, height=hs, stroke_color=color, stroke_width=7)
+        rect.move_to([cxs, cys, 0])
+        state = {"g": (cxs, cys, ws, hs)}
+
+        def upd(r, dt):
+            t = self.clock.t
+            g = geometry(t)
+            if any(abs(a - b) > 1e-4 for a, b in zip(g, state["g"])):
+                r.become(RoundedRectangle(corner_radius=0.1, width=g[2], height=g[3],
+                                          stroke_color=color, stroke_width=7).move_to([g[0], g[1], 0]))
+                r.__dict__.pop("_base_alpha", None)
+                for sm in r.get_family():
+                    sm.__dict__.pop("_base_alpha", None)
+                state["g"] = g
+            set_alpha(r, ramp(t, start - 0.15, start + 0.25) * (1.0 - ramp(t, end, end + 0.35)))
+        rect.add_updater(upd)
+        set_alpha(rect, 0.0)
+        self.add(rect)
+
     def _pipeline_highlight(self, fig, hl):
         c, w, h = self._box_to_frame(fig, hl["box"])
-        t0 = float(hl["at"]) * self.shot_len
-        # "off_after_line": k -> fade out when narration line k has been spoken
-        t_off = self.line_end(int(hl["off_after_line"])) if "off_after_line" in hl else None
-        rect = RoundedRectangle(corner_radius=0.12, width=w + 0.1, height=h + 0.1,
-                                stroke_color=self.accent, stroke_width=6).move_to(c)
-        label = self.text(hl["label"], size=26, color=self.accent, weight="BOLD")
-        # labels go outside the figure: above it for boxes in its upper half, below otherwise
-        upper = c[1] > fig.get_center()[1]
-        edge = fig.get_top() if upper else fig.get_bottom()
-        label.move_to([c[0], edge[1], 0]).shift((UP if upper else DOWN) * (label.height / 2 + 0.15))
-        label.add_background_rectangle(color=self.settings["background"], opacity=0.85, buff=0.08)
+        color = hl.get("color", self.accent)
+        if "on_line" in hl:
+            # shown exactly while narration line k is spoken
+            t0, t_off = self.line_span(int(hl["on_line"]))
+        else:
+            t0 = float(hl["at"]) * self.shot_len
+            # "off_after_line": k -> fade out when narration line k has been spoken
+            t_off = self.line_end(int(hl["off_after_line"])) if "off_after_line" in hl else None
+        pad = float(hl.get("pad_units", 0.1))
+        rect = RoundedRectangle(corner_radius=0.12, width=w + pad, height=h + pad,
+                                stroke_color=color, stroke_width=6).move_to(c)
+        parts = [rect]
+        if hl.get("label"):
+            label = self.text(hl["label"], size=26, color=color, weight="BOLD")
+            # labels go outside the figure: above it for boxes in its upper half, below otherwise
+            upper = c[1] > fig.get_center()[1]
+            edge = fig.get_top() if upper else fig.get_bottom()
+            label.move_to([c[0], edge[1], 0]).shift((UP if upper else DOWN) * (label.height / 2 + 0.15))
+            label.add_background_rectangle(color=self.settings["background"], opacity=0.85, buff=0.08)
+            parts.append(label)
 
         def upd(m, dt):
             t = self.clock.t
@@ -454,12 +547,15 @@ class ShotScene(MovingCameraScene):
             dim = 1.0 - 0.65 * ramp(t, nxt, nxt + 0.4) if nxt is not None else 1.0
             off = 1.0 - ramp(t, t_off, t_off + 0.4) if t_off is not None else 1.0
             set_alpha(m, on * dim * off)
-        for m in (rect, label):
+        for m in parts:
             m.add_updater(upd)
             self.add(m)
 
     def _next_highlight_time(self, hl):
-        times = sorted(float(h["at"]) for h in self.shot["visual"].get("highlights", []))
+        """When the next "at"-timed highlight starts (earlier ones dim then); None if none."""
+        if "at" not in hl:
+            return None
+        times = sorted(float(h["at"]) for h in self.shot["visual"].get("highlights", []) if "at" in h)
         later = [x for x in times if x > float(hl["at"])]
         return later[0] * self.shot_len if later else None
 

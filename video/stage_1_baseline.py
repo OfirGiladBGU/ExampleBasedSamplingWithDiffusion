@@ -5,7 +5,10 @@ This is the same baseline branch as experiments/run_stress_test.py: the model of
 Doignies et al. trained on one fixed density (the stress-test density), sampled from pure
 noise over the full schedule, with no conditioning input at all. Writes
 
-    video/assets/results/baseline_stress1.npz     samples (S,N,2), unit square, y down
+    video/assets/results/baseline_stress1.npz
+        samples     (S,N,2) final point sets, unit square, y down
+        trajectory  (K,S,N,2) the same S samples after every STEP_INTERVAL-th step, from pure noise
+        steps       (K,) elapsed denoising steps of each trajectory row (last = final)
 
 which the shot shows next to the target density instead of the crop from the paper figure.
 
@@ -34,6 +37,7 @@ SAMPLES = 4
 GRID_SIZE = 32               # 1024 points, as in the paper's stress-test figure
 TIMESTEPS = 1000
 SEED = 0
+STEP_INTERVAL = 10           # snapshot every 10th of the 999 steps -> 101 frames
 DEVICE = "cuda"
 
 
@@ -46,6 +50,7 @@ def parse_args():
     p.add_argument("--grid-size", type=int, default=GRID_SIZE)
     p.add_argument("--timesteps", type=int, default=TIMESTEPS)
     p.add_argument("--seed", type=int, default=SEED)
+    p.add_argument("--step-interval", type=int, default=STEP_INTERVAL)
     p.add_argument("--device", default=DEVICE)
     return p.parse_args()
 
@@ -72,19 +77,29 @@ def main():
     # pure noise, full schedule: exactly the baseline branch of run_stress_test.py
     img = torch.randn((a.samples, 2, a.grid_size, a.grid_size), device=a.device)
     t_start = diffusion.num_timesteps - 1
+
+    def to_points(batch):
+        out = []
+        for off in batch.detach().cpu().numpy():
+            pts = to_pointset_optimal_transport(off.astype(np.float64))
+            out.append(pts.reshape(pts.shape[0], -1).T)
+        return np.stack(out)
+
+    frames, steps = [to_points(img)], [0]              # step 0 = the pure-noise start
     with torch.no_grad():
-        for i in tqdm(reversed(range(t_start)), total=t_start, desc="baseline"):
+        for k, i in enumerate(tqdm(reversed(range(t_start)), total=t_start, desc="baseline"), 1):
             t = torch.full((a.samples,), i, dtype=torch.int64, device=a.device)
             img = diffusion.p_sample(img, cond=None, t=t, clip_denoised=diffusion.sample_clip, with_sampling=True)
+            if k % a.step_interval == 0 or k == t_start:
+                frames.append(to_points(img))
+                steps.append(k)
 
-    samples = []
-    for off in img.detach().cpu().numpy():
-        pts = to_pointset_optimal_transport(off.astype(np.float64))
-        samples.append(pts.reshape(pts.shape[0], -1).T)
     out = Path(a.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(out, samples=np.stack(samples).astype(np.float32))
-    print(f"{a.samples} baseline samples x {a.grid_size ** 2} points -> {out}")
+    np.savez_compressed(out, samples=frames[-1].astype(np.float32),
+                        trajectory=np.stack(frames).astype(np.float32),
+                        steps=np.asarray(steps, np.int32), t_start=np.int32(t_start))
+    print(f"{a.samples} baseline samples x {a.grid_size ** 2} points, {len(frames)} frames -> {out}")
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ the final render. Until then those shots render as labeled placeholders.
 import argparse
 import subprocess
 import sys
+from pathlib import Path
 
 STAGES = [
     ("script", ["video/stage_0_parse_script.py"]),
@@ -23,6 +24,9 @@ STAGES = [
     ("render", ["video/stage_3_render.py"]),
     ("assemble", ["video/stage_4_assemble.py"]),
 ]
+# Kokoro needs Python 3.10-3.12, so the narration stage has its own environment
+# (python -m venv video/.venv-tts with a 3.11 interpreter; see requirements-tts.txt).
+TTS_PYTHON = "video/.venv-tts/Scripts/python.exe"
 SKIP = ""
 PREVIEW = False
 
@@ -43,7 +47,8 @@ def main():
             continue
         extra = ["--preview"] if name == "render" and a.preview else []
         print(f"== {name}: {' '.join(cmd + extra)}", flush=True)
-        r = subprocess.run([sys.executable] + cmd + extra)
+        python = TTS_PYTHON if name == "tts" and Path(TTS_PYTHON).exists() else sys.executable
+        r = subprocess.run([python] + cmd + extra)
         if r.returncode != 0:
             raise SystemExit(f"stage '{name}' failed (exit {r.returncode})")
     print("done")

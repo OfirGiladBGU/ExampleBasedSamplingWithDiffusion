@@ -13,8 +13,7 @@ opencv-python        # stage_1_wvs.py
 pillow
 matplotlib           # error colormap in the tone shot
 
-# Text to speech: install at least one (stage_2_tts.py --engine auto picks the first found)
-kokoro>=0.9          # best quality; pulls in torch (CPU is enough) and downloads its model once
-soundfile
+# Text to speech: Kokoro needs Python 3.10-3.12, so it lives in its own environment,
+# video/.venv-tts (see requirements-tts.txt). make_video.py uses it for the narration stage.
 # piper-tts          # lighter neural voice; needs a voice .onnx in video/assets/tts/
 # (the "sapi" engine uses Windows' built-in voices and needs nothing installed)

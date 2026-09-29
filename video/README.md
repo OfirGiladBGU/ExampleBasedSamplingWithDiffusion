@@ -15,8 +15,8 @@ Run everything from the project root.
 | 1 | local | `stage_1_collect_sources.py` | copies every input file into `assets/sources/` and points `shots.json` at it |
 | 1 | local | `stage_1_wvs.py` | `assets/trajectories/wvs_monkey.npz` (Lloyd iterations) |
 | 1 | local | `stage_1_results.py` | `assets/results/*.npz`: real final results, from `assets/sources/` |
-| 1 | **GPU** | `stage_1_trajectories.py` | `assets/trajectories/<name>.npz` (our reverse process, every 50 steps) |
-| 1 | **GPU** | `stage_1_baseline.py` | `assets/results/baseline_stress1.npz` (unconditional baseline samples) |
+| 1 | **GPU** | `stage_1_trajectories.py` | `assets/trajectories/<name>.npz` (our reverse process, every 10 steps) |
+| 1 | **GPU** | `stage_1_baseline.py` | `assets/results/baseline_stress1.npz` (unconditional baseline: 4 samples, full 1000-step reverse process every 10 steps) |
 | 1 | **GPU** | `stage_1_tone.py` | `assets/trajectories/tone_<stem>.npz` (tone optimization) |
 | 2 | local | `stage_2_tts.py` | `build/audio/<shot>.wav`, `durations.json` |
 | 3 | local | `stage_3_render.py` | `build/shots/<shot>.mp4`, silent, each as long as its narration |
@@ -45,7 +45,7 @@ conda run -n qmcdiffusion python video/stage_1_trajectories.py --only monkey_g24
 conda run -n qmcdiffusion python video/stage_1_baseline.py
 ```
 
-`stage_1_baseline.py` needs the baseline weights in `assets/weights/GBN_stress1/` (`config.json`, `model.ckpt`, from `config_trained/GBN_stress1/` on the server).
+Our trajectories use the GBN checkpoints at epoch 5000 listed under `checkpoints` in `shots.json` (Icons-50, CelebA-5K 1024 and ShapeNetRender_Custom-3K 1600, in `control_v4/train_outputs_*/checkpoints/`). `stage_1_baseline.py` needs the baseline weights in `assets/weights/GBN_stress1/` (`config.json`, `model.ckpt`, from `config_trained/GBN_stress1/` on the server).
 
 ### On the server
 
@@ -75,7 +75,7 @@ video/.venv/Scripts/python video/stage_4_assemble.py
 
 Everything is driven by `shots.json`.
 
-- **`narration`:** the subtitle text. Stage 0 keeps it in sync with the .docx; `--update` copies edits over.
+- **`narration`:** the subtitle text. A line break in the script's cue makes a separate line: its own subtitle, voiced separately, with exact timing that highlights can follow. Stage 0 keeps it in sync with the .docx; `--update` copies edits over.
 - **`speak`:** optional text for the voice when it should differ from the subtitle, e.g. "x t" for x_t.
 - **`visual`:** what the shot shows.
 
@@ -84,7 +84,7 @@ Everything is driven by `shots.json`.
 | `title` | `title`, `subtitle` |
 | `wvs` | `data` (npz name), `label`, `counter` |
 | `figure` | `image` (in `assets/figures`), `crops`: list of `{box: [x0,y0,x1,y1] (0..1, y down), label}` |
-| `pipeline` | `image`, plus either `highlights` (`{at: 0..1 of the shot, box, label}`) or `zoom` (box) |
+| `pipeline` | `image`, plus either `highlights` (`{at: 0..1 of the shot, box, label, off_after_line}`) or `zoom` (box) with `highlights` (`{box, on_line, color}`: shown while that narration line is spoken) |
 | `trajectory` | `panels`: `{traj, label, show_target}`; optional shared `target` |
 | `tone` | `data` (npz name) |
 

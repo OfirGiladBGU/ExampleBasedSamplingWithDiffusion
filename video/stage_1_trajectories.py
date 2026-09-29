@@ -44,7 +44,7 @@ OUTPUT_DIR = str(TRAJ_DIR)
 ONLY = ""                    # comma-separated trajectory names; "" = all
 TRUNCATION = 0.5             # the paper's SDEdit start (t = 500 of 1000)
 EVAL_TIMESTEPS = 1000
-STEP_INTERVAL = 50           # save every 50th denoising step -> 11 frames for t_start = 500
+STEP_INTERVAL = 10           # save every 10th denoising step -> 51 frames for t_start = 500
 SMART_INIT_SEED = 42
 ENABLE_GECCO = True
 ENABLE_ADAPTIVE_GATE_INJECTION = True

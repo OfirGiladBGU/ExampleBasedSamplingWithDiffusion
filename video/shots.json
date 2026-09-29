@@ -84,7 +84,8 @@
         "type": "title",
         "title": "StippleDiffusion",
         "subtitle": "Capacity-Constrained Stippling using Controlled Diffusion"
-      }
+      },
+      "speak": "Stipple Diffusion: Capacity-Constrained Stippling using Controlled Diffusion."
     },
     {
       "id": "s01_wvs",
@@ -200,6 +201,78 @@
             ],
             "label": "ControlNet-based conditioning",
             "off_after_line": 0
+          },
+          {
+            "box": [
+              0.0,
+              0.395,
+              0.093,
+              0.737
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A",
+            "pad_units": 0.06,
+            "part": "condition image"
+          },
+          {
+            "box": [
+              0.103,
+              0.558,
+              0.284,
+              0.992
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A",
+            "pad_units": 0.06,
+            "part": "rejection-sampling prior + OT offsets (t = 500)"
+          },
+          {
+            "box": [
+              0.295,
+              0.345,
+              0.388,
+              0.683
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A",
+            "pad_units": 0.06,
+            "part": "noisy input"
+          },
+          {
+            "box": [
+              0.397,
+              0.132,
+              0.774,
+              0.946
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A",
+            "pad_units": 0.06,
+            "part": "model (Control + Baseline)"
+          },
+          {
+            "box": [
+              0.782,
+              0.345,
+              0.876,
+              0.77
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A",
+            "pad_units": 0.06,
+            "part": "output + 500 repeated steps"
+          },
+          {
+            "box": [
+              0.886,
+              0.558,
+              0.999,
+              0.992
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A",
+            "pad_units": 0.06,
+            "part": "denoised output"
           }
         ]
       }
@@ -207,45 +280,171 @@
     {
       "id": "s06_pipeline_initial",
       "cue": "zoom on initial steps in fig 2",
-      "narration": "From the condition image, the training branch, shown in orange, takes an exemplar stipple from GBN or WVS, and the inference branch, shown in green, a density-weighted rejection sample.",
+      "narration": "From the condition image, the training branch, shown in orange, takes an exemplar stipple from GBN or WVS,\nand the inference branch, shown in green, a density-weighted rejection sample.",
       "visual": {
         "type": "pipeline",
         "image": "pipeline.png",
         "zoom": [
           0.0,
           0.0,
-          0.3,
-          1.0
+          0.29,
+          1.05
+        ],
+        "highlights": [
+          {
+            "box": [
+              0.0,
+              0.395,
+              0.093,
+              0.737
+            ],
+            "on_line": 0,
+            "color": "#E07B1F"
+          },
+          {
+            "box": [
+              0.103,
+              0.078,
+              0.284,
+              0.522
+            ],
+            "on_line": 0,
+            "color": "#E07B1F"
+          },
+          {
+            "box": [
+              0.0,
+              0.395,
+              0.093,
+              0.737
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A"
+          },
+          {
+            "box": [
+              0.103,
+              0.558,
+              0.284,
+              0.992
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A"
+          }
         ]
       }
     },
     {
       "id": "s07_pipeline_middle",
       "cue": "zoom on middle in fig 2",
-      "narration": "Either point set is converted to optimal-transport offsets and noised, to a random timestep in training and to timestep 500 at inference, to form the noisy input of our diffusion network, which is conditioned on features of the image.",
+      "narration": "Either point set is converted to optimal-transport offsets and noised, to a random timestep in training\nand to timestep 500 at inference, to form the noisy input of our diffusion network, which is conditioned on features of the image.",
       "visual": {
         "type": "pipeline",
         "image": "pipeline.png",
         "zoom": [
-          0.28,
-          0.0,
-          0.79,
-          1.0
+          0.215,
+          0.05,
+          0.5,
+          0.97
+        ],
+        "highlights": [
+          {
+            "box": [
+              0.226,
+              0.276,
+              0.276,
+              0.422
+            ],
+            "on_line": 0,
+            "color": "#E07B1F"
+          },
+          {
+            "box": [
+              0.295,
+              0.345,
+              0.388,
+              0.683
+            ],
+            "on_line": 0,
+            "color": "#E07B1F"
+          },
+          {
+            "box": [
+              0.226,
+              0.662,
+              0.276,
+              0.808
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A"
+          },
+          {
+            "box": [
+              0.295,
+              0.345,
+              0.388,
+              0.683
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A"
+          }
         ]
       }
     },
     {
       "id": "s08_pipeline_final",
       "cue": "zoom on final in fig 2",
-      "narration": "The predicted noise is compared with the known noise to compute the training loss or, at inference, used to denoise the input over 500 repeated steps.",
+      "narration": "The predicted noise is compared with the known noise to compute the training loss\nor, at inference, used to denoise the input over 500 repeated steps.",
       "visual": {
         "type": "pipeline",
         "image": "pipeline.png",
         "zoom": [
-          0.76,
+          0.775,
           0.0,
           1.0,
-          1.0
+          1.05
+        ],
+        "highlights": [
+          {
+            "box": [
+              0.782,
+              0.345,
+              0.876,
+              0.683
+            ],
+            "on_line": 0,
+            "color": "#E07B1F"
+          },
+          {
+            "box": [
+              0.886,
+              0.078,
+              0.999,
+              0.522
+            ],
+            "on_line": 0,
+            "color": "#E07B1F"
+          },
+          {
+            "box": [
+              0.782,
+              0.345,
+              0.876,
+              0.77
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A"
+          },
+          {
+            "box": [
+              0.886,
+              0.558,
+              0.999,
+              0.992
+            ],
+            "on_line": 1,
+            "color": "#2E8B4A"
+          }
         ]
       }
     },
@@ -271,8 +470,7 @@
             "label": "ShapeNet",
             "show_target": true
           }
-        ],
-        "trajectories": false
+        ]
       }
     },
     {
@@ -292,7 +490,8 @@
             "label": "4096 points"
           }
         ]
-      }
+      },
+      "speak": "Although our Icons-50 model is trained only on 1024-point sets, the O T grid representation allows inference at other grid resolutions, and therefore at other point budgets."
     },
     {
       "id": "s11_tone",

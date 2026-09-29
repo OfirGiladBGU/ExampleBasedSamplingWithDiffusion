@@ -1,0 +1,11 @@
+# Narration environment (Kokoro needs Python 3.10-3.12):
+#
+#   <python3.11> -m venv video/.venv-tts
+#   video/.venv-tts/Scripts/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   video/.venv-tts/Scripts/python -m pip install -r video/requirements-tts.txt
+#
+# Kokoro downloads its voice model (about 330 MB) from Hugging Face on the first run.
+
+kokoro>=0.9
+soundfile
+numpy

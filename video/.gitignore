@@ -1,4 +1,5 @@
 .venv/
+.venv-tts/
 assets/
 build/
 server/stage1_*.log
