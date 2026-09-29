@@ -1,0 +1,320 @@
+{
+  "title": "StippleDiffusion: Capacity-Constrained Stippling using Controlled Diffusion",
+  "settings": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "background": "#FFFFFF",
+    "text_color": "#1A1A1A",
+    "accent_color": "#1F5FA8",
+    "font": "Arial",
+    "lead_in_s": 0.4,
+    "tail_s": 0.7,
+    "min_shot_s": 3.0,
+    "crossfade_s": 0.0,
+    "subtitles": true
+  },
+  "trajectories": {
+    "stress_g24": {
+      "image": "video/assets/sources/z_validation_data/maps/stress_test_density.png",
+      "checkpoint": "icons_gbn",
+      "grid_size": 24,
+      "result": "video/assets/sources/grid_size_results/sample_outputs_24/stress_test_density/npy/stress_test_density.npy"
+    },
+    "stress_g32": {
+      "image": "video/assets/sources/z_validation_data/maps/stress_test_density.png",
+      "checkpoint": "icons_gbn",
+      "grid_size": 32,
+      "result": "video/assets/sources/grid_size_results/sample_outputs_32/stress_test_density/npy/stress_test_density.npy"
+    },
+    "stress_g64": {
+      "image": "video/assets/sources/z_validation_data/maps/stress_test_density.png",
+      "checkpoint": "icons_gbn",
+      "grid_size": 64,
+      "result": "video/assets/sources/grid_size_results/sample_outputs_64/stress_test_density/npy/stress_test_density.npy"
+    },
+    "monkey_g24": {
+      "image": "video/assets/sources/z_validation_data/Icons-50_1024/source/emoji-one_4_monkey.png",
+      "checkpoint": "icons_gbn",
+      "grid_size": 24,
+      "result": "video/assets/sources/grid_size_results/sample_outputs_24/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"
+    },
+    "monkey_g32": {
+      "image": "video/assets/sources/z_validation_data/Icons-50_1024/source/emoji-one_4_monkey.png",
+      "checkpoint": "icons_gbn",
+      "grid_size": 32,
+      "result": "video/assets/sources/grid_size_results/sample_outputs_32/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"
+    },
+    "monkey_g64": {
+      "image": "video/assets/sources/z_validation_data/Icons-50_1024/source/emoji-one_4_monkey.png",
+      "checkpoint": "icons_gbn",
+      "grid_size": 64,
+      "result": "video/assets/sources/grid_size_results/sample_outputs_64/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"
+    },
+    "icon_g32": {
+      "image": "video/assets/sources/z_validation_data/Icons-50_1024/source/emojidex_3_soon_with_rightwards_arrow_above.png",
+      "checkpoint": "icons_gbn",
+      "grid_size": 32,
+      "result": "video/assets/sources/z_validation_data/Icons-50_1024/target_CN-GBN_1024/emojidex_3_soon_with_rightwards_arrow_above.npy"
+    },
+    "face_g32": {
+      "image": "video/assets/sources/z_validation_data/CelebA-5K_1024/source/001593.png",
+      "checkpoint": "celeba_gbn",
+      "grid_size": 32,
+      "result": "video/assets/sources/z_validation_data/CelebA-5K_1024/target_CN-GBN_1024/001593.npy"
+    },
+    "shapenet_g40": {
+      "image": "video/assets/sources/z_validation_data/ShapeNetRender_Custom-3K_1600/source/6a5405246814b82281c5ee986f4484ec_00.png",
+      "checkpoint": "shapenet_gbn",
+      "grid_size": 40,
+      "result": "video/assets/sources/z_validation_data/ShapeNetRender_Custom-3K_1600/target_CN-GBN_1600/6a5405246814b82281c5ee986f4484ec_00.npy"
+    }
+  },
+  "checkpoints": {
+    "icons_gbn": "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt",
+    "celeba_gbn": "control_v4/train_outputs_CelebA-5K_1024_GBN/checkpoints/dynamic_ep5000.ckpt",
+    "shapenet_gbn": "control_v4/train_outputs_ShapeNetRender_Custom-3K_1600_GBN/checkpoints/dynamic_ep5000.ckpt"
+  },
+  "shots": [
+    {
+      "id": "s00_title",
+      "cue": "title",
+      "narration": "StippleDiffusion: Capacity-Constrained Stippling using Controlled Diffusion.",
+      "visual": {
+        "type": "title",
+        "title": "StippleDiffusion",
+        "subtitle": "Capacity-Constrained Stippling using Controlled Diffusion"
+      }
+    },
+    {
+      "id": "s01_wvs",
+      "cue": "show WVS on monkey",
+      "narration": "Stipple patterns are traditionally generated through per-target iterative optimization, which is slow, non-differentiable, and must be repeated for every target.",
+      "visual": {
+        "type": "wvs",
+        "data": "wvs_monkey",
+        "label": "Weighted Voronoi Stippling",
+        "counter": "Lloyd iteration"
+      }
+    },
+    {
+      "id": "s02_baseline",
+      "cue": "show figure 4 5-disks baseline - not ours",
+      "narration": "Learned point-diffusion methods, in contrast, generate points unconditionally: a model can be trained to reproduce one density, but it takes no input and cannot adapt to a new one.",
+      "visual": {
+        "type": "figure",
+        "image": "stress1.png",
+        "crops": [
+          {
+            "source": "video/assets/sources/z_validation_data/maps/stress_test_density.png",
+            "label": "Target density"
+          },
+          {
+            "image": "stress1.png",
+            "box": [
+              0.21,
+              0.35,
+              1.0,
+              0.67
+            ],
+            "points": "baseline_stress1",
+            "label": "Unconditional point diffusion → one model per density",
+            "split": 4,
+            "grid_cols": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "s03_disks_capacities",
+      "cue": "show 5-disks ours on 3 different capacities generation - show iterative noise to stippling on different capacities (fig 5)",
+      "narration": "We present a diffusion-based sampler for image-conditioned stippling whose only input is a high-resolution image, which itself defines the target density.",
+      "visual": {
+        "type": "trajectory",
+        "target": "stress_g32",
+        "panels": [
+          {
+            "traj": "stress_g24",
+            "label": "576 points"
+          },
+          {
+            "traj": "stress_g32",
+            "label": "1024 points"
+          },
+          {
+            "traj": "stress_g64",
+            "label": "4096 points"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s04_monkey_capacities",
+      "cue": "show figure 5 monkey on 3 different capacities generation iterative from noise to stippling",
+      "narration": "Unlike prior point-diffusion methods that learn a fixed distribution, our model generates point sets for unseen densities and point budgets from a single trained checkpoint.",
+      "visual": {
+        "type": "trajectory",
+        "target": "monkey_g32",
+        "panels": [
+          {
+            "traj": "monkey_g24",
+            "label": "576 points"
+          },
+          {
+            "traj": "monkey_g32",
+            "label": "1024 points"
+          },
+          {
+            "traj": "monkey_g64",
+            "label": "4096 points"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s05_pipeline",
+      "cue": "focus on pipeline figure 2 - animation",
+      "narration": "Built on an optimal-transport-grid diffusion model with ControlNet-based conditioning on the input image, it learns the blue-noise characteristics of its exemplar stipples.\nAt inference, a density-aware initialization lets it skip half of the denoising steps.",
+      "visual": {
+        "type": "pipeline",
+        "image": "pipeline.png",
+        "highlights": [
+          {
+            "at": 0.12,
+            "box": [
+              0.395,
+              0.555,
+              0.775,
+              0.895
+            ],
+            "label": "OT-grid diffusion model",
+            "off_after_line": 0
+          },
+          {
+            "at": 0.3,
+            "box": [
+              0.395,
+              0.185,
+              0.775,
+              0.525
+            ],
+            "label": "ControlNet-based conditioning",
+            "off_after_line": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "s06_pipeline_initial",
+      "cue": "zoom on initial steps in fig 2",
+      "narration": "From the condition image, the training branch, shown in orange, takes an exemplar stipple from GBN or WVS, and the inference branch, shown in green, a density-weighted rejection sample.",
+      "visual": {
+        "type": "pipeline",
+        "image": "pipeline.png",
+        "zoom": [
+          0.0,
+          0.0,
+          0.3,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": "s07_pipeline_middle",
+      "cue": "zoom on middle in fig 2",
+      "narration": "Either point set is converted to optimal-transport offsets and noised, to a random timestep in training and to timestep 500 at inference, to form the noisy input of our diffusion network, which is conditioned on features of the image.",
+      "visual": {
+        "type": "pipeline",
+        "image": "pipeline.png",
+        "zoom": [
+          0.28,
+          0.0,
+          0.79,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": "s08_pipeline_final",
+      "cue": "zoom on final in fig 2",
+      "narration": "The predicted noise is compared with the known noise to compute the training loss or, at inference, used to denoise the input over 500 repeated steps.",
+      "visual": {
+        "type": "pipeline",
+        "image": "pipeline.png",
+        "zoom": [
+          0.76,
+          0.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": "s09_datasets",
+      "cue": "show 1 icon 1 portrait 1 shapenet from fig 3. Show target and our diffusion iterative from noise to stippling",
+      "narration": "We evaluate our method on three datasets, converted to grayscale and paired with offline exemplar stipples generated by Gaussian Blue Noise and Weighted Voronoi Stippling.",
+      "visual": {
+        "type": "trajectory",
+        "panels": [
+          {
+            "traj": "icon_g32",
+            "label": "Icons-50",
+            "show_target": true
+          },
+          {
+            "traj": "face_g32",
+            "label": "CelebA",
+            "show_target": true
+          },
+          {
+            "traj": "shapenet_g40",
+            "label": "ShapeNet",
+            "show_target": true
+          }
+        ],
+        "trajectories": false
+      }
+    },
+    {
+      "id": "s10_capacity_generalization",
+      "cue": "show iterative noise-to-stippling of monkey fig 5 at smallest and heaviest capacity",
+      "narration": "Although our Icons-50 model is trained only on 1024-point sets, the OT-grid representation allows inference at other grid resolutions, and therefore at other point budgets.",
+      "visual": {
+        "type": "trajectory",
+        "target": "monkey_g32",
+        "panels": [
+          {
+            "traj": "monkey_g24",
+            "label": "576 points"
+          },
+          {
+            "traj": "monkey_g64",
+            "label": "4096 points"
+          }
+        ]
+      }
+    },
+    {
+      "id": "s11_tone",
+      "cue": "show tone correction iterations in figure 9",
+      "narration": "The model is fully differentiable, enabling end-to-end optimization of target densities with respect to objectives on rendered stipples.",
+      "visual": {
+        "type": "tone",
+        "data": "tone_lg_2_woman_with_bunny_ears",
+        "result": "video/assets/sources/tone_results/main/lg_2_woman_with_bunny_ears.npz",
+        "image": "video/assets/sources/tone_results/source/lg_2_woman_with_bunny_ears.png"
+      }
+    },
+    {
+      "id": "s12_thanks",
+      "cue": "end",
+      "narration": "Thank you!",
+      "min_seconds": 3.0,
+      "visual": {
+        "type": "title",
+        "title": "Thank you!",
+        "subtitle": "StippleDiffusion"
+      }
+    }
+  ]
+}

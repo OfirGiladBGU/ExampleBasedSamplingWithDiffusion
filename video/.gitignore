@@ -1,0 +1,5 @@
+.venv/
+assets/
+build/
+server/stage1_*.log
+__pycache__/
