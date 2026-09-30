@@ -44,6 +44,24 @@ OUTPUT_DIR = "experiments/outputs/z_validation_data/Icons-50_1024"
 # OUTPUT_DIR = "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"
 
 
+# ShapeNet2D dataset (BNOT is run afterwards on the validation images only -> target_BNOT_1600)
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNet2D-4K_1600_GBN/source"
+# TARGET_DIRS = {
+#     "target_WVS_1600": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNet2D-4K_1600_WVS/target",
+#     "target_GBN_1600": "/groups/asharf_group/ofirgila/ControlNet/training/ShapeNet2D-4K_1600_GBN/target",
+# }
+# OUTPUT_DIR = "experiments/outputs/z_validation_data/ShapeNet2D-4K_1600"
+
+
+# Anime Chibi dataset (BNOT is run afterwards on the validation images only -> target_BNOT_1600)
+# SOURCE_DIR = "/groups/asharf_group/ofirgila/ControlNet/training/Anime-Chibi_1600_GBN/source"
+# TARGET_DIRS = {
+#     "target_WVS_1600": "/groups/asharf_group/ofirgila/ControlNet/training/Anime-Chibi_1600_WVS/target",
+#     "target_GBN_1600": "/groups/asharf_group/ofirgila/ControlNet/training/Anime-Chibi_1600_GBN/target",
+# }
+# OUTPUT_DIR = "experiments/outputs/z_validation_data/Anime-Chibi_1600"
+
+
 DEVICE = "cuda"
 SPLIT_SEED = 42
 VAL_SPLIT = 0.1

@@ -67,6 +67,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from PIL import Image
 
 # ── Datasets: where each one lives ────────────────────────────────
 # Add a dataset with one entry here and one in SAMPLES_MAP under the same key.
@@ -74,14 +75,8 @@ import matplotlib.pyplot as plt
 DIR_MAP = {
     "icons": "experiments/outputs/z_validation_data/Icons-50_1024",
     "faces": "experiments/outputs/z_validation_data/CelebA-5K_1024",
-    # The combined 3K set, superseded by the per-category sets below. Kept so old index
-    # lists stay readable; nothing selects from it any more.
-    "shapenet": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600",
-    # Fixed stacking order. HOLE (-1) can drop a dataset out of a column, but it cannot
-    # reorder datasets within one -- that is always DIR_MAP order.
-    "airplanes": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Airplanes_1600",
-    "cars": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Cars_1600",
-    "watercrafts": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Watercrafts_1600",
+    "shapenet2d": "experiments/outputs/z_validation_data/ShapeNet2D-4K_1600",
+    "chibi": "experiments/outputs/z_validation_data/Anime-Chibi_1600",
 }
 OUT_DIR = "experiments/outputs/qualitative_showcase"
 
@@ -97,77 +92,14 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # Single Column #
 #################
 
-# MAIN left - 4 rows
+# MAIN - 4 rows
 SAMPLES_MAP = {
-    "icons": [[158, 151], [163, 160]],
-    "faces": [[161], [159]],
-    # (SHAPENET weights)
-    "shapenet": [[-1], [174]],
-    "airplanes": [[360], [-1]],
-    # (ICONS weights)
-    # # "shapenet": [[-1], [174]],
-    # "airplanes": [[1], [-1]],
-    # "cars":        [[-1], [-1]],
-    # "watercrafts": [[-1], [380]],
+    "icons": [[40]],
+    "faces": [[6]],
+    "shapenet2d": [[5]],
+    "chibi": [[234]],
 }
-OUT_NAME = "qualitative_ours_left"
-
-# MAIN right - 4 rows
-# SAMPLES_MAP = {
-#     "icons": [[161, 155], [162, 157]],
-#     "faces": [[171], [157]],
-#     # (SHAPENET weights)
-#     "shapenet": [[184], [-1]],
-#     "airplanes": [[-1], [377]],
-#     # (ICONS weights)
-#     # # "shapenet": [[184], [-1]],
-#     # "airplanes": [[-1], [12]],
-#     # "cars":        [[787], [-1]],
-#     # "watercrafts": [[[-1], [-1]],
-# }
-# OUT_NAME = "qualitative_ours_right"
-
-
-############
-# Full Row #
-############
-
-# MAIN - 4 rows - (SKIP)
-# SAMPLES_MAP = {
-#     "icons": [[158, 151], [163, 160], [161, 155], [162, 157]],
-#     "faces": [[161], [159], [171], [157]],
-#     # (SHAPENET weights)
-#     "shapenet": [[-1], [174], [184], [-1]],
-#     "airplanes": [[360], [-1], [-1], [377]],
-#     # (ICONS weights)
-#     # # "shapenet": [[-1], [174], [184], [-1]],
-#     # "airplanes": [[1], [-1], [-1], [12]],
-#     # "cars":        [[-1], [-1], [787], [-1]],
-#     # "watercrafts": [[-1], [380], [-1], [-1]],
-# }
-# OUT_NAME = "qualitative_ours"
-
-
-# APPENDIX - 12 rows
-# SAMPLES_MAP = {
-#     "icons": [
-#         [300, 301, 302, 303, 304, 305, 306, 307],
-#         [400, 408, 402, 403, 404, 405, 406, 410],
-#         [508, 501, 502, 503, 504, 505, 506, 509],
-#         [600, 601, 602, 603, 604, 605, 608, 607],
-#         [712, 701, 709, 703, 704, 705, 706, 710],
-#     ],
-#     "faces": [[300, 301], [319, 303], [304, 305], [314, 307], [318, 309]],
-#     # (SHAPENET weights)
-#     "shapenet": [[250, 260], [252, 274], [261, -1], [276, 95], [225, 266]],
-#     "airplanes": [[-1], [-1], [737], [-1], [-1]],
-#     # (ICONS weights)
-#     # # "shapenet": [[250, 260], [252, 274], [261, -1], [276, 93], [225, 266]],
-#     # "airplanes": [[-1], [-1], [33], [-1], [-1]],
-#     # "cars":        [[129, 482], [994], [972], [600], [536, 826]],
-#     # "watercrafts": [[-1], [342], [-1], [524], [-1]],
-# }
-# OUT_NAME = "qualitative_ours_appendix"
+OUT_NAME = "qualitative_ours"
 
 # What each sample cell shows, left to right. Edit to ["Ours"] for result-only.
 OURS_SUBCOLS = ["Target", "Ours-WVS", "Ours-GBN"]
@@ -328,6 +260,21 @@ def build_grid(dirs, samples):
     return grid, col_dirs
 
 
+def source_size(col_dirs, stem):
+    """(width, height) of the Target image, or (1, 1) if it is missing.
+
+    The .npy points are normalized to [0, 1] on EACH axis independently, so a non-square
+    image's stipples must be scaled back by its own width and height; drawn in a unit square
+    they come out stretched to a square while the Target keeps its real aspect.
+    """
+    d = col_dirs.get("Target")
+    p = (d / f"{stem}.png") if d else None
+    if p is None or not p.exists():
+        return 1, 1
+    with Image.open(p) as im:
+        return im.size
+
+
 def render_cell(ax, col_dirs, sub, stem, dot_size):
     """Target -> image; Ours -> vector point scatter from .npy."""
     d = col_dirs.get(sub)
@@ -342,14 +289,15 @@ def render_cell(ax, col_dirs, sub, stem, dot_size):
         else:
             ax.text(0.5, 0.5, "missing", ha="center", va="center", fontsize=6, color="red")
     else:
+        w, h = source_size(col_dirs, stem)   # same aspect as the Target cell
         p = (d / f"{stem}.npy") if d else None
         if p is not None and p.exists():
             pts = np.load(p).astype(np.float64)
-            ax.scatter(pts[:, 0], 1.0 - pts[:, 1], s=dot_size, c="black", linewidths=0)
+            ax.scatter(pts[:, 0] * w, (1.0 - pts[:, 1]) * h, s=dot_size, c="black", linewidths=0)
         else:
-            ax.text(0.5, 0.5, "missing", ha="center", va="center", fontsize=6, color="red")
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
+            ax.text(0.5 * w, 0.5 * h, "missing", ha="center", va="center", fontsize=6, color="red")
+        ax.set_xlim(0, w)
+        ax.set_ylim(0, h)
         ax.set_aspect("equal")
     ax.axis("off")
 

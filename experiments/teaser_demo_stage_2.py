@@ -28,8 +28,8 @@ CONDITION = "source/Demo.png"
 # (snapshot .npy label, column title), left to right.
 COLUMNS = [
     ("t500", "t = 500 (rejection prior)"),
-    ("t750", "t = 750"),
-    ("t1000", "t = 1000"),
+    ("t750", "t = 250"),
+    ("t1000", "t = 0"),
 ]
 
 DOT_SIZE = 4.0

@@ -132,6 +132,32 @@ def main() -> int:
     # TRACK_TIME = False
     # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
 
+    # Anime Chibi - Validation
+    # CONTROL_CKPT = "control_v4/train_outputs_Anime-Chibi_1600_GBN/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/z_validation_data/Anime-Chibi_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_Anime-Chibi_1600_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/z_validation_data/Anime-Chibi_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
+
+    # ShapeNet2D - Validation
+    # CONTROL_CKPT = "control_v4/train_outputs_ShapeNet2D-4K_1600_GBN/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/z_validation_data/ShapeNet2D-4K_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-GBN_{GRID_SIZE**2}"
+
+    # CONTROL_CKPT = "control_v4/train_outputs_ShapeNet2D-4K_1600_WVS/checkpoints/dynamic_ep5000.ckpt"
+    # DATA_PATH = "experiments/outputs/z_validation_data/ShapeNet2D-4K_1600"
+    # GRID_SIZE = 40
+    # TRACK_TIME = False
+    # TARGET_FOLDER = f"target_CN-WVS_{GRID_SIZE**2}"
+
     # ShapeNetRender_Custom - Validation
     # CONTROL_CKPT = "control_v4/train_outputs_ShapeNetRender_Custom-3K_1600_GBN/checkpoints/dynamic_ep5000.ckpt"
     # DATA_PATH = "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600"

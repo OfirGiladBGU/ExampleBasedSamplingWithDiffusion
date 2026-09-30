@@ -191,3 +191,184 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+###############
+# OLD RESULTS #
+###############
+
+# DIR_MAP = {
+#     "icons": "experiments/outputs/z_validation_data/Icons-50_1024",
+#     "faces": "experiments/outputs/z_validation_data/CelebA-5K_1024",
+#     # The combined 3K set, superseded by the per-category sets below. Kept so old index
+#     # lists stay readable; nothing selects from it any more.
+#     "shapenet": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600",
+#     "airplanes": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Airplanes_1600",
+#     "cars": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Cars_1600",
+#     "watercrafts": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Watercrafts_1600",
+# }
+
+# qualitative_comparison_showcase.py
+
+# MAIN left - 8 rows (big)
+# SAMPLES_MAP = {
+#     "icons": [9, 18, 22, 25], 
+#     "faces": [2, 4],
+#     # (SHAPENET weights)
+#     "shapenet": [29, 33],
+#     # (ICONS weights)
+#     # # "shapenet": [29, 33],
+#     # "airplanes": [],
+#     # "cars": [757, 637],
+#     # "watercrafts": []
+# }
+# OUT_NAME = "qualitative_comparison_left"
+
+# MAIN left - 5 rows (small)
+# SAMPLES_MAP = {
+#     "icons": [22, 25], 
+#     "faces": [2, 4],
+#     # (SHAPENET weights)
+#     "shapenet": [33],
+#     # (ICONS weights)
+#     # # "shapenet": [29, 33],
+#     # "airplanes": [],
+#     # "cars": [757, 637],
+#     # "watercrafts": []
+# }
+# OUT_NAME = "qualitative_comparison_left"
+
+# MAIN right - 8 rows (big)
+# SAMPLES_MAP = {
+#     "icons": [30, 33, 34, 40], 
+#     "faces": [6, 14], 
+#     # (SHAPENET weights)
+#     "shapenet": [100],
+#     "airplanes": [60],
+#     # (ICONS weights)
+#     # # "shapenet": [8],
+#     # "airplanes": [60],
+#     # "cars": [],
+#     # "watercrafts": [328],
+# }
+# OUT_NAME = "qualitative_comparison_right"
+
+# MAIN right - 5 rows (small)
+# SAMPLES_MAP = {
+#     "icons": [34, 40], 
+#     "faces": [6], 
+#     # (SHAPENET weights)
+#     "shapenet": [100],
+#     "airplanes": [60],
+#     # (ICONS weights)
+#     # # "shapenet": [8],
+#     # "airplanes": [60],
+#     # "cars": [],
+#     # "watercrafts": [328],
+# }
+# OUT_NAME = "qualitative_comparison_right"
+
+# APPENDIX left - 12 rows
+# SAMPLES_MAP = {
+#     "icons": [102, 104, 106, 108, 109, 110, 114, 116], 
+#     "faces": [102, 106],
+#     # (SHAPENET weights)
+#     "shapenet": [46, 138],
+#     # (ICONS weights)
+#     # # "shapenet": [46, 138],
+#     # "airplanes": [],
+#     # "cars": [605],
+#     # "watercrafts": [951]
+# }
+# OUT_NAME = "qualitative_comparison_appendix_left"
+
+# APPENDIX right - 12 rows
+# SAMPLES_MAP = {
+#     "icons": [201, 202, 204, 205, 206, 207, 213, 217], 
+#     "faces": [204, 210],
+#     # (SHAPENET weights)
+#     "shapenet": [200, 74],
+#     # (ICONS weights)
+#     # # "shapenet": [200, 242],
+#     # "airplanes": [],
+#     # "cars": [236],
+#     # "watercrafts": [780]
+# }
+# OUT_NAME = "qualitative_comparison_appendix_right"
+
+# qualitative_ours_showcase.py
+
+#################
+# Single Column #
+#################
+
+# MAIN left - 4 rows
+SAMPLES_MAP = {
+    "icons": [[158, 151], [163, 160]],
+    "faces": [[161], [159]],
+    # (SHAPENET weights)
+    "shapenet": [[-1], [174]],
+    "airplanes": [[360], [-1]],
+    # (ICONS weights)
+    # # "shapenet": [[-1], [174]],
+    # "airplanes": [[1], [-1]],
+    # "cars":        [[-1], [-1]],
+    # "watercrafts": [[-1], [380]],
+}
+OUT_NAME = "qualitative_ours_left"
+
+# MAIN right - 4 rows
+# SAMPLES_MAP = {
+#     "icons": [[161, 155], [162, 157]],
+#     "faces": [[171], [157]],
+#     # (SHAPENET weights)
+#     "shapenet": [[184], [-1]],
+#     "airplanes": [[-1], [377]],
+#     # (ICONS weights)
+#     # # "shapenet": [[184], [-1]],
+#     # "airplanes": [[-1], [12]],
+#     # "cars":        [[787], [-1]],
+#     # "watercrafts": [[[-1], [-1]],
+# }
+# OUT_NAME = "qualitative_ours_right"
+
+
+############
+# Full Row #
+############
+
+# MAIN - 4 rows - (SKIP)
+# SAMPLES_MAP = {
+#     "icons": [[158, 151], [163, 160], [161, 155], [162, 157]],
+#     "faces": [[161], [159], [171], [157]],
+#     # (SHAPENET weights)
+#     "shapenet": [[-1], [174], [184], [-1]],
+#     "airplanes": [[360], [-1], [-1], [377]],
+#     # (ICONS weights)
+#     # # "shapenet": [[-1], [174], [184], [-1]],
+#     # "airplanes": [[1], [-1], [-1], [12]],
+#     # "cars":        [[-1], [-1], [787], [-1]],
+#     # "watercrafts": [[-1], [380], [-1], [-1]],
+# }
+# OUT_NAME = "qualitative_ours"
+
+
+# APPENDIX - 12 rows
+# SAMPLES_MAP = {
+#     "icons": [
+#         [300, 301, 302, 303, 304, 305, 306, 307],
+#         [400, 408, 402, 403, 404, 405, 406, 410],
+#         [508, 501, 502, 503, 504, 505, 506, 509],
+#         [600, 601, 602, 603, 604, 605, 608, 607],
+#         [712, 701, 709, 703, 704, 705, 706, 710],
+#     ],
+#     "faces": [[300, 301], [319, 303], [304, 305], [314, 307], [318, 309]],
+#     # (SHAPENET weights)
+#     "shapenet": [[250, 260], [252, 274], [261, -1], [276, 95], [225, 266]],
+#     "airplanes": [[-1], [-1], [737], [-1], [-1]],
+#     # (ICONS weights)
+#     # # "shapenet": [[250, 260], [252, 274], [261, -1], [276, 93], [225, 266]],
+#     # "airplanes": [[-1], [-1], [33], [-1], [-1]],
+#     # "cars":        [[129, 482], [994], [972], [600], [536, 826]],
+#     # "watercrafts": [[-1], [342], [-1], [524], [-1]],
+# }
+# OUT_NAME = "qualitative_ours_appendix"

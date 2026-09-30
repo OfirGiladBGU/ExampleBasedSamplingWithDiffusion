@@ -43,6 +43,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from PIL import Image
 
 # ── Datasets: where each one lives ────────────────────────────────
 # Add a dataset with one entry here and one in SAMPLES_MAP under the same key.
@@ -50,12 +51,8 @@ import matplotlib.pyplot as plt
 DIR_MAP = {
     "icons": "experiments/outputs/z_validation_data/Icons-50_1024",
     "faces": "experiments/outputs/z_validation_data/CelebA-5K_1024",
-    # The combined 3K set, superseded by the per-category sets below. Kept so old index
-    # lists stay readable; nothing selects from it any more.
-    "shapenet": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K_1600",
-    "airplanes": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Airplanes_1600",
-    "cars": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Cars_1600",
-    "watercrafts": "experiments/outputs/z_validation_data/ShapeNetRender_Custom-3K-Watercrafts_1600",
+    "shapenet2d": "experiments/outputs/z_validation_data/ShapeNet2D-4K_1600",
+    "chibi": "experiments/outputs/z_validation_data/Anime-Chibi_1600",
 }
 OUT_DIR = "experiments/outputs/qualitative_showcase"
 
@@ -66,91 +63,24 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # NOTE: Use the following script to remap the ShapeNet indices:
 # qualitative_shapenet_index_remap.py
 
-# MAIN left - 8 rows (big)
+# MAIN - 4 rows (small)
 # SAMPLES_MAP = {
-#     "icons": [9, 18, 22, 25], 
-#     "faces": [2, 4],
-#     # (SHAPENET weights)
-#     "shapenet": [29, 33],
-#     # (ICONS weights)
-#     # # "shapenet": [29, 33],
-#     # "airplanes": [],
-#     # "cars": [757, 637],
-#     # "watercrafts": []
+#     "icons": [40], 
+#     "faces": [6], 
+#     "shapenet2d": [5],
+#     "chibi": [234]
 # }
-# OUT_NAME = "qualitative_comparison_left"
+# OUT_NAME = "qualitative_comparison"
 
-# MAIN left - 5 rows (small)
-# SAMPLES_MAP = {
-#     "icons": [22, 25], 
-#     "faces": [2, 4],
-#     # (SHAPENET weights)
-#     "shapenet": [33],
-#     # (ICONS weights)
-#     # # "shapenet": [29, 33],
-#     # "airplanes": [],
-#     # "cars": [757, 637],
-#     # "watercrafts": []
-# }
-# OUT_NAME = "qualitative_comparison_left"
-
-# MAIN right - 8 rows (big)
-# SAMPLES_MAP = {
-#     "icons": [30, 33, 34, 40], 
-#     "faces": [6, 14], 
-#     # (SHAPENET weights)
-#     "shapenet": [100],
-#     "airplanes": [60],
-#     # (ICONS weights)
-#     # # "shapenet": [8],
-#     # "airplanes": [60],
-#     # "cars": [],
-#     # "watercrafts": [328],
-# }
-# OUT_NAME = "qualitative_comparison_right"
-
-# MAIN right - 5 rows (small)
+# APPENDIX - 15 rows
 SAMPLES_MAP = {
-    "icons": [34, 40], 
-    "faces": [6], 
-    # (SHAPENET weights)
-    "shapenet": [100],
-    "airplanes": [60],
-    # (ICONS weights)
-    # # "shapenet": [8],
-    # "airplanes": [60],
-    # "cars": [],
-    # "watercrafts": [328],
+    "icons": [102, 104, 106, 110], 
+    "faces": [102, 106, 204, 210],
+    "shapenet2d": [27, 103, 162, 308],
+    # "chibi": [4, 26, 60, 88],
+    "chibi": [60, 167, 248, 255],
 }
-OUT_NAME = "qualitative_comparison_right"
-
-# APPENDIX left - 12 rows
-# SAMPLES_MAP = {
-#     "icons": [102, 104, 106, 108, 109, 110, 114, 116], 
-#     "faces": [102, 106],
-#     # (SHAPENET weights)
-#     "shapenet": [46, 138],
-#     # (ICONS weights)
-#     # # "shapenet": [46, 138],
-#     # "airplanes": [],
-#     # "cars": [605],
-#     # "watercrafts": [951]
-# }
-# OUT_NAME = "qualitative_comparison_appendix_left"
-
-# APPENDIX right - 12 rows
-# SAMPLES_MAP = {
-#     "icons": [201, 202, 204, 205, 206, 207, 213, 217], 
-#     "faces": [204, 210],
-#     # (SHAPENET weights)
-#     "shapenet": [200, 74],
-#     # (ICONS weights)
-#     # # "shapenet": [200, 242],
-#     # "airplanes": [],
-#     # "cars": [236],
-#     # "watercrafts": [780]
-# }
-# OUT_NAME = "qualitative_comparison_appendix_right"
+OUT_NAME = "qualitative_comparison_appendix"
 
 # ── Fixed columns -> subfolder ────────────────────────────────────────────────
 COLUMNS = ["Target", "WVS", "BNOT", "GBN", "Ours-WVS", "Ours-GBN"]
@@ -252,6 +182,21 @@ def resolve_rows(dataset, stems, indices):
     return [(dataset, stems[i], i) for i in indices]
 
 
+def source_size(col_dirs, stem):
+    """(width, height) of the Target image, or (1, 1) if it is missing.
+
+    The .npy points are normalized to [0, 1] on EACH axis independently, so a non-square
+    image's stipples must be scaled back by its own width and height; drawn in a unit square
+    they come out stretched to a square while the Target keeps its real aspect.
+    """
+    d = col_dirs.get("Target")
+    p = (d / f"{stem}.png") if d else None
+    if p is None or not p.exists():
+        return 1, 1
+    with Image.open(p) as im:
+        return im.size
+
+
 def render_cell(ax, col_dirs, column, stem, dot_size):
     """Target -> image; every other column -> vector point scatter from .npy."""
     d = col_dirs.get(column)
@@ -266,14 +211,15 @@ def render_cell(ax, col_dirs, column, stem, dot_size):
         else:
             ax.text(0.5, 0.5, "missing", ha="center", va="center", fontsize=6, color="red")
     else:
+        w, h = source_size(col_dirs, stem)   # same aspect as the Target cell
         p = (d / f"{stem}.npy") if d else None
         if p is not None and p.exists():
             pts = np.load(p).astype(np.float64)
-            ax.scatter(pts[:, 0], 1.0 - pts[:, 1], s=dot_size, c="black", linewidths=0)
+            ax.scatter(pts[:, 0] * w, (1.0 - pts[:, 1]) * h, s=dot_size, c="black", linewidths=0)
         else:
-            ax.text(0.5, 0.5, "missing", ha="center", va="center", fontsize=6, color="red")
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
+            ax.text(0.5 * w, 0.5 * h, "missing", ha="center", va="center", fontsize=6, color="red")
+        ax.set_xlim(0, w)
+        ax.set_ylim(0, h)
         ax.set_aspect("equal")
     ax.axis("off")
 

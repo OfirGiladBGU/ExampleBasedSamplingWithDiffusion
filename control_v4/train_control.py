@@ -335,12 +335,6 @@ GRID_SIZE = 40
 # FREEZE_DENOISER = False  # NOTE
 # BASE_CKPT_PATH = ""
 
-# OUTPUT_DIR = "control_v4/train_outputs_AM-2K_1024_GBN_PRETRAINED"
-# EPOCHS = 20000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-
 
 # Stress 1 1024 - NOTE
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress1/source"
@@ -350,12 +344,6 @@ GRID_SIZE = 40
 # OUTPUT_DIR = "control_v4/train_outputs_data_stress1"
 # FREEZE_DENOISER = False  # NOTE
 # BASE_CKPT_PATH = ""
-
-# OUTPUT_DIR = "control_v4/train_outputs_data_stress1_PRETRAINED"
-# EPOCHS = 10000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
 
 
 # Stress 2 1024 V2 - NOTE
@@ -367,12 +355,6 @@ GRID_SIZE = 40
 # FREEZE_DENOISER = False  # NOTE
 # BASE_CKPT_PATH = ""
 
-# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_V2_PRETRAINED"
-# EPOCHS = 10000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
-
 
 # Stress 2 1024 V1 - IGNORE
 # SOURCE_DIR = "/groups/asharf_group/ofirgila/GaussianBlueNoise/data_stress2/source"
@@ -382,12 +364,6 @@ GRID_SIZE = 40
 # OUTPUT_DIR = "control_v4/train_outputs_data_stress2"
 # FREEZE_DENOISER = False  # NOTE
 # BASE_CKPT_PATH = ""
-
-# OUTPUT_DIR = "control_v4/train_outputs_data_stress2_PRETRAINED"
-# EPOCHS = 10000
-# TRAIN_TRUNCATION_RATIO = 0.30
-# INFER_TRUNCATION_RATIO = 0.30
-# RESAMPLE_JUMPS = 2
 
 
 def load_wandb_key():

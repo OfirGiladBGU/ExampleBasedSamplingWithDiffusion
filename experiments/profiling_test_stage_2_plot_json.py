@@ -1,6 +1,7 @@
 import json
 import argparse
 import matplotlib.pyplot as plt
+import numpy as np
 from collections import defaultdict
 from pathlib import Path
 
@@ -19,7 +20,7 @@ X_LABEL = "Points Budget"
 LEGEND_LOC = "upper left"      # legend inset inside the axes
 LEGEND_NCOL = 1                # one entry per row
 LEGEND_FONTSIZE = 11           # same as the txt (profiler) plots
-LEGEND_GAP = 0.04              # min gap (fraction of axes height) between the legend box and the lines under it
+LEGEND_GAP = 0.08             # min gap (fraction of axes height) between the legend box and the lines under it
 
 
 # Toggle this between "grid" and "points"
@@ -215,7 +216,9 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
     box = leg.get_window_extent().transformed(ax.transAxes.inverted())   # axes fractions
     x_lo, x_hi = ax.get_xlim()
     x_right = x_lo + box.x1 * (x_hi - x_lo)                               # data x under the box
-    under = [yv for v in series for xv, yv in zip(x, v) if xv <= x_right] or [y0]
+    # points under the box, plus each line's height where it leaves the box's right edge
+    under = [yv for v in series for xv, yv in zip(x, v) if xv <= x_right]
+    under += [float(np.interp(x_right, x, v)) for v in series]
     free = box.y0 - LEGEND_GAP                                            # usable fraction below the box
     top = y0 + (max(under) - y0) / max(free, 0.05)
     ax.set_ylim(bottom=y0, top=max(top, ymax * 1.05))
