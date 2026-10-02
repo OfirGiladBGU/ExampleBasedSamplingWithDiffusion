@@ -75,6 +75,8 @@ VALID_SAMPLES = [1, 2, 4]
 
 DOT_SIZE = 1.2       # vector scatter marker size (pt^2)
 SEP_RATIO = 0.10     # width of a separator column relative to a content column
+SEP_COLOR = "black"
+SEP_LINEWIDTH = 1.4
 CELL = 2.0           # inches per content column / row
 
 
@@ -148,9 +150,8 @@ def main():
     for r, sample in enumerate(samples):
         for c, (kind, name) in enumerate(col_spec):
             ax = axes[r][c]
-            if kind == "sep":
-                ax.axvline(0.5, color="black", lw=1.4)
-                ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+            if kind == "sep":            # the line itself is drawn once, below
+                ax.axis("off")
                 continue
 
             if name == "Target":
@@ -174,6 +175,14 @@ def main():
                 ax.set_title(COL_LABELS.get(name, name), fontsize=11)
 
     fig.subplots_adjust(wspace=0.04, hspace=0.04)
+    # One continuous line per separator, from the top of the first row to the bottom of the last,
+    # so it runs through the row gaps instead of being broken into one segment per row.
+    for c, (kind, _) in enumerate(col_spec):
+        if kind == "sep":
+            top, bottom = axes[0][c].get_position(), axes[-1][c].get_position()
+            x = 0.5 * (top.x0 + top.x1)
+            fig.add_artist(plt.Line2D([x, x], [bottom.y0, top.y1], transform=fig.transFigure,
+                                      color=SEP_COLOR, linewidth=SEP_LINEWIDTH))
     pdf = out_base / f"{args.out_name}.pdf"
     png = out_base / f"{args.out_name}.png"
     fig.savefig(pdf, bbox_inches="tight")

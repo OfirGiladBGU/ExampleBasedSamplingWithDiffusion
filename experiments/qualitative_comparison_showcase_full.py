@@ -3,7 +3,8 @@
 The comparison showcase of qualitative_comparison_showcase.py with the quadratic capacity test of
 compare_advance_metrics_stage_1.py added as its FIRST row.
 
-Columns (and headers) are the showcase's: [Target, WVS, BNOT, GBN, Ours-WVS, Ours-GBN].
+Columns (and headers) are the showcase's COLUMNS, including its "||" black separators
+(default Target || BNOT || WVS | GBN | Ours-WVS | Ours-GBN); --columns overrides them.
     Row 1      -> capacity test: the quadratic density map under Target, each method's points under
                   its own column, dashed quarter guides, and the per-quarter capacity (%) printed
                   below every cell (target mass for Target, point share for each method).
@@ -97,6 +98,9 @@ def render_capacity_row(axes_row, columns, input_path, compare_list, dot_size, m
     best = closest_to_target(target_caps, emps) if mark_best and emps else {}
 
     for ax, col in zip(axes_row, columns):
+        if col == showcase.SEPARATOR:
+            ax.axis("off")
+            continue
         if col == "Target":
             ax.imshow(image_01, cmap="gray", vmin=0.0, vmax=1.0)
             draw_quarter_guides(ax)
@@ -119,6 +123,8 @@ def parse_args():
     ap = argparse.ArgumentParser(description="Comparison showcase with the quadratic capacity test as its first row.")
     ap.add_argument("--output", default=OUT_DIR, help="Folder to write the panel into.")
     ap.add_argument("--out-name", default=OUT_NAME)
+    ap.add_argument("--columns", default=",".join(showcase.COLUMNS),
+                    help=f"Comma-separated columns, left to right; '{showcase.SEPARATOR}' draws a black separator.")
     ap.add_argument("--dot-size", type=float, default=DOT_SIZE)
     ap.add_argument("--capacity-input", default=CAPACITY_INPUT, help="Density map of the capacity test.")
     ap.add_argument("--dirs", default=None,
@@ -145,29 +151,40 @@ def main():
         col_dirs[name] = showcase.resolve_col_dirs(dirs[name])
         used.append(f"{len(idx)} {name}")
 
-    columns = showcase.COLUMNS
+    columns = showcase.parse_columns(args.columns)
+    widths = showcase.column_widths(columns)
     n_cols = len(columns)
     show_headers = showcase.SHOW_HEADERS and not args.no_headers
-    print(f"full panel: 1 capacity row + {len(rows)} showcase rows x {n_cols} cols"
-          + (f" ({' + '.join(used)})" if used else ""))
+    print(f"full panel: 1 capacity row + {len(rows)} showcase rows x "
+          f"{sum(c != showcase.SEPARATOR for c in columns)} cols"
+          + (f" ({' + '.join(used)})" if used else "") + f"; layout {' '.join(columns)}")
 
     # Row 1, then a spacer holding the percentages, then the showcase rows.
     ratios = [1.0, CAPACITY_GAP] + [1.0] * len(rows)
-    fig = plt.figure(figsize=(CELL * n_cols, CELL * sum(ratios)), dpi=140)
+    fig = plt.figure(figsize=(CELL * sum(widths), CELL * sum(ratios)), dpi=140)
     gs = gridspec.GridSpec(len(ratios), n_cols, figure=fig, height_ratios=ratios,
-                           wspace=0.03, hspace=ROW_GAP)
+                           width_ratios=widths, wspace=0.03, hspace=ROW_GAP)
 
     cap_axes = [fig.add_subplot(gs[0, c]) for c in range(n_cols)]
     render_capacity_row(cap_axes, columns, args.capacity_input, CAPACITY_COMPARE_LIST,
                         args.dot_size, args.mark_best)
     if show_headers:
         for ax, col in zip(cap_axes, columns):
-            ax.set_title(col, fontsize=HEADER_FONT_SIZE)
+            if col != showcase.SEPARATOR:
+                ax.set_title(col, fontsize=HEADER_FONT_SIZE)
 
+    last_axes = cap_axes
     for r, (dataset, stem, idx) in enumerate(rows):
+        last_axes = []
         for c, col in enumerate(columns):
             ax = fig.add_subplot(gs[2 + r, c])
+            last_axes.append(ax)
+            if col == showcase.SEPARATOR:
+                ax.axis("off")
+                continue
             showcase.render_cell(ax, col_dirs[dataset], col, stem, args.dot_size)
+    # one continuous line per separator, from the capacity row down to the last showcase row
+    showcase.draw_separators(fig, columns, cap_axes, last_axes)
 
     out_base = Path(args.output)
     out_base.mkdir(parents=True, exist_ok=True)

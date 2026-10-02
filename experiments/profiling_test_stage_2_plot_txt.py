@@ -11,6 +11,10 @@ FIG_HEIGHT = 4.0
 # Titles / axis labels
 SHOW_TITLE = False             # the file name already says what the plot is
 X_LABEL = "Points Budget"
+SHOW_AXIS_LABELS = False       # draw the x / y axis labels (off: the caption names the axes)
+SHOW_FULL_X_TICKS = False      # "32x32 (1024 pts)" ticks; off: the point count only ("1024")
+X_TICK_FONTSIZE = 14           # size of the x-axis numbers (as in merge_runtime_results_stage_3.py)
+Y_TICK_FONTSIZE = 15           # size of the y-axis numbers (as in merge_runtime_results_stage_3.py)
 
 
 # Toggle this between "grid" and "points"
@@ -89,6 +93,11 @@ PLOT_NAME = "experiments/outputs/profiling_test/z_runtime_outputs_plots/cpu_deno
 
 
 # --- 2. Parsing Functions ---
+
+
+def tick_label(grid):
+    """x tick text for a grid size: the point count, or "GxG (N pts)" with SHOW_FULL_X_TICKS."""
+    return f"{grid}x{grid}\n({grid**2} pts)" if SHOW_FULL_X_TICKS else str(grid ** 2)
 
 def parse_cpu_timing(txt_path):
     """Extract Denoising Time from CPU timing txt file."""
@@ -182,7 +191,7 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
 
         denoise_time = parse_cpu_timing(path)
         grid_sizes.append(grid_size)
-        labels.append(f"{grid_size}x{grid_size}\n({grid_size**2} pts)")
+        labels.append(tick_label(grid_size))
         denoise_times.append(denoise_time)
 
     if not grid_sizes:
@@ -196,7 +205,8 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
         fig_width = max(10, len(grid_sizes) * 2.5)
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = grid_sizes
-        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_AXIS_LABELS:
+            ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
         if SHOW_TITLE:
             ax.set_title('CPU Denoising Time by Grid Size', fontsize=15, fontweight='bold')
         rotation = 0
@@ -206,7 +216,8 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
         fig_width = max(10, len(grid_sizes) * 3.5)
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = [g**2 for g in grid_sizes]
-        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_AXIS_LABELS:
+            ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
         if SHOW_TITLE:
             ax.set_title('CPU Denoising Time by Point Count', fontsize=15, fontweight='bold')
         rotation = 15
@@ -215,7 +226,8 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
     else:
         raise ValueError("x_mode must be 'grid' or 'points'")
 
-    ax.set_ylabel('Denoising Time (Seconds)', fontsize=12, fontweight='bold')
+    if SHOW_AXIS_LABELS:
+        ax.set_ylabel('Denoising Time (Seconds)', fontsize=12, fontweight='bold')
 
     # Plot
     ax.plot(x, denoise_times, marker='o', markersize=8, linewidth=3,
@@ -223,7 +235,8 @@ def generate_cpu_plot(txt_paths, plot_name, x_mode="grid"):
 
     # Formatting
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=9, rotation=30, ha='right')
+    ax.set_xticklabels(labels, fontsize=X_TICK_FONTSIZE, rotation=30, ha='right')
+    ax.tick_params(axis='y', which='both', labelsize=Y_TICK_FONTSIZE)
     ax.legend(fontsize=11, loc='upper left')
     ax.grid(True, which="major", ls="-", alpha=0.5)
     ax.grid(True, which="minor", ls=":", alpha=0.3)
@@ -252,7 +265,7 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
 
         cpu_time, cuda_time = parse_gpu_profiler(path)
         grid_sizes.append(grid_size)
-        labels.append(f"{grid_size}x{grid_size}\n({grid_size**2} pts)")
+        labels.append(tick_label(grid_size))
         cpu_times.append(cpu_time)
         cuda_times.append(cuda_time)
 
@@ -272,7 +285,8 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
         fig_width = max(10, len(grid_sizes) * 2.5)
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = grid_sizes
-        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_AXIS_LABELS:
+            ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
         if SHOW_TITLE:
             ax.set_title('GPU Profiler Times by Grid Size', fontsize=15, fontweight='bold')
         rotation = 0
@@ -282,7 +296,8 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
         fig_width = max(10, len(grid_sizes) * 3.5)
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         x = [g**2 for g in grid_sizes]
-        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_AXIS_LABELS:
+            ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
         if SHOW_TITLE:
             ax.set_title('GPU Profiler Times by Point Count', fontsize=15, fontweight='bold')
         rotation = 15
@@ -291,7 +306,8 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
     else:
         raise ValueError("x_mode must be 'grid' or 'points'")
 
-    ax.set_ylabel('Time (Seconds)', fontsize=12, fontweight='bold')
+    if SHOW_AXIS_LABELS:
+        ax.set_ylabel('Time (Seconds)', fontsize=12, fontweight='bold')
 
     # Plot both CPU and CUDA
     ax.plot(x, cpu_times, marker='o', markersize=8, linewidth=3,
@@ -306,7 +322,8 @@ def generate_gpu_plot(txt_paths, plot_name, source_txt_paths=None, x_mode="grid"
 
     # Formatting
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=9, rotation=30, ha='right')
+    ax.set_xticklabels(labels, fontsize=X_TICK_FONTSIZE, rotation=30, ha='right')
+    ax.tick_params(axis='y', which='both', labelsize=Y_TICK_FONTSIZE)
     ax.legend(fontsize=11, loc='upper left')
     ax.grid(True, which="major", ls="-", alpha=0.5)
     ax.grid(True, which="minor", ls=":", alpha=0.3)

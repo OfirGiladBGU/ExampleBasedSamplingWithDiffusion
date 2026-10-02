@@ -44,7 +44,8 @@ OUTPUT_DIR = "experiments/outputs/teaser_icons_results"
 # SUBCOLS = ["Target", "Result", "OT Map"]
 
 # Small
-VALID_SAMPLES = [[1, 2], [5, 7]]
+# VALID_SAMPLES = [[1, 2], [5, 7]]
+VALID_SAMPLES = [[1, 2, 25], [5, 7, 34]]
 SUBCOLS = ["Target", "Result"]
 
 
@@ -52,6 +53,8 @@ DOT_SIZE = 1.0        # vector scatter marker size (pt^2) for the Result column
 QUIVER_CMAP = "viridis"
 QUIVER_WIDTH = 0.004
 SEP_RATIO = 0.12      # separator column width relative to a content column
+SEP_COLOR = "black"
+SEP_LINEWIDTH = 1.4
 CELL = 2.0            # inches per content column / row
 SHOW_COLORBAR = True  # per-cell colorbar on the OT Map column
 
@@ -139,9 +142,8 @@ def main():
         for c, (kind, bc, sub) in enumerate(col_spec):
             ax = axes[r][c]
 
-            if kind == "sep":
-                ax.axvline(0.5, color="black", lw=1.4)
-                ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+            if kind == "sep":            # the line itself is drawn once, below
+                ax.axis("off")
                 continue
 
             group = big_cols[bc]
@@ -191,6 +193,14 @@ def main():
                     ax.axis("off")
 
     fig.subplots_adjust(wspace=0.04, hspace=0.04)
+    # One continuous line per separator, from the top of the first row to the bottom of the last,
+    # so it runs through the row gaps instead of being broken into one segment per row.
+    for c, (kind, _, _) in enumerate(col_spec):
+        if kind == "sep":
+            top, bottom = axes[0][c].get_position(), axes[-1][c].get_position()
+            x = 0.5 * (top.x0 + top.x1)
+            fig.add_artist(plt.Line2D([x, x], [bottom.y0, top.y1], transform=fig.transFigure,
+                                      color=SEP_COLOR, linewidth=SEP_LINEWIDTH))
     pdf = out_base / f"{args.out_name}.pdf"
     png = out_base / f"{args.out_name}.png"
     fig.savefig(pdf, bbox_inches="tight")

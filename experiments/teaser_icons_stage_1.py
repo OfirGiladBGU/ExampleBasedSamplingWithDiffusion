@@ -78,7 +78,7 @@ OVERWRITE = True   # re-run samples even if their result .npy already exists
 # Which validation samples to run: a single flat list of indices into the seed-42
 # val split order. (A nested list is also tolerated -- it is flattened here; the
 # grouping into big columns is stage 2's concern.)
-VALID_SAMPLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+VALID_SAMPLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 25, 34]
 
 
 def flatten_samples(valid_samples):

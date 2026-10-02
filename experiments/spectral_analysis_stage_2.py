@@ -45,10 +45,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 BASE_DIR = r"experiments/outputs/spectral_analysis"
 
-# (folder suffix, display label), in plotting order.
+# (folder suffix, display label), in plotting order. A SEPARATOR entry ("||") between two methods
+# draws a black vertical line there in the figures with one column per method (the comparison
+# panel, the PCF by-method figure and the stippling strip of the PCF by-region figure), in a thin
+# column of its own as in teaser_icons_stage_2.py; overlay figures (one curve per method) ignore it.
+SEPARATOR = "||"
 METHODS = [
-    ("target_WVS_1024", "WVS"),
     ("target_BNOT_1024", "BNOT"),
+    SEPARATOR,
+    ("target_WVS_1024", "WVS"),
     ("target_GBN_1024", "GBN"),
     ("target_CN-WVS_1024", "Ours-WVS"),
     ("target_CN-GBN_1024", "Ours-GBN"),
@@ -66,6 +71,9 @@ INVARIANCE_METHODS = ["target_CN-WVS_1024", "target_CN-GBN_1024"]
 FIG_DPI = 130
 POINT_MS = 1.6
 SPEC_CLIP = 4.0          # display ceiling for the 2-D spectrum, in units of the flat level
+SEP_RATIO = 0.12         # width of a separator column relative to a method column
+SEP_COLOR = "black"
+SEP_LINEWIDTH = 1.4
 
 # ── Text sizes (points) ──────────────────────────────────────────────────────
 # Every piece of text in these figures is sized from one of these five knobs, so the whole
@@ -92,16 +100,57 @@ SHOW_LEGENDS = False
 # without adding information. Turn back on when a figure has to stand on its own.
 SHOW_AXIS_LABELS = False
 
+# OUT_DIR = BASE_DIR + "/plots"
+OUT_DIR = BASE_DIR + "/plots_full"
 
 def parse_args():
     p = argparse.ArgumentParser(description="Merge stage-1 results into comparison figures")
     p.add_argument("--base", default=BASE_DIR)
-    p.add_argument("--output", default=None, help="Default: <base>/plots")
-    p.add_argument("--methods", default=None, help="Comma-separated folder:label pairs")
+    p.add_argument("--output", default=OUT_DIR, help="Default: <base>/plots")
+    p.add_argument("--methods", default=None,
+                   help=f"Comma-separated folder:label pairs (replaces METHODS); '{SEPARATOR}' "
+                        f"between two draws a black separator")
     p.add_argument("--invariance-methods", default=",".join(INVARIANCE_METHODS),
                    help="Comma-separated folder suffixes to draw invariance figures for")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
+
+
+def method_pairs(layout):
+    """The (folder, label) entries of a layout, separators dropped."""
+    return [m for m in layout if m != SEPARATOR]
+
+
+def restrict_layout(layout, keep):
+    """The layout limited to the methods in `keep`, keeping the separators that still sit
+    BETWEEN two kept methods (no leading, trailing or doubled separators)."""
+    keep = set(keep)
+    out = []
+    for m in layout:
+        if m == SEPARATOR:
+            if out and out[-1] != SEPARATOR:
+                out.append(m)
+        elif m in keep:
+            out.append(m)
+    while out and out[-1] == SEPARATOR:
+        out.pop()
+    return out
+
+
+def layout_widths(layout):
+    return [SEP_RATIO if m == SEPARATOR else 1.0 for m in layout]
+
+
+def draw_separators(fig, layout, top_axes, bottom_axes):
+    """One continuous black line per SEPARATOR column, from the top of `top_axes` (first row) to
+    the bottom of `bottom_axes` (last row). Call once the layout is final (after tight_layout)."""
+    for c, m in enumerate(layout):
+        if m != SEPARATOR:
+            continue
+        top, bottom = top_axes[c].get_position(), bottom_axes[c].get_position()
+        x = 0.5 * (top.x0 + top.x1)
+        fig.add_artist(plt.Line2D([x, x], [bottom.y0, top.y1], transform=fig.transFigure,
+                                  color=SEP_COLOR, linewidth=SEP_LINEWIDTH))
 
 
 def load_method(base, folder):
@@ -181,17 +230,26 @@ def stipple_row(fig, gs_row, stipples, pad=0.012, gap=0.006):
     canvas (y > 1) like figure_thumb, so it cannot collide with the row of axes below; save()
     writes with bbox_inches="tight", which grows the page to include it.
     """
-    if not stipples:
+    if not [s for s in stipples if s != SEPARATOR]:
         return
-    n = len(stipples)
+    # SEPARATOR entries take SEP_RATIO of a cell and carry a black vertical line
+    units = sum(SEP_RATIO if s == SEPARATOR else 1.0 for s in stipples)
     y0 = 1.0 + pad
-    cell = (1.0 - gap * (n - 1)) / n
+    cell = (1.0 - gap * (len(stipples) - 1)) / units
     w = min(cell, 0.16)
     h = w * fig.get_figwidth() / fig.get_figheight()
-    for i, (label, pts) in enumerate(stipples):
-        x = i * (cell + gap) + (cell - w) / 2
-        ax = fig.add_axes([x, y0, w, h])
+    x = 0.0
+    for s in stipples:
+        if s == SEPARATOR:
+            xc = x + 0.5 * SEP_RATIO * cell
+            fig.add_artist(plt.Line2D([xc, xc], [y0, y0 + h], transform=fig.transFigure,
+                                      color=SEP_COLOR, linewidth=SEP_LINEWIDTH))
+            x += SEP_RATIO * cell + gap
+            continue
+        label, pts = s
+        ax = fig.add_axes([x + (cell - w) / 2, y0, w, h])
         draw_points(ax, pts, title=label)
+        x += cell + gap
 
 
 def figure_thumb(fig, img, title=None, size=0.075, pad=0.012):
@@ -267,12 +325,21 @@ def set_axis_labels(ax, xlabel=None, ylabel=None):
 
 
 def panel_figure(base, methods, grey, spectra, out_dir):
-    cols = [(f, l) for f, l in methods if grey in spectra.get(f, {})]
+    """`methods` is a layout: (folder, label) entries, optionally with SEPARATOR entries."""
+    layout = restrict_layout(methods, [m for m in method_pairs(methods) if grey in spectra.get(m[0], {})])
+    cols = method_pairs(layout)
     if not cols:
         return None
-    fig, axes = plt.subplots(3, len(cols), figsize=(2.7 * len(cols), 8.2),
-                             gridspec_kw={"height_ratios": [1, 1, 0.85]}, squeeze=False)
-    for j, (folder, label) in enumerate(cols):
+    widths = layout_widths(layout)
+    fig, axes = plt.subplots(3, len(layout), figsize=(2.7 * sum(widths), 8.2),
+                             gridspec_kw={"height_ratios": [1, 1, 0.85], "width_ratios": widths},
+                             squeeze=False)
+    for j, entry in enumerate(layout):
+        if entry == SEPARATOR:
+            for i in range(3):
+                axes[i, j].axis("off")
+            continue
+        folder, label = entry
         z = spectra[folder][grey]
         ax = axes[0, j]
         pts = load_points(base, folder, f"uniform_g{grey:03d}_r00")
@@ -313,6 +380,7 @@ def panel_figure(base, methods, grey, spectra, out_dir):
         f"principal frequency, and a flat tail at one; a flat profile throughout indicates "
         f"white noise. The inset at the upper left is the conditioning image.")
     fig.tight_layout()
+    draw_separators(fig, layout, axes[0], axes[2])
     if SHOW_CONDITION_THUMB:
         figure_thumb(fig, load_source(base, f"uniform_g{grey:03d}_r00"), title="condition")
     return save(fig, out_dir / f"spectral_comparison_g{grey:03d}")
@@ -402,7 +470,9 @@ def draw_points(ax, pts, title=None, box=None):
 
 
 
-def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
+def pcf_figures(base, layout, pcfs, out_dir, regions_by_name=None):
+    """`layout` is (folder, label) entries, optionally with SEPARATOR entries."""
+    methods = method_pairs(layout)
     keys = sorted({k for f, _ in methods for k in pcfs.get(f, {})})
     if not keys:
         return []
@@ -421,8 +491,9 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
         # A row of stipplings above the region thumbnails: the panels below overlay every
         # method, so all of them are shown, each with the panel's region outlined. Ragged
         # counts (more methods than regions) are handled by a separate axes grid.
-        stipples = [(l, load_points(base, f, f"pattern_{pat}_r00")) for f, l in methods]
-        stipples = [(l, p) for l, p in stipples if p is not None]
+        pts_of = {m: load_points(base, m[0], f"pattern_{pat}_r00") for m in methods}
+        stipples = [m if m == SEPARATOR else (m[1], pts_of[m])
+                    for m in restrict_layout(layout, [m for m in methods if pts_of[m] is not None])]
         fig, axes = plt.subplots(2, len(pkeys), figsize=(3.4 * len(pkeys), 3.9),
                                  gridspec_kw={"height_ratios": [0.30, 1.0]}, squeeze=False)
         for a in axes[0]:
@@ -465,13 +536,20 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
 
         # one panel per method, regions overlaid: curves lying on top of each other means the
         # correlation structure is preserved as the local density changes
-        have = [(f, l) for f, l in methods if any(k in pcfs.get(f, {}) for k in pkeys)]
+        have = restrict_layout(layout, [m for m in methods if any(k in pcfs.get(m[0], {}) for k in pkeys)])
         if have:
             # top row: the stippling each curve was measured from, so the g(r) panel below can
             # be read against the point set that produced it
-            fig, axes = plt.subplots(2, len(have), figsize=(3.4 * len(have), 6.4),
-                                     gridspec_kw={"height_ratios": [1.0, 0.95]}, squeeze=False)
-            for i, (folder, label) in enumerate(have):
+            widths = layout_widths(have)
+            fig, axes = plt.subplots(2, len(have), figsize=(3.4 * sum(widths), 6.4),
+                                     gridspec_kw={"height_ratios": [1.0, 0.95], "width_ratios": widths},
+                                     squeeze=False)
+            for i, entry in enumerate(have):
+                if entry == SEPARATOR:
+                    axes[0, i].axis("off")
+                    axes[1, i].axis("off")
+                    continue
+                folder, label = entry
                 draw_points(axes[0, i], load_points(base, folder, f"pattern_{pat}_r00"),
                             title=label)
                 ax = axes[1, i]
@@ -496,6 +574,7 @@ def pcf_figures(base, methods, pcfs, out_dir, regions_by_name=None):
                 f"orientation of the conditioning image; the inset at the upper left is the "
                 f"conditioning image itself.")
             fig.tight_layout()
+            draw_separators(fig, have, axes[0], axes[1])
             if SHOW_CONDITION_THUMB:
                 figure_thumb(fig, thumb, title="condition", size=0.16)
             written.append(save(fig, out_dir / f"pcf_{pat}_by_method"))
@@ -519,9 +598,11 @@ def main():
     base = Path(args.base)
     out_dir = Path(args.output) if args.output else base / "plots"
 
-    methods = METHODS
+    layout = METHODS
     if args.methods:
-        methods = [tuple(x.split(":", 1)) for x in args.methods.split(",")]
+        layout = [SEPARATOR if x.strip() == SEPARATOR else tuple(x.split(":", 1))
+                  for x in args.methods.split(",")]
+    methods = method_pairs(layout)
 
     spectra, pcfs, summaries = {}, {}, {}
     for f, _ in methods:
@@ -558,7 +639,7 @@ def main():
 
     if have_t1:
         for grey in sorted({g for f, _ in have_t1 for g in spectra[f]}):
-            s = panel_figure(base, have_t1, grey, spectra, out_dir)
+            s = panel_figure(base, restrict_layout(layout, have_t1), grey, spectra, out_dir)
             if s:
                 written.append(s)
         for key, ylab, name, hl in (("radial_power", "radial power", "spectral_radial_all", 1.0),
@@ -589,7 +670,7 @@ def main():
                 f"absolute intensity.")
 
     if have_t2:
-        written += pcf_figures(base, have_t2, pcfs, out_dir, regions_by_name)
+        written += pcf_figures(base, restrict_layout(layout, have_t2), pcfs, out_dir, regions_by_name)
 
     rows_t1, rows_t2 = [], []
     for folder, label in methods:

@@ -17,6 +17,10 @@ MERGE_THRESHOLD = 1.0
 # Titles / axis labels / legend
 SHOW_TITLE = False             # the file name already says what the plot is
 X_LABEL = "Points Budget"
+SHOW_AXIS_LABELS = False       # draw the x / y axis labels (off: the caption names the axes)
+SHOW_FULL_X_TICKS = False      # "32x32 (1024 pts)" ticks; off: the point count only ("1024")
+X_TICK_FONTSIZE = 14           # size of the x-axis numbers (as in merge_runtime_results_stage_3.py)
+Y_TICK_FONTSIZE = 15           # size of the y-axis numbers (as in merge_runtime_results_stage_3.py)
 LEGEND_LOC = "upper left"      # legend inset inside the axes
 LEGEND_NCOL = 1                # one entry per row
 LEGEND_FONTSIZE = 11           # same as the txt (profiler) plots
@@ -92,6 +96,11 @@ PLOT_NAME = "experiments/outputs/profiling_test/z_runtime_outputs_plots/gpu_6000
 # PLOT_NAME = "experiments/outputs/profiling_test/z_runtime_outputs_plots/gpu_3090_scaling_by_points.png"  # Output plot filename
 
 
+
+def tick_label(grid):
+    """x tick text for a grid size: the point count, or "GxG (N pts)" with SHOW_FULL_X_TICKS."""
+    return f"{grid}x{grid}\n({grid**2} pts)" if SHOW_FULL_X_TICKS else str(grid ** 2)
+
 def normalize_key(key):
     """Harmonizes variations in key names across different run versions."""
     key = key.lower()
@@ -114,7 +123,7 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
         
         grid = data["grid_size"]
         grid_sizes.append(grid)
-        labels.append(f"{grid}x{grid}\n({grid**2} pts)")
+        labels.append(tick_label(grid))
         
         comps = data.get("components", {})
         
@@ -143,7 +152,8 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         
         x = grid_sizes
-        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_AXIS_LABELS:
+            ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
         if SHOW_TITLE:
             ax.set_title('Component Scaling by Grid Size', fontsize=15, fontweight='bold')
         rotation = 0
@@ -155,7 +165,8 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
         fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=150)
         
         x = [g**2 for g in grid_sizes]
-        ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
+        if SHOW_AXIS_LABELS:
+            ax.set_xlabel(X_LABEL, fontsize=12, fontweight='bold')
         if SHOW_TITLE:
             ax.set_title('Component Scaling by Point Count', fontsize=15, fontweight='bold')
         rotation = 15  # Angle the text to prevent bounding box collision
@@ -164,7 +175,8 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
     else:
         raise ValueError("x_mode must be 'grid' or 'points'")
 
-    ax.set_ylabel('Inference Time (Seconds)', fontsize=12, fontweight='bold')
+    if SHOW_AXIS_LABELS:
+        ax.set_ylabel('Inference Time (Seconds)', fontsize=12, fontweight='bold')
 
     # --- 3. Plotting Logic ---
     sorted_keys = sorted(data_history.keys())
@@ -201,7 +213,8 @@ def generate_scaling_plot(json_paths, plot_name, x_mode="grid"):
 
     # --- 4. Formatting ---
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=9, rotation=30, ha='right')
+    ax.set_xticklabels(labels, fontsize=X_TICK_FONTSIZE, rotation=30, ha='right')
+    ax.tick_params(axis='y', which='both', labelsize=Y_TICK_FONTSIZE)
     
     # Legend inset in the plot. Its real box is measured and the y-axis top is raised just
     # enough that no line under the box reaches it (the box size depends on the number of

@@ -1,7 +1,7 @@
 """qualitative_comparison_showcase.py
 
-Comparison showcase: the fixed columns [Target, WVS, BNOT, GBN, Ours-WVS, Ours-GBN], one row
-per sample.
+Comparison showcase: the columns of COLUMNS (by default Target || BNOT || WVS | GBN | Ours-WVS |
+Ours-GBN, where "||" is a black vertical separator line), one row per sample.
 
 Datasets are configured by two maps keyed by the same names, so adding one is a single line
 in each rather than a new set of module-level variables:
@@ -54,7 +54,7 @@ DIR_MAP = {
     "shapenet2d": "experiments/outputs/z_validation_data/ShapeNet2D-4K_1600",
     "chibi": "experiments/outputs/z_validation_data/Anime-Chibi_1600",
 }
-OUT_DIR = "experiments/outputs/qualitative_showcase"
+OUT_DIR = "experiments/outputs/qualitative_showcase_full"
 
 # ── Row selection (edit these to find the panel you want) ───────────────────
 # {dataset name: flat list of sample indices}. A key absent here, or mapped to [],
@@ -64,30 +64,42 @@ OUT_DIR = "experiments/outputs/qualitative_showcase"
 # qualitative_shapenet_index_remap.py
 
 # MAIN - 4 rows (small)
-# SAMPLES_MAP = {
-#     "icons": [40], 
-#     "faces": [6], 
-#     "shapenet2d": [5],
-#     "chibi": [234]
-# }
-# OUT_NAME = "qualitative_comparison"
-
-# APPENDIX - 15 rows
 SAMPLES_MAP = {
-    "icons": [102, 104, 106, 110], 
-    "faces": [102, 106, 204, 210],
-    "shapenet2d": [27, 103, 162, 308],
-    # "chibi": [4, 26, 60, 88],
-    "chibi": [60, 167, 248, 255],
+    "icons": [40], 
+    "faces": [6], 
+    "shapenet2d": [5],
+    "chibi": [234]
 }
-OUT_NAME = "qualitative_comparison_appendix"
+OUT_NAME = "qualitative_comparison"
+
+# APPENDIX left - 8 rows
+# SAMPLES_MAP = {
+#     "icons": [102, 104, 106, 110], 
+#     "faces": [102, 106, 204, 210],
+# }
+# OUT_NAME = "qualitative_comparison_appendix_left"
+
+# APPENDIX right - 8 rows
+# SAMPLES_MAP = {
+#     "shapenet2d": [27, 103, 162, 308],
+#     # "chibi": [4, 26, 60, 88],
+#     "chibi": [60, 167, 248, 255],
+# }
+# OUT_NAME = "qualitative_comparison_appendix_right"
+
 
 # ── Fixed columns -> subfolder ────────────────────────────────────────────────
-COLUMNS = ["Target", "WVS", "BNOT", "GBN", "Ours-WVS", "Ours-GBN"]
+# Left to right. A SEPARATOR entry ("||") between two columns draws a black vertical line there,
+# in a thin column of its own (as in teaser_icons_stage_2.py); neighbouring columns without one
+# are just side by side. E.g. Target || BNOT || WVS | GBN | Ours-WVS | Ours-GBN:
+SEPARATOR = "||"
+# COLUMNS = ["Target", "WVS", "BNOT", "GBN", "Ours-WVS", "Ours-GBN"]
+# COLUMNS = ["Target", "BNOT", "WVS", "GBN", "Ours-WVS", "Ours-GBN"]
+COLUMNS = ["Target", "||", "BNOT", "||", "WVS", "GBN", "Ours-WVS", "Ours-GBN"]
 COL_TO_DIR = {
     "Target": "source",
-    "WVS": "target_WVS_*",
     "BNOT": "target_BNOT_*",
+    "WVS": "target_WVS_*",
     "GBN": "target_GBN_*",
     "Ours-WVS": "target_CN-WVS_*",
     "Ours-GBN": "target_CN-GBN_*",
@@ -96,6 +108,9 @@ COL_TO_DIR = {
 CELL = 2.0            # inches per cell
 DOT_SIZE = 2.0        # scatter marker size (pt^2) for the stipple columns
 SHOW_HEADERS = True   # column labels on the top row
+SEP_RATIO = 0.12      # width of a separator column relative to a cell
+SEP_COLOR = "black"
+SEP_LINEWIDTH = 1.4
 IMG_EXTS = {".png", ".jpg", ".jpeg"}
 MANIFEST_NAME = "validation_manifest.json"
 
@@ -224,8 +239,37 @@ def render_cell(ax, col_dirs, column, stem, dot_size):
     ax.axis("off")
 
 
+def parse_columns(text):
+    """'Target,||,BNOT,...' -> list; every non-separator entry must be a known column."""
+    cols = [c.strip() for c in text.split(",") if c.strip()]
+    bad = [c for c in cols if c != SEPARATOR and c not in COL_TO_DIR]
+    if bad:
+        raise KeyError(f"unknown column(s) {bad}; known: {list(COL_TO_DIR)} (and '{SEPARATOR}')")
+    return cols
+
+
+def column_widths(columns):
+    """Width ratio per layout entry: a cell is 1, a separator SEP_RATIO."""
+    return [SEP_RATIO if c == SEPARATOR else 1.0 for c in columns]
+
+
+def draw_separators(fig, columns, top_axes, bottom_axes):
+    """One continuous black line per SEPARATOR column, from the top of `top_axes` (the first row)
+    to the bottom of `bottom_axes` (the last row), so the line runs through the row gaps rather
+    than being broken at every row. Call after the layout is final (subplots_adjust)."""
+    for c, col in enumerate(columns):
+        if col != SEPARATOR:
+            continue
+        top, bottom = top_axes[c].get_position(), bottom_axes[c].get_position()
+        x = 0.5 * (top.x0 + top.x1)
+        fig.add_artist(plt.Line2D([x, x], [bottom.y0, top.y1], transform=fig.transFigure,
+                                  color=SEP_COLOR, linewidth=SEP_LINEWIDTH))
+
+
 def parse_args():
     ap = argparse.ArgumentParser(description="Comparison showcase (Target/WVS/BNOT/GBN/Ours-WVS/Ours-GBN).")
+    ap.add_argument("--columns", default=",".join(COLUMNS),
+                    help=f"Comma-separated columns, left to right; '{SEPARATOR}' draws a black separator.")
     ap.add_argument("--output", default=OUT_DIR, help="Folder to write the panel into.")
     ap.add_argument("--out-name", default=OUT_NAME)
     ap.add_argument("--dot-size", type=float, default=DOT_SIZE)
@@ -257,20 +301,27 @@ def main():
     if not rows:
         raise ValueError("SAMPLES_MAP selects no rows; nothing to show.")
 
-    n_rows, n_cols = len(rows), len(COLUMNS)
+    columns = parse_columns(args.columns)
+    widths = column_widths(columns)
+    n_rows, n_cols = len(rows), len(columns)
     show_headers = SHOW_HEADERS and not args.no_headers
-    print(f"comparison panel: {n_rows} rows x {n_cols} cols ({' + '.join(used)})")
+    print(f"comparison panel: {n_rows} rows x {sum(c != SEPARATOR for c in columns)} cols "
+          f"({' + '.join(used)}); layout {' '.join(columns)}")
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(CELL * n_cols, CELL * n_rows),
-                             dpi=140, squeeze=False)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(CELL * sum(widths), CELL * n_rows),
+                             dpi=140, squeeze=False, gridspec_kw={"width_ratios": widths})
     for r, (dataset, stem, idx) in enumerate(rows):
-        for c, col in enumerate(COLUMNS):
+        for c, col in enumerate(columns):
             ax = axes[r][c]
+            if col == SEPARATOR:
+                ax.axis("off")
+                continue
             render_cell(ax, col_dirs[dataset], col, stem, args.dot_size)
             if r == 0 and show_headers:
                 ax.set_title(col, fontsize=13)
 
     fig.subplots_adjust(wspace=0.03, hspace=0.03)
+    draw_separators(fig, columns, axes[0], axes[-1])
     out_base = Path(args.output)
     out_base.mkdir(parents=True, exist_ok=True)
     pdf = out_base / f"{args.out_name}.pdf"

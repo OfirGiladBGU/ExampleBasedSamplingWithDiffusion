@@ -368,9 +368,12 @@ IMPROVEMENT_DOTS_MS = 5
 # fill together (the rest is the gap between images).
 IMPROVEMENT_GROUPED_FIGSIZE = (7.0, 2.8)
 IMPROVEMENT_GROUP_WIDTH = 0.8
-# "grouped" style: draw each strategy's mean over all images as a dashed line in its colour
-# (the values themselves are left to the paper text, not the legend).
-IMPROVEMENT_GROUPED_MEAN_LINES = True
+# "lines" / "dots" / "grouped" styles: draw each strategy's mean over all images as a dashed
+# horizontal line in its colour, plus a "mean over all N images" legend entry. Off: no mean
+# lines and no such legend entry (the paper text gives the means).
+IMPROVEMENT_MEAN_LINES = False
+# All tone_improvement styles: x / y axis labels. Off: the caption names the axes.
+IMPROVEMENT_AXIS_LABELS = False
 # Bars style only: print the ours-vs-random-search summary as a title above the plot. Off: the
 # paper text states it, and the caption file still records it.
 IMPROVEMENT_TITLE = False
@@ -427,7 +430,8 @@ def improvement_bars_figure(rows, out_dir):
     ax.axhline(0.0, color="k", lw=0.8, ls=":")
     ax.set_xticks(range(len(cfgs)))
     ax.set_xticklabels([short[c] for c in cfgs], fontsize=8)
-    ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
+    if IMPROVEMENT_AXIS_LABELS:
+        ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
     ax.tick_params(axis="y", labelsize=8)
     top = max(float(np.max(gains[c])) for c in cfgs)
     ax.set_ylim(min(0.0, min(float(np.min(gains[c])) for c in cfgs)) - 0.05, top + 0.35)
@@ -486,17 +490,18 @@ def improvement_grouped_figure(rows, out_dir):
         off = (i - (len(cfgs) - 1) / 2.0) * w
         ax.bar(x + off, gains[cfg], width=w, color=colors[cfg], edgecolor="none",
                label=LABEL[cfg])
-        if IMPROVEMENT_GROUPED_MEAN_LINES:
+        if IMPROVEMENT_MEAN_LINES:
             ax.axhline(float(gains[cfg].mean()), color=colors[cfg], lw=1.1, ls="--", zorder=3)
     ax.axhline(0.0, color="k", lw=0.8)
     ax.set_xlim(0.4, len(stems) + 0.6)
     ax.set_xticks(x)
     ax.set_xticklabels([str(i) for i in x], fontsize=7)
-    ax.set_xlabel("test image, ordered by uncorrected PSNR", fontsize=9)
-    ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
+    if IMPROVEMENT_AXIS_LABELS:
+        ax.set_xlabel("test image, ordered by uncorrected PSNR", fontsize=9)
+        ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
     ax.tick_params(axis="y", labelsize=8)
     handles, labels = ax.get_legend_handles_labels()
-    if IMPROVEMENT_GROUPED_MEAN_LINES:
+    if IMPROVEMENT_MEAN_LINES:
         from matplotlib.lines import Line2D
         handles.append(Line2D([], [], color="0.3", lw=1.1, ls="--"))
         labels.append(f"mean over all {len(stems)} images")
@@ -552,17 +557,18 @@ def improvement_dots_figure(rows, out_dir):
         mk, col = styles[cfg]
         ax.plot(x, d, ls="none", marker=mk, ms=IMPROVEMENT_DOTS_MS, color=col,
                 markeredgecolor="white", markeredgewidth=0.4, label=LABEL[cfg], zorder=3)
-        if IMPROVEMENT_GROUPED_MEAN_LINES:
+        if IMPROVEMENT_MEAN_LINES:
             ax.axhline(float(d.mean()), color=col, lw=1.1, ls="--", zorder=2)
     ax.axhline(0.0, color="k", lw=0.8, ls=":")
     ax.set_xlim(0.4, len(stems) + 0.6)
     ax.set_xticks(x)
     ax.set_xticklabels([str(i) for i in x], fontsize=7)
-    ax.set_xlabel("test image, ordered by uncorrected PSNR", fontsize=9)
-    ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
+    if IMPROVEMENT_AXIS_LABELS:
+        ax.set_xlabel("test image, ordered by uncorrected PSNR", fontsize=9)
+        ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
     ax.tick_params(axis="y", labelsize=8)
     handles, labels = ax.get_legend_handles_labels()
-    if IMPROVEMENT_GROUPED_MEAN_LINES:
+    if IMPROVEMENT_MEAN_LINES:
         from matplotlib.lines import Line2D
         handles.append(Line2D([], [], color="0.3", lw=1.1, ls="--"))
         labels.append(f"mean over all {len(stems)} images")
@@ -578,7 +584,8 @@ def improvement_dots_figure(rows, out_dir):
     record_caption(st_, (
         f"Tone agreement gained over the uncorrected render by each correction strategy, on "
         f"each of the {len(stems)} test images, ordered by the agreement of the uncorrected "
-        "render so the hardest images come first; dashed lines give each strategy's mean. "
+        "render so the hardest images come first"
+        + ("; dashed lines give each strategy's mean. " if IMPROVEMENT_MEAN_LINES else ". ") +
         "Every strategy is given the same objective and the same budget of sampler "
         "evaluations; the only difference is whether gradients are used. Optimizing the "
         "conditioning through the sampler improves every image and beats both a global "
@@ -622,7 +629,7 @@ def improvement_lines_figure(rows, out_dir):
                 ls="-" if IMPROVEMENT_LINES_CONNECT else "none", color=col,
                 label=(f"{LABEL[cfg]}  (mean {means[cfg]:+.2f} dB)" if IMPROVEMENT_LEGEND_MEANS
                        else LABEL[cfg]), zorder=3)
-        if IMPROVEMENT_GROUPED_MEAN_LINES:
+        if IMPROVEMENT_MEAN_LINES:
             ax.axhline(means[cfg], color=col, lw=1.0, ls="--", zorder=2)
         top = d if top is None else [max(a, b) for a, b in zip(top, d)]
     if IMPROVEMENT_ZERO_LINE:
@@ -638,8 +645,9 @@ def improvement_lines_figure(rows, out_dir):
         ax.xaxis.set_minor_locator(MultipleLocator(1))
         ax.xaxis.set_minor_formatter(NullFormatter())
         ax.tick_params(axis="x", which="minor", length=2.5)
-    ax.set_xlabel("test image, ordered by uncorrected PSNR", fontsize=9)
-    ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
+    if IMPROVEMENT_AXIS_LABELS:
+        ax.set_xlabel("test image, ordered by uncorrected PSNR", fontsize=9)
+        ax.set_ylabel("PSNR gain over uncorrected (dB)", fontsize=9)
     ax.tick_params(labelsize=8)
 
     # the gradient-specific claim, as the legend title so it cannot collide with the data
@@ -649,7 +657,7 @@ def improvement_lines_figure(rows, out_dir):
         w = sum(1 for v in d if v > 0)
         note = f"ours - random search: {sum(d) / len(d):+.2f} dB mean, {w}/{len(d)} images"
     handles, labels = ax.get_legend_handles_labels()
-    if IMPROVEMENT_GROUPED_MEAN_LINES:
+    if IMPROVEMENT_MEAN_LINES:
         # each entry shows its marker on a dashed line, tying "(mean ...)" to the dashed line
         from matplotlib.lines import Line2D
         handles = [Line2D([], [], marker=h.get_marker(), ms=4, color=h.get_color(),
@@ -860,6 +868,10 @@ def explain_compact_figure(z, stem, out_dir, dot_scale=1.8):
         "the image, so no single global transfer curve can express it."))
     return st_
 
+# tone_gain_sweep_compact: x / y axis labels. Off: the caption names the axes.
+GAIN_SWEEP_AXIS_LABELS = False
+
+
 def gain_sweep_compact_figure(base, out_dir):
     """The advantage-vs-ink-gain panel on its own -- the robustness argument, one panel."""
     csv_path = base.parent / "gain_sweep" / "gain_sweep.csv"
@@ -877,8 +889,9 @@ def gain_sweep_compact_figure(base, out_dir):
     if IMPROVEMENT_ZERO_LINE:
         ax.axhline(0.0, color="k", lw=0.8, ls=":")
     ax.set_xscale("log", base=2)
-    ax.set_xlabel("ink gain / calibrated", fontsize=9)
-    ax.set_ylabel("PSNR advantage (dB)", fontsize=9)
+    if GAIN_SWEEP_AXIS_LABELS:
+        ax.set_xlabel("ink gain / calibrated", fontsize=9)
+        ax.set_ylabel("PSNR advantage (dB)", fontsize=9)
     ax.tick_params(labelsize=8)
     ax.legend(fontsize=8)
     fig.tight_layout()

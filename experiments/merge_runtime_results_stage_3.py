@@ -8,7 +8,8 @@ Reads ``runtimes_avg.json`` ::
 and writes, into a ``plots/`` folder next to it, one line per method of the average total
 runtime per image against the point budget (PNG at 300 dpi + vector PDF). Styled after
 profiling_test_stage_2_plot_json.py: the same figure size, the same "grid" / "points" x-axis
-modes and the same "32x32 (1024 pts)" tick labels.
+modes. Tick labels are the point count ("1024"), or "32x32 (1024 pts)" with SHOW_FULL_X_TICKS;
+axis labels are drawn only with SHOW_AXIS_LABELS.
 
 Only the budgets listed in POINT_BUDGETS are drawn (edit the list, or pass --budgets). A
 budget missing for some method is simply skipped for that method's line.
@@ -53,21 +54,30 @@ POINT_BUDGETS = [
 ]
 
 # ── Methods (plotting order, legend names) ──────────────────────────────────
-METHODS = ["WVS", "BNOT", "GBN", "CN"]
+# METHODS = ["WVS", "BNOT", "GBN", "CN"]
+METHODS = ["BNOT", "WVS", "GBN", "CN"]       # plotting and legend order
 METHOD_LABELS = {"WVS": "WVS", "BNOT": "BNOT", "GBN": "GBN", "CN": "Ours"}
+# Fixed per method, so reordering METHODS changes only the legend order, not the colours
+# (these are the colours the earlier WVS, BNOT, GBN, CN order gave).
+METHOD_COLORS = {"WVS": "tab:blue", "BNOT": "tab:orange", "GBN": "tab:green", "CN": "tab:red"}
 OURS_METHOD = "CN"                          # drawn thicker so it stands out
 
 # ── Look (matches profiling_test_stage_2_plot_json.py) ──────────────────────
 FIG_WIDTH = 11.5
 FIG_HEIGHT = 4.5
 DPI = 300
-DEFAULT_X_AXIS_MODE = "grid"                # "grid" (categorical spacing) or "points" (proportional)
+# DEFAULT_X_AXIS_MODE = "grid"                # "grid" (categorical spacing) or "points" (proportional)
+DEFAULT_X_AXIS_MODE = "points"                # "grid" (categorical spacing) or "points" (proportional)
 DEFAULT_Y_SCALE = "log"                     # "log" or "linear"; runtimes span ~3 orders of magnitude
 SHOW_STD = False                            # error bars = std over the images of each budget
 SHOW_TITLE = False                          # the file name already says what the plot is
 LEGEND_LOC = "upper left"                   # inset inside the axes (matplotlib loc string)
+SHOW_AXIS_LABELS = False                    # draw X_LABEL / Y_LABEL (off: the caption names the axes)
 X_LABEL = "Points Budget"
 Y_LABEL = "Average Runtime (Seconds)"
+SHOW_FULL_X_TICKS = False                   # "32x32 (1024 pts)" ticks; off: the point count only ("1024")
+X_TICK_FONTSIZE = 14                        # size of the x-axis numbers (was 9)
+Y_TICK_FONTSIZE = 15                        # size of the y-axis numbers (was matplotlib's default 10)
 
 
 def load_runtimes(path):
@@ -76,6 +86,8 @@ def load_runtimes(path):
 
 
 def budget_label(points):
+    if not SHOW_FULL_X_TICKS:
+        return str(points)
     g = math.isqrt(points)
     return f"{g}x{g}\n({points} pts)" if g * g == points else f"{points} pts"
 
@@ -104,16 +116,19 @@ def plot_runtimes(runtimes, budgets, out_path, x_mode, y_scale, show_std):
         ours = method == OURS_METHOD
         ax.errorbar(x, y, yerr=err, marker="o", markersize=6 if ours else 5,
                     linewidth=3.0 if ours else 1.8, capsize=3 if show_std else 0,
-                    label=METHOD_LABELS.get(method, method), zorder=3 if ours else 2)
+                    label=METHOD_LABELS.get(method, method), color=METHOD_COLORS.get(method),
+                    zorder=3 if ours else 2)
 
     xt = [x_of(b) for b in budgets]
     ax.set_xticks(xt)
-    ax.set_xticklabels([budget_label(b) for b in budgets], fontsize=9,
+    ax.set_xticklabels([budget_label(b) for b in budgets], fontsize=X_TICK_FONTSIZE,
                        rotation=30 if x_mode == "points" else 0,
                        ha="right" if x_mode == "points" else "center")
-    ax.set_xlabel(X_LABEL, fontsize=12, fontweight="bold")
-    ax.set_ylabel(Y_LABEL, fontsize=12, fontweight="bold")
+    if SHOW_AXIS_LABELS:
+        ax.set_xlabel(X_LABEL, fontsize=12, fontweight="bold")
+        ax.set_ylabel(Y_LABEL, fontsize=12, fontweight="bold")
     ax.set_yscale(y_scale)
+    ax.tick_params(axis="y", which="both", labelsize=Y_TICK_FONTSIZE)
     if SHOW_TITLE:
         ax.set_title(f"Runtime Scaling by {'Grid Size' if x_mode == 'grid' else 'Point Count'}",
                      fontsize=15, fontweight="bold")
