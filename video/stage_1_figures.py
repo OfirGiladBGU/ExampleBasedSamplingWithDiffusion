@@ -24,7 +24,7 @@ DPI = 300
 PDFTOPPM = "pdftoppm"
 # output name -> figure path inside the paper folder
 FIGURES = {
-    "pipeline": "results_v3/flow.png",
+    "pipeline": "figures_v4/model/flow.png",
     "stress1": "results_v3/stress/stress1.pdf",
 }
 

@@ -4,8 +4,9 @@ Shots whose clip and narration are unchanged since the last run are reused, so a
 re-rendering one shot only that shot is re-encoded before the final (lossless) concatenation.
 For each shot, the silent clip from stage 3 is muxed with its narration (delayed by the
 lead-in, padded with silence to the clip length), then all shots are concatenated in
-shots.json order. Also writes an .srt subtitle file with the same timing as the burned-in
-subtitles, for players or upload sites that take a sidecar file.
+shots.json order. Also writes an .srt subtitle file timed to the narration, for players or
+upload sites that take a sidecar file; it is written whether or not settings.subtitles burns
+the same subtitles into the video.
 
     python video/stage_4_assemble.py
     python video/stage_4_assemble.py --output video/build/StippleDiffusion.mp4

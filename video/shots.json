@@ -12,7 +12,7 @@
     "tail_s": 0.7,
     "min_shot_s": 3.0,
     "crossfade_s": 0.0,
-    "subtitles": true
+    "subtitles": false
   },
   "trajectories": {
     "stress_g24": {
@@ -51,29 +51,36 @@
       "grid_size": 64,
       "result": "video/assets/sources/grid_size_results/sample_outputs_64/emoji-one_4_monkey/npy/emoji-one_4_monkey.npy"
     },
-    "icon_g32": {
-      "image": "video/assets/sources/z_validation_data/Icons-50_1024/source/emojidex_3_soon_with_rightwards_arrow_above.png",
+    "icon_leopard_g32": {
+      "image": "video/assets/sources/z_validation_data/Icons-50_1024/source/htc_0_leopard.png",
       "checkpoint": "icons_gbn",
       "grid_size": 32,
-      "result": "video/assets/sources/z_validation_data/Icons-50_1024/target_CN-GBN_1024/emojidex_3_soon_with_rightwards_arrow_above.npy"
+      "result": "video/assets/sources/z_validation_data/Icons-50_1024/target_CN-GBN_1024/htc_0_leopard.npy"
     },
-    "face_g32": {
-      "image": "video/assets/sources/z_validation_data/CelebA-5K_1024/source/001593.png",
+    "face_002253_g32": {
+      "image": "video/assets/sources/z_validation_data/CelebA-5K_1024/source/002253.png",
       "checkpoint": "celeba_gbn",
       "grid_size": 32,
-      "result": "video/assets/sources/z_validation_data/CelebA-5K_1024/target_CN-GBN_1024/001593.npy"
+      "result": "video/assets/sources/z_validation_data/CelebA-5K_1024/target_CN-GBN_1024/002253.npy"
     },
-    "shapenet_g40": {
-      "image": "video/assets/sources/z_validation_data/ShapeNetRender_Custom-3K_1600/source/6a5405246814b82281c5ee986f4484ec_00.png",
-      "checkpoint": "shapenet_gbn",
+    "shapenet2d_g40": {
+      "image": "video/assets/sources/z_validation_data/ShapeNet2D-4K_1600/source/eebc48c480032e45473f10e6caaeca56_00.png",
+      "checkpoint": "shapenet2d_gbn",
       "grid_size": 40,
-      "result": "video/assets/sources/z_validation_data/ShapeNetRender_Custom-3K_1600/target_CN-GBN_1600/6a5405246814b82281c5ee986f4484ec_00.npy"
+      "result": "video/assets/sources/z_validation_data/ShapeNet2D-4K_1600/target_CN-GBN_1600/eebc48c480032e45473f10e6caaeca56_00.npy"
+    },
+    "chibi_g40": {
+      "image": "video/assets/sources/z_validation_data/Anime-Chibi_1600/source/12d30c58c69d9727357609b2ebc5d0a04f171b06.png",
+      "checkpoint": "chibi_gbn",
+      "grid_size": 40,
+      "result": "video/assets/sources/z_validation_data/Anime-Chibi_1600/target_CN-GBN_1600/12d30c58c69d9727357609b2ebc5d0a04f171b06.npy"
     }
   },
   "checkpoints": {
     "icons_gbn": "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt",
     "celeba_gbn": "control_v4/train_outputs_CelebA-5K_1024_GBN/checkpoints/dynamic_ep5000.ckpt",
-    "shapenet_gbn": "control_v4/train_outputs_ShapeNetRender_Custom-3K_1600_GBN/checkpoints/dynamic_ep5000.ckpt"
+    "shapenet2d_gbn": "control_v4/train_outputs_ShapeNet2D-4K_1600_GBN/checkpoints/dynamic_ep5000.ckpt",
+    "chibi_gbn": "control_v4/train_outputs_Anime-Chibi_1600_GBN/checkpoints/dynamic_ep5000.ckpt"
   },
   "shots": [
     {
@@ -129,7 +136,7 @@
     {
       "id": "s03_disks_capacities",
       "cue": "show 5-disks ours on 3 different capacities generation - show iterative noise to stippling on different capacities (fig 5)",
-      "narration": "We present a diffusion-based sampler for image-conditioned stippling whose only input is a high-resolution image, which itself defines the target density.",
+      "narration": "We present a conditional point-diffusion sampler that takes a target image and generates a stipple pattern in the style of the sampler that produced its training exemplars.",
       "visual": {
         "type": "trajectory",
         "target": "stress_g32",
@@ -152,7 +159,7 @@
     {
       "id": "s04_monkey_capacities",
       "cue": "show figure 5 monkey on 3 different capacities generation iterative from noise to stippling",
-      "narration": "Unlike prior point-diffusion methods that learn a fixed distribution, our model generates point sets for unseen densities and point budgets from a single trained checkpoint.",
+      "narration": "Unlike prior point-diffusion methods that learn a fixed distribution, one checkpoint per dataset and exemplar sampler generates stipples for unseen images and point budgets, without per-target optimization.",
       "visual": {
         "type": "trajectory",
         "target": "monkey_g32",
@@ -175,7 +182,7 @@
     {
       "id": "s05_pipeline",
       "cue": "focus on pipeline figure 2 - animation",
-      "narration": "Built on an optimal-transport-grid diffusion model with ControlNet-based conditioning on the input image, it learns the blue-noise characteristics of its exemplar stipples.\nAt inference, a density-aware initialization lets it skip half of the denoising steps.",
+      "narration": "Built on an optimal-transport-grid diffusion model with a jointly trained conditioning branch that reads per-point image features, it learns the blue-noise characteristics of its exemplar stipples.\nAt inference, a density-aware initialization lets it skip half of the denoising steps.",
       "visual": {
         "type": "pipeline",
         "image": "pipeline.png",
@@ -183,10 +190,10 @@
           {
             "at": 0.12,
             "box": [
-              0.395,
+              0.351,
               0.555,
-              0.775,
-              0.895
+              0.757,
+              0.95
             ],
             "label": "OT-grid diffusion model",
             "off_after_line": 0
@@ -194,19 +201,19 @@
           {
             "at": 0.3,
             "box": [
-              0.395,
-              0.185,
-              0.775,
+              0.351,
+              0.125,
+              0.757,
               0.525
             ],
-            "label": "ControlNet-based conditioning",
+            "label": "Conditioning branch",
             "off_after_line": 0
           },
           {
             "box": [
               0.0,
               0.395,
-              0.093,
+              0.099,
               0.737
             ],
             "on_line": 1,
@@ -216,21 +223,21 @@
           },
           {
             "box": [
-              0.103,
+              0.11,
               0.558,
-              0.284,
+              0.232,
               0.992
             ],
             "on_line": 1,
             "color": "#2E8B4A",
             "pad_units": 0.06,
-            "part": "rejection-sampling prior + OT offsets (t = 500)"
+            "part": "rejection-sampling prior"
           },
           {
             "box": [
-              0.295,
+              0.243,
               0.345,
-              0.388,
+              0.343,
               0.683
             ],
             "on_line": 1,
@@ -240,31 +247,31 @@
           },
           {
             "box": [
-              0.397,
+              0.353,
               0.132,
-              0.774,
+              0.756,
               0.946
             ],
             "on_line": 1,
             "color": "#2E8B4A",
             "pad_units": 0.06,
-            "part": "model (Control + Baseline)"
+            "part": "model (Control + Base Model)"
           },
           {
             "box": [
-              0.782,
+              0.766,
               0.345,
-              0.876,
-              0.77
+              0.867,
+              0.683
             ],
             "on_line": 1,
             "color": "#2E8B4A",
             "pad_units": 0.06,
-            "part": "output + 500 repeated steps"
+            "part": "output"
           },
           {
             "box": [
-              0.886,
+              0.877,
               0.558,
               0.999,
               0.992
@@ -287,7 +294,7 @@
         "zoom": [
           0.0,
           0.0,
-          0.29,
+          0.24,
           1.05
         ],
         "highlights": [
@@ -295,7 +302,7 @@
             "box": [
               0.0,
               0.395,
-              0.093,
+              0.099,
               0.737
             ],
             "on_line": 0,
@@ -303,9 +310,9 @@
           },
           {
             "box": [
-              0.103,
+              0.11,
               0.078,
-              0.284,
+              0.232,
               0.522
             ],
             "on_line": 0,
@@ -315,7 +322,7 @@
             "box": [
               0.0,
               0.395,
-              0.093,
+              0.099,
               0.737
             ],
             "on_line": 1,
@@ -323,9 +330,9 @@
           },
           {
             "box": [
-              0.103,
+              0.11,
               0.558,
-              0.284,
+              0.232,
               0.992
             ],
             "on_line": 1,
@@ -342,27 +349,27 @@
         "type": "pipeline",
         "image": "pipeline.png",
         "zoom": [
-          0.215,
-          0.05,
-          0.5,
-          0.97
+          0.095,
+          0.0,
+          0.47,
+          1.05
         ],
         "highlights": [
           {
             "box": [
-              0.226,
-              0.276,
-              0.276,
-              0.422
+              0.11,
+              0.078,
+              0.232,
+              0.522
             ],
             "on_line": 0,
             "color": "#E07B1F"
           },
           {
             "box": [
-              0.295,
+              0.243,
               0.345,
-              0.388,
+              0.343,
               0.683
             ],
             "on_line": 0,
@@ -370,19 +377,19 @@
           },
           {
             "box": [
-              0.226,
-              0.662,
-              0.276,
-              0.808
+              0.11,
+              0.558,
+              0.232,
+              0.992
             ],
             "on_line": 1,
             "color": "#2E8B4A"
           },
           {
             "box": [
-              0.295,
+              0.243,
               0.345,
-              0.388,
+              0.343,
               0.683
             ],
             "on_line": 1,
@@ -394,12 +401,12 @@
     {
       "id": "s08_pipeline_final",
       "cue": "zoom on final in fig 2",
-      "narration": "The predicted noise is compared with the known noise to compute the training loss\nor, at inference, used to denoise the input over 500 repeated steps.",
+      "narration": "The predicted noise is compared with the known noise to compute the training loss\nor, at inference, used for 500 denoising steps to generate the final stipple.",
       "visual": {
         "type": "pipeline",
         "image": "pipeline.png",
         "zoom": [
-          0.775,
+          0.758,
           0.0,
           1.0,
           1.05
@@ -407,9 +414,9 @@
         "highlights": [
           {
             "box": [
-              0.782,
+              0.766,
               0.345,
-              0.876,
+              0.867,
               0.683
             ],
             "on_line": 0,
@@ -417,7 +424,7 @@
           },
           {
             "box": [
-              0.886,
+              0.877,
               0.078,
               0.999,
               0.522
@@ -427,17 +434,17 @@
           },
           {
             "box": [
-              0.782,
+              0.766,
               0.345,
-              0.876,
-              0.77
+              0.867,
+              0.683
             ],
             "on_line": 1,
             "color": "#2E8B4A"
           },
           {
             "box": [
-              0.886,
+              0.877,
               0.558,
               0.999,
               0.992
@@ -450,24 +457,29 @@
     },
     {
       "id": "s09_datasets",
-      "cue": "show 1 icon 1 portrait 1 shapenet from fig 3. Show target and our diffusion iterative from noise to stippling",
-      "narration": "We evaluate our method on three datasets, converted to grayscale and paired with offline exemplar stipples generated by Gaussian Blue Noise and Weighted Voronoi Stippling.",
+      "cue": "show 1 icon 1 portrait 1 ShapeNet2D 1 Anime Chibi from fig 3. Show target and our diffusion iterative from noise to stippling",
+      "narration": "We evaluate our method on four datasets, converted to grayscale and paired with offline exemplar stipples generated by Gaussian Blue Noise and Weighted Voronoi Stippling.",
       "visual": {
         "type": "trajectory",
         "panels": [
           {
-            "traj": "icon_g32",
+            "traj": "icon_leopard_g32",
             "label": "Icons-50",
             "show_target": true
           },
           {
-            "traj": "face_g32",
+            "traj": "face_002253_g32",
             "label": "CelebA",
             "show_target": true
           },
           {
-            "traj": "shapenet_g40",
-            "label": "ShapeNet",
+            "traj": "shapenet2d_g40",
+            "label": "ShapeNet2D",
+            "show_target": true
+          },
+          {
+            "traj": "chibi_g40",
+            "label": "Anime Chibi",
             "show_target": true
           }
         ]
@@ -496,13 +508,14 @@
     {
       "id": "s11_tone",
       "cue": "show tone correction iterations in figure 9",
-      "narration": "The model is fully differentiable, enabling end-to-end optimization of target densities with respect to objectives on rendered stipples.",
+      "narration": "Our sampler is differentiable, which lets us optimize the requested density to correct dot gain in rendered stipples.",
       "visual": {
         "type": "tone",
         "data": "tone_lg_2_woman_with_bunny_ears",
         "result": "video/assets/sources/tone_results/main/lg_2_woman_with_bunny_ears.npz",
         "image": "video/assets/sources/tone_results/source/lg_2_woman_with_bunny_ears.png"
-      }
+      },
+      "min_seconds": 15.0
     },
     {
       "id": "s12_thanks",

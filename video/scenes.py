@@ -29,6 +29,11 @@ from common import FIG_DIR, RESULTS_DIR, TRAJ_DIR, subtitle_timeline
 SUPERSAMPLE = 3                 # point discs are drawn at 3x and downsampled (anti-aliasing)
 FADE_S = 0.5                    # fade-in time of the shot's content
 SUBTITLE_HEIGHT = 1.05          # frame units reserved at the bottom for subtitles
+FIGURE_COUNTER_ROOM = 0.9       # frame units kept free under a figure row for its counter
+# tone shot: the point animation ends with the narration, then a before/after grid replaces it
+TONE_MIN_MORPH_S = 4.0          # shortest animation, if the narration is very short
+TONE_PAUSE_S = 0.8              # the final state (step 300, PSNR) stays before the grid appears
+TONE_SWAP_S = 0.7               # crossfade from the animated row to the before/after grid
 
 
 # ── small helpers ────────────────────────────────────────────────────────────────────
@@ -74,16 +79,29 @@ def gray_to_rgb(img01):
     return np.repeat(g[..., None], 3, axis=2)
 
 
-def render_points(pts, size_px, radius_px, color=(26, 26, 26), background=(255, 255, 255)):
-    """(N,2) points in the unit square, y down -> (S,S,3) uint8 scatter image."""
+def render_points(pts, size_px, radius_px, color=(26, 26, 26), background=(255, 255, 255), aspect=1.0):
+    """(N,2) points in the unit square, y down -> (S, S*aspect, 3) uint8 scatter image.
+
+    `aspect` is the image's width / height. The model normalizes each axis on its own, so
+    for a non-square image x spans the width and y the height."""
     s = SUPERSAMPLE
-    canvas = Image.new("RGB", (size_px * s, size_px * s), background)
+    w_px = panel_width_px(size_px, aspect)
+    canvas = Image.new("RGB", (w_px * s, size_px * s), background)
     draw = ImageDraw.Draw(canvas)
     r = max(radius_px * s, 1.0)
-    xy = np.asarray(pts, np.float64) * (size_px * s)
+    xy = np.asarray(pts, np.float64) * np.array([w_px * s, size_px * s], np.float64)
     for x, y in xy:
         draw.ellipse((x - r, y - r, x + r, y + r), fill=color)
-    return np.asarray(canvas.resize((size_px, size_px), Image.LANCZOS))
+    return np.asarray(canvas.resize((w_px, size_px), Image.LANCZOS))
+
+
+def panel_width_px(size_px, aspect):
+    return max(1, int(round(size_px * aspect)))
+
+
+def image_aspect(img):
+    """width / height of an (H,W) image, 1.0 when there is none."""
+    return 1.0 if img is None else float(img.shape[1]) / float(img.shape[0])
 
 
 def render_darkness(coords, size_px, sigma_frac, gain, chunk=8192):
@@ -101,6 +119,39 @@ def render_darkness(coords, size_px, sigma_frac, gain, chunk=8192):
         d2 = ((g[:, None, :] - c[None, :, :]) ** 2).sum(-1)
         ink[a:a + chunk] = np.exp(inv * d2).sum(1)
     return 1.0 - np.exp(-float(gain) * ink.reshape(size_px, size_px))
+
+
+def render_darkness_splat(coords, size_px, sigma_frac, gain):
+    """render_darkness by splatting the points bilinearly onto the pixel grid and blurring with
+    the same Gaussian: the same image up to interpolation, but fast enough to redo every frame."""
+    from scipy.ndimage import gaussian_filter
+    n = int(size_px)
+    acc = np.zeros((n, n), np.float32)
+    xy = np.asarray(coords, np.float64) * n - 0.5          # pixel centers sit at (i + 0.5) / n
+    x0, y0 = np.floor(xy[:, 0]).astype(int), np.floor(xy[:, 1]).astype(int)
+    fx, fy = xy[:, 0] - x0, xy[:, 1] - y0
+    for dx, dy, w in ((0, 0, (1 - fx) * (1 - fy)), (1, 0, fx * (1 - fy)),
+                      (0, 1, (1 - fx) * fy), (1, 1, fx * fy)):
+        xi, yi = x0 + dx, y0 + dy
+        ok = (xi >= 0) & (xi < n) & (yi >= 0) & (yi < n)
+        np.add.at(acc, (yi[ok], xi[ok]), w[ok].astype(np.float32))
+    s = float(sigma_frac) * n
+    ink = gaussian_filter(acc, s, mode="constant", truncate=4.0) * (2.0 * np.pi * s * s)
+    return 1.0 - np.exp(-float(gain) * ink)
+
+
+def ot_match(a, b):
+    """Index array m such that a[i] -> b[m[i]] is the optimal-transport (minimum total squared
+    distance) one-to-one matching of two equal-size point sets."""
+    from scipy.optimize import linear_sum_assignment
+    from scipy.spatial.distance import cdist
+    _, m = linear_sum_assignment(cdist(a, b, "sqeuclidean"))
+    return m
+
+
+def smoothstep(x):
+    x = float(np.clip(x, 0.0, 1.0))
+    return x * x * (3.0 - 2.0 * x)
 
 
 def render_ink_dots(coords, size_px, radius_frac, alpha, supersample=3):
@@ -124,9 +175,9 @@ def render_ink_dots(coords, size_px, radius_frac, alpha, supersample=3):
     return np.asarray(img.resize((size_px, size_px), Image.LANCZOS), np.float32) / 255.0
 
 
-def dot_radius(n_points, size_px):
+def dot_radius(n_points, size_px, aspect=1.0):
     """Disc radius that reads like the paper figures at any point count."""
-    spacing = size_px / max(np.sqrt(n_points), 1.0)
+    spacing = size_px * np.sqrt(aspect) / max(np.sqrt(n_points), 1.0)
     return float(np.clip(0.16 * spacing, 0.9, 3.2))
 
 
@@ -204,6 +255,15 @@ class ShotScene(MovingCameraScene):
 
         def upd(m, dt):
             set_alpha(m, ramp(self.clock.t, t0, t1))
+        mob.add_updater(upd)
+        return mob
+
+    def fade_in_out(self, mob, in0, in1, out0, out1):
+        """Fade a mobject in over [in0, in1] and out again over [out0, out1] of the shot clock."""
+        set_alpha(mob, 0.0)
+
+        def upd(m, dt):
+            set_alpha(m, ramp(self.clock.t, in0, in1) * (1.0 - ramp(self.clock.t, out0, out1)))
         mob.add_updater(upd)
         return mob
 
@@ -379,13 +439,16 @@ class ShotScene(MovingCameraScene):
             cap = self.text(label, size=26) if label else None
             items.append(Group(m, cap).arrange(UP, buff=0.25) if cap else m)
         g = Group(*items).arrange(RIGHT, buff=0.5)
-        if g.width > config.frame_width - 0.8:
-            g.scale_to_fit_width(config.frame_width - 0.8)
-        g.move_to(self.content_center())
+        # fit width and height, leaving room for the counter line under the row
+        max_h = self.content_height() - (FIGURE_COUNTER_ROOM if counters else 0.2)
+        scale = min(1.0, (config.frame_width - 0.8) / g.width, max_h / g.height)
+        g.scale(scale)
+        g.move_to(self.content_center() + (UP * FIGURE_COUNTER_ROOM / 2 if counters else ORIGIN))
         for i, it in enumerate(items):
             self.fade_in(it, 0.3 * i, 0.3 * i + FADE_S)
             self.add(it)
         for b in borders:
+            b.scale(scale)          # frames follow their panel's center, but not its size
             self.fade_in(b)
             self.add(b)
         for counter in counters:
@@ -560,13 +623,15 @@ class ShotScene(MovingCameraScene):
         return later[0] * self.shot_len if later else None
 
     # ── point-set animations (WVS and our sampler) ───────────────────────────────────
-    def _point_panel(self, frames, size_units, times, t0, t1, label_fn=None):
+    def _point_panel(self, frames, size_units, times, t0, t1, label_fn=None, aspect=1.0):
         """An image mobject showing `frames` (K,N,2) interpolated over clock [t0, t1].
 
-        `times` (K,) are the positions of the frames on a 0..1 progress axis."""
+        `times` (K,) are the positions of the frames on a 0..1 progress axis. `size_units` is
+        the panel height; its width is size_units * aspect."""
         size_px = int(round(size_units * px_per_unit()))
-        radius = dot_radius(frames.shape[1], size_px)
-        first = render_points(frames[0], size_px, radius)
+        w_px = panel_width_px(size_px, aspect)
+        radius = dot_radius(frames.shape[1], size_px, aspect)
+        first = render_points(frames[0], size_px, radius, aspect=aspect)
         m = image_mobject(first, size_units)
         cache = {"key": None}
 
@@ -580,12 +645,12 @@ class ShotScene(MovingCameraScene):
                 return
             cache["key"] = key
             pts = frames[k] * (1 - a) + frames[k + 1] * a
-            mob.pixel_array = np.dstack([render_points(pts, size_px, radius),
-                                         np.full((size_px, size_px), 255, np.uint8)])
+            mob.pixel_array = np.dstack([render_points(pts, size_px, radius, aspect=aspect),
+                                         np.full((size_px, w_px), 255, np.uint8)])
             if label_fn is not None:
                 label_fn(k, a)
         m.add_updater(upd)
-        border = Rectangle(width=size_units, height=size_units, stroke_color="#BBBBBB", stroke_width=1.5)
+        border = Rectangle(width=size_units * aspect, height=size_units, stroke_color="#BBBBBB", stroke_width=1.5)
         border.add_updater(lambda b, dt: b.move_to(m.get_center()))
         return m, border
 
@@ -644,12 +709,13 @@ class ShotScene(MovingCameraScene):
             self.add(m)
         self.add(counter)
 
-    def _crossfade_panel(self, first, last, size_units, t0, t1):
+    def _crossfade_panel(self, first, last, size_units, t0, t1, aspect=1.0):
         """Two real point sets (prior, final result), crossfaded over clock [t0, t1]."""
         size_px = int(round(size_units * px_per_unit()))
-        radius = dot_radius(last.shape[0], size_px)
-        a_img = render_points(first, size_px, radius).astype(np.float32)
-        b_img = render_points(last, size_px, radius).astype(np.float32)
+        w_px = panel_width_px(size_px, aspect)
+        radius = dot_radius(last.shape[0], size_px, aspect)
+        a_img = render_points(first, size_px, radius, aspect=aspect).astype(np.float32)
+        b_img = render_points(last, size_px, radius, aspect=aspect).astype(np.float32)
         m = image_mobject(a_img.astype(np.uint8), size_units)
         cache = {"a": None}
 
@@ -659,40 +725,48 @@ class ShotScene(MovingCameraScene):
                 return
             cache["a"] = a
             rgb = (a_img * (1 - a) + b_img * a + 0.5).astype(np.uint8)
-            mob.pixel_array = np.dstack([rgb, np.full((size_px, size_px), 255, np.uint8)])
+            mob.pixel_array = np.dstack([rgb, np.full((size_px, w_px), 255, np.uint8)])
         m.add_updater(upd)
-        border = Rectangle(width=size_units, height=size_units, stroke_color="#BBBBBB", stroke_width=1.5)
+        border = Rectangle(width=size_units * aspect, height=size_units, stroke_color="#BBBBBB", stroke_width=1.5)
         border.add_updater(lambda b, dt: b.move_to(m.get_center()))
         return m, border
 
     def shot_trajectory(self, v):
         panels = v["panels"]
         each_target = any(p.get("show_target") for p in panels)
-        n = len(panels)
-        cols = n + (0 if each_target or not v.get("target") else 1)
+        animate = bool(v.get("animate", True))
+        # "trajectories": false -> crossfade prior -> final even if a trajectory file exists
+        sources = []
+        for p in panels:
+            d = load_npz(p["traj"]) if animate and v.get("trajectories", True) else None
+            sources.append((d, None if d is not None else load_result(p["traj"])))
+        # panels keep their image's aspect ratio (ShapeNet2D and Anime Chibi are not square)
+        aspects = [image_aspect((d if d is not None else r or {}).get("image")) for d, r in sources]
+        target_aspect = 1.0
+        if v.get("target") and not each_target:
+            td = load_npz(v["target"]) or load_result(v["target"])
+            target_aspect = image_aspect(td["image"]) if td is not None else 1.0
+        cols = len(panels) + (0 if each_target or not v.get("target") else 1)
         avail_w = config.frame_width - 0.8 - 0.45 * (cols - 1)
+        sum_aspect = sum(aspects) + (target_aspect if cols > len(panels) else 0.0)
         rows_h = self.content_height() - (1.4 if each_target else 1.0)
-        size = min(avail_w / cols, rows_h / (2 if each_target else 1), 4.2)
+        size = min(avail_w / sum_aspect, rows_h / (2 if each_target else 1), 4.2)
 
         # timeline: prior (clean rejection sample, held), forward noising, reverse process, hold
         t_prior, t_noise = FADE_S + 1.3, FADE_S + 2.1
         t_end = max(t_noise + 1.0, self.shot_len - 1.1)
         state = {"step": None, "result_only": True}
-        animate = bool(v.get("animate", True))
         if animate:
             t_fade0, t_fade1 = FADE_S + 0.6 + 0.25 * self.shot_len, FADE_S + 1.8 + 0.25 * self.shot_len
         else:                     # show the final result from the start
             t_fade0, t_fade1 = -2.0, -1.0
         cells = []
-        for p in panels:
-            # "trajectories": false -> crossfade prior -> final even if a trajectory file exists
-            d = load_npz(p["traj"]) if animate and v.get("trajectories", True) else None
+        for p, (d, r), aspect in zip(panels, sources, aspects):
             if d is None:
-                r = load_result(p["traj"])
                 if r is None:
                     cells.append((placeholder(size, f"run stage_1_trajectories.py ({p['traj']})", self.fg), None, p))
                     continue
-                panel, border = self._crossfade_panel(r["prior"], r["final"], size, t_fade0, t_fade1)
+                panel, border = self._crossfade_panel(r["prior"], r["final"], size, t_fade0, t_fade1, aspect)
                 cells.append((panel, border, p, r))
                 continue
             state["result_only"] = False
@@ -710,7 +784,7 @@ class ShotScene(MovingCameraScene):
                 else:
                     s = steps[min(k - 1 + (1 if a > 0.5 else 0), len(steps) - 1)]
                     state["step"] = int(round(t_start - s))
-            panel, border = self._point_panel(frames, size, times, t_prior, t_end, on_frame)
+            panel, border = self._point_panel(frames, size, times, t_prior, t_end, on_frame, aspect)
             cells.append((panel, border, p, d))
 
         items = []
@@ -725,7 +799,6 @@ class ShotScene(MovingCameraScene):
             items.append((col, panel, border))
         cols_g = [it[0] for it in items]
         if v.get("target") and not each_target:
-            td = load_npz(v["target"]) or load_result(v["target"])
             tgt = (image_mobject(gray_to_rgb(td["image"]), size) if td is not None
                    else placeholder(size, f"missing {v['target']}", self.fg))
             cols_g.insert(0, Group(self.text("Target", size=28, weight="BOLD"), tgt).arrange(DOWN, buff=0.22))
@@ -822,14 +895,19 @@ class ShotScene(MovingCameraScene):
 
 
     def _tone_result(self, r):
-        """Uncorrected vs optimized (real end states), crossfaded while the real loss curve of
-        the 300 optimizer steps is drawn; the crossfade follows the loss, not a fake state."""
+        """Tone correction in two phases. While the narration runs, the uncorrected stipple's points
+        move to their optimal-transport partners in the optimized stipple, the error is re-rendered
+        from the moving points, and the real loss curve of the 300 optimizer steps is drawn. Then a
+        2x3 grid shows the uncorrected (top) and optimized (bottom) end states side by side."""
         import matplotlib
         cmap = matplotlib.colormaps["RdBu_r"]
         target = r["target"]
         loss = r["field_loss"].astype(np.float64)
         K = len(loss)
-        t0, t1 = FADE_S + 0.4, self.shot_len - 1.4
+        t0 = FADE_S + 0.4
+        # the animation finishes when the narration does; the before/after grid follows
+        t1 = max(t0 + TONE_MIN_MORPH_S, self.settings["lead_in_s"] + self._speech())
+        t_swap0, t_swap1 = t1 + TONE_PAUSE_S, t1 + TONE_PAUSE_S + TONE_SWAP_S
         gap = 0.35
         size = min((config.frame_width - 1.2 - 3 * gap) / 4, self.content_height() - 1.8)
         px = int(round(size * px_per_unit()))
@@ -846,47 +924,72 @@ class ShotScene(MovingCameraScene):
             rgb = (cmap(np.clip(x / lim * 0.5 + 0.5, 0, 1))[..., :3] * 255).astype(np.uint8)
             return resize(rgb) if rgb.shape[0] != px else rgb.astype(np.float32)
 
-        if "none_coords" in r:
-            # Re-render the stipples from their points at the panel's own resolution (the stored
-            # renders are 256 px and would be enlarged); the dot size is kept relative to the canvas.
-            sig = float(r["dot_sigma_px"]) / float(r["render_res"])
+        # Morph progress a in [0, 1] follows a smooth ease of the shot time. The optimizer step
+        # shown (and the drawn loss curve) is the real step whose loss drop matches a, so the
+        # curve stays true to the 300 steps while the motion is spread evenly over the shot
+        # (the loss falls almost entirely in the first few dozen steps).
+        drop = np.maximum.accumulate(np.clip((loss[0] - loss) / max(loss[0] - loss[-1], 1e-12), 0, 1))
+        state = {"k": 0, "a": 0.0}
 
-            def dark_at(coords):                        # 2x supersampled, then filtered down
-                big = render_darkness(coords, 2 * px, sig, r["ink_gain"])
-                g = Image.fromarray(np.clip(big * 255.0 + 0.5, 0, 255).astype(np.uint8))
-                return np.asarray(g.resize((px, px), Image.LANCZOS), np.float32) / 255.0
-            dark0, dark1 = dark_at(r["none_coords"]), dark_at(r["field_coords"])
+        def morph():
+            p = ramp(self.clock.t, t0, t1)
+            a = smoothstep(p)
+            state["a"] = a
+            # the step follows the loss drop early on and at least the clock later, so it reaches
+            # the last step at t1 (the loss is nearly flat for most of the 300 steps)
+            k_drop = int(np.searchsorted(drop, a - 1e-9))
+            state["k"] = int(min(max(k_drop, round(p * (K - 1))), K - 1))
+            return round(a, 3)
+
+        frame_cache = {"a": None, "imgs": None}
+        if "none_coords" in r:
+            # The stipple moves: every uncorrected point travels to its partner in the optimized
+            # set under the optimal-transport matching of the two point sets. The stipple and the
+            # error are re-rendered from the moving points at the panel's own resolution (the
+            # dot size is kept relative to the canvas, as in the experiment).
+            sig = float(r["dot_sigma_px"]) / float(r["render_res"])
+            p0 = np.asarray(r["none_coords"], np.float64)
+            p1 = np.asarray(r["field_coords"], np.float64)[ot_match(r["none_coords"], r["field_coords"])]
             tgt = 1.0 - np.asarray(Image.fromarray((r["image"] * 255).astype(np.uint8)).resize((px, px), Image.LANCZOS),
                                    np.float32) / 255.0
-            e0, e1 = dark0 - tgt, dark1 - tgt           # errors: from the renderer's raster
-            # stipple panel: sharp discs, as in the paper figure (radius 1.8 sigma, Beer-Lambert alpha)
-            radius = 1.8 * sig
+            radius = 1.8 * sig                          # sharp discs, as in the paper figure
             alpha = 1.0 - float(np.exp(-float(r["ink_gain"])))
-            dark0 = render_ink_dots(r["none_coords"], px, radius, alpha)
-            dark1 = render_ink_dots(r["field_coords"], px, radius, alpha)
+            rho0, rho1 = ink(r["none_rho"]), ink(r["field_rho"])
+
+            def dark_at(coords):                        # 2x supersampled, then filtered down
+                big = render_darkness_splat(coords, 2 * px, sig, r["ink_gain"])
+                g = Image.fromarray(np.clip(big * 255.0 + 0.5, 0, 255).astype(np.uint8))
+                return np.asarray(g.resize((px, px), Image.LANCZOS), np.float32) / 255.0
+
+            def frame(a):
+                if frame_cache["a"] != a:
+                    pts = p0 * (1.0 - a) + p1 * a
+                    frame_cache["imgs"] = [rho0 * (1.0 - a) + rho1 * a,
+                                           ink(render_ink_dots(pts, px, radius, alpha)),
+                                           err_rgb(dark_at(pts) - tgt)]
+                    frame_cache["a"] = a
+                return frame_cache["imgs"]
         else:
-            dark0, dark1, e0, e1 = r["none_dark"], r["field_dark"], err0, r["field_dark"] - target
-        pairs = [(ink(r["none_rho"]), ink(r["field_rho"]), "Requested density"),
-                 (ink(dark0), ink(dark1), "Rendered stipple"),
-                 (err_rgb(e0), err_rgb(e1), "Error (red: too dark, blue: too light)")]
-        drop = (loss[0] - loss) / max(loss[0] - loss[-1], 1e-12)       # 0 -> 1 as the loss falls
-        state = {"k": 0}
+            ends = [(ink(r["none_rho"]), ink(r["field_rho"])), (ink(r["none_dark"]), ink(r["field_dark"])),
+                    (err_rgb(err0), err_rgb(r["field_dark"] - target))]
 
-        def progress():
-            return ramp(self.clock.t, t0, t1)
+            def frame(a):
+                if frame_cache["a"] != a:
+                    frame_cache["imgs"] = [x * (1.0 - a) + y * a for x, y in ends]
+                    frame_cache["a"] = a
+                return frame_cache["imgs"]
 
+        titles = ["Requested density", "Rendered stipple", "Error (red: too dark, blue: too light)"]
         cols = []
-        for a_img, b_img, title in pairs:
-            m = image_mobject(a_img.astype(np.uint8), size)
+        for j, title in enumerate(titles):
+            m = image_mobject((frame(0.0)[j] + 0.5).astype(np.uint8), size)
 
-            def upd(mob, dt, a_img=a_img, b_img=b_img, cache={"a": None}):
-                k = int(round(progress() * (K - 1)))
-                state["k"] = k
-                a = round(float(np.clip(drop[k], 0, 1)), 3)
+            def upd(mob, dt, j=j, cache={"a": None}):
+                a = morph()
                 if a == cache["a"]:
                     return
                 cache["a"] = a
-                rgb = (a_img * (1 - a) + b_img * a + 0.5).astype(np.uint8)
+                rgb = (frame(a)[j] + 0.5).astype(np.uint8)
                 mob.pixel_array = np.dstack([rgb, np.full((px, px), 255, np.uint8)])
             m.add_updater(upd)
             cap = self.text(title, size=22)
@@ -907,7 +1010,8 @@ class ShotScene(MovingCameraScene):
         curve.set_points_as_corners(curve_pts[:2])
 
         def draw(c, dt):
-            k = max(2, int(round(progress() * (K - 1))) + 1)
+            morph()                                     # the curve is drawn up to the shown step
+            k = max(2, state["k"] + 1)
             c.set_points_as_corners(curve_pts[:k])
         curve.add_updater(draw)
         cap_l = self.text("Loss over 300 optimizer steps", size=22)
@@ -920,7 +1024,7 @@ class ShotScene(MovingCameraScene):
         # the curve's points were built around the old origin; move them with the axes
         curve_pts += axes[0].get_start() - origin
         for m in cols:
-            self.fade_in(m)
+            self.fade_in_out(m, 0.0, FADE_S, t_swap0, t_swap1)
             self.add(m)
 
         def label():
@@ -928,7 +1032,32 @@ class ShotScene(MovingCameraScene):
             if k >= K - 1:
                 return f"PSNR {float(r['none_psnr']):.2f} dB  →  {float(r['field_psnr']):.2f} dB"
             return f"optimization step {k + 1} / {K}"
-        self.add(self._counter("{}", row.get_bottom() + DOWN * 0.4, label))
+        counter = self._counter("{}", row.get_bottom() + DOWN * 0.4, label)
+        counter.add_updater(lambda h, dt: set_alpha(h, 1.0 - ramp(self.clock.t, t_swap0, t_swap1)))
+        self.add(counter)
+
+        # before/after grid: the uncorrected (top) and optimized (bottom) end states, so the visual
+        # change can be compared directly once the animation is over
+        before, after = list(frame(0.0)), list(frame(1.0))
+        g = min(size, (self.content_height() - 1.5) / 2)
+        rows = [("Uncorrected", float(r["none_psnr"]), before),
+                ("Optimized density", float(r["field_psnr"]), after)]
+        tiles = [image_mobject((img + 0.5).astype(np.uint8), g) for _, _, imgs in rows for img in imgs]
+        grid = Group(*tiles).arrange_in_grid(rows=2, cols=3, buff=(0.35, 0.3))
+        heads = []
+        for j, title in enumerate(titles):
+            cap = self.text(title, size=22)
+            if cap.width > g + 0.2:
+                cap.scale_to_fit_width(g + 0.2)
+            heads.append(cap.next_to(tiles[j], UP, buff=0.15))
+        labels = []
+        for i, (name, psnr, _) in enumerate(rows):
+            lab = Group(self.text(name, size=26, weight="BOLD"), self.text(f"PSNR {psnr:.2f} dB", size=24)).arrange(DOWN, buff=0.12)
+            labels.append(lab.next_to(tiles[3 * i], LEFT, buff=0.4))
+        Group(grid, *heads, *labels).move_to(self.content_center())
+        for m in [*tiles, *heads, *labels]:
+            self.fade_in(m, t_swap0, t_swap1)
+            self.add(m)
 
 
 __all__ = ["ShotScene", "ORIGIN"]
