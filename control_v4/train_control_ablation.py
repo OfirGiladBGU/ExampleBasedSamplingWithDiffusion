@@ -1,21 +1,20 @@
-"""Train the Dynamic ControlNet V4 (Truncated Control) for stippling.
+"""Train the architecture-ablation checkpoints of the Dynamic ControlNet (Icons-50, GBN).
 
-V4 keeps the frozen base denoiser + trainable control branch, adds Smart Init as
-an extra hint channel, and trains on truncated late-timestep noise.
+Same trainer as ``train_control.py`` (its ``run()`` is reused), with defaults set for the
+ablations: training and evaluation sampling both use the full schedule (truncation
+ratios 1.0). Pick a variant by uncommenting its block in the configuration section:
 
-Optional intermediate evaluation sampling supports full-schedule
-RePaint-style resampling via ``--resample-jumps``.
+    vanilla   frozen pretrained base (config/GBN/model.ckpt), no GECCO, no gates
+    unfrozen  base trained jointly from scratch, no GECCO, no gates
+    gecco     frozen pretrained base + GECCO features
+    agi       frozen pretrained base + adaptive gate injection
+    full      base trained jointly from scratch + GECCO + adaptive gates
+
+Each writes to ``control_v4/train_outputs_Icons-50_1024_GBN_<variant>``. The SDEdit
+variant is inference-only: it reuses the ``full`` weights with a Smart Init start.
 
 Usage (from project root):
-    python control_v4/train_control.py \
-        --config  config/GBN/config.json \
-        --ckpt    config/GBN/model.ckpt \
-        --source  /path/to/source \
-        --offsets /path/to/processed_offsets \
-        --epochs  100 \
-        --batch_size 16 \
-        --lr 1e-4 \
-        --out control_v4/control_out
+    python control_v4/train_control_ablation.py
 """
 
 import os

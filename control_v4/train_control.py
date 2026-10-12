@@ -1,21 +1,25 @@
-"""Train the Dynamic ControlNet V4 (Truncated Control) for stippling.
+"""Train the Dynamic ControlNet (Smart Init + truncated SDEdit sampling) for stippling.
 
-V4 keeps the frozen base denoiser + trainable control branch, adds Smart Init as
-an extra hint channel, and trains on truncated late-timestep noise.
+The base U-Net and the control branch (GECCO features + adaptive gate injection) are
+randomly initialized and trained jointly from scratch (``--base_ckpt_path ""
+--no-freeze-denoiser``); ``--base_ckpt_path config/GBN/model.ckpt --freeze-denoiser``
+instead trains the branch on a frozen pretrained base. The loss is a Min-SNR-weighted
+noise-prediction MSE plus a KDE density loss on the one-step x0 decode. Training
+timesteps cover the first ``--train-truncation-ratio`` of the schedule (default 1.0 =
+full schedule); evaluation sampling starts from a noised Smart Init at
+``--infer-truncation-ratio`` (default 0.5), with optional RePaint-style resampling via
+``--resample-jumps``.
 
-Optional intermediate evaluation sampling supports full-schedule
-RePaint-style resampling via ``--resample-jumps``.
+Offsets are exported from ``--target`` (the exact .npy points, PNG centroids as fallback)
+into ``processed_offsets/`` next to it on the first run.
 
 Usage (from project root):
     python control_v4/train_control.py \
-        --config  config/GBN/config.json \
-        --ckpt    config/GBN/model.ckpt \
-        --source  /path/to/source \
-        --offsets /path/to/processed_offsets \
-        --epochs  100 \
-        --batch_size 16 \
-        --lr 1e-4 \
-        --out control_v4/control_out
+        --source /path/to/training/Icons-50_1024_GBN/source \
+        --target /path/to/training/Icons-50_1024_GBN/target \
+        --out    control_v4/train_outputs_Icons-50_1024_GBN \
+        --base_ckpt_path "" --no-freeze-denoiser \
+        --grid-size 32
 """
 
 import os
