@@ -106,6 +106,9 @@ MIN_SNR_GAMMA = 5.0
 GEOM_CLUMP_WEIGHT = 1.0
 BEST_MAX_CV = 1e9
 BEST_MAX_CLUMPED_PCT = 100.0
+# Write a separate best_dynamic_ep*.ckpt whenever the geometry score improves. Off: the final
+# periodic checkpoint is the one used, and the best score is still tracked in every checkpoint.
+SAVE_BEST = False
 
 # ── Synced with train_control.py run(): these args are READ by run() and must be
 #    provided or run(args) raises AttributeError. Defaults preserve the original
@@ -249,6 +252,8 @@ def main():
                         help="Only save best-geom checkpoint if CV <= this value")
     parser.add_argument("--best-max-clumped-pct", type=float, default=BEST_MAX_CLUMPED_PCT,
                         help="Only save best-geom checkpoint if clumped_pct <= this value")
+    parser.add_argument("--save-best", action=argparse.BooleanOptionalAction, default=SAVE_BEST,
+                        help="Also write best_dynamic_ep*.ckpt when the geometry score improves")
 
     # Training configuration
     parser.add_argument("--epochs", type=int, default=EPOCHS)

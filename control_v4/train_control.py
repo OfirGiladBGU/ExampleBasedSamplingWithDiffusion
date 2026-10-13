@@ -177,6 +177,9 @@ MIN_SNR_GAMMA = 5.0
 GEOM_CLUMP_WEIGHT = 1.0
 BEST_MAX_CV = 1e9
 BEST_MAX_CLUMPED_PCT = 100.0
+# Write a separate best_dynamic_ep*.ckpt whenever the geometry score improves. Off: the final
+# periodic checkpoint is the one used, and the best score is still tracked in every checkpoint.
+SAVE_BEST = False
 
 # Training configuration
 WANDB_ACTIVE = True
@@ -1158,6 +1161,8 @@ def main():
                         help="Only save best-geom checkpoint if CV <= this value")
     parser.add_argument("--best-max-clumped-pct", type=float, default=BEST_MAX_CLUMPED_PCT,
                         help="Only save best-geom checkpoint if clumped_pct <= this value")
+    parser.add_argument("--save-best", action=argparse.BooleanOptionalAction, default=SAVE_BEST,
+                        help="Also write best_dynamic_ep*.ckpt when the geometry score improves")
 
     # Training configuration
     parser.add_argument("--epochs", type=int, default=EPOCHS)
@@ -1961,34 +1966,35 @@ def run(args):
 
                 if cv_ok and clump_ok and geom_score < best_geom_score:
                     best_geom_score = geom_score
-                    best_name = BEST_WEIGHTS_FILENAME.format(
-                        epoch=f"{epoch+1:04d}",
-                        score=f"{best_geom_score:.3f}",
-                        cv=f"{geom['cv']:.3f}",
-                        clumped=f"{geom['clumped_pct']:.2f}",
-                    )
-                    new_best_path = os.path.join(checkpoints_dir, best_name)
-                    best_payload = {
-                        "control_net": control_net.state_dict(),
-                        "denoiser": (None if args.freeze_denoiser else denoiser.state_dict()),
-                        "freeze_denoiser": bool(args.freeze_denoiser),
-                        "optimizer": optimizer.state_dict(),
-                        "epoch": epoch,
-                        "global_step": global_step,
-                        "best_geom_score": best_geom_score,
-                        "cv_score": float(geom["cv"]),
-                        "clumped_score": float(geom["clumped_pct"]),
-                        "current_geom_score": geom_score,
-                    }
-                    torch.save(best_payload, new_best_path)
+                    if args.save_best:
+                        best_name = BEST_WEIGHTS_FILENAME.format(
+                            epoch=f"{epoch+1:04d}",
+                            score=f"{best_geom_score:.3f}",
+                            cv=f"{geom['cv']:.3f}",
+                            clumped=f"{geom['clumped_pct']:.2f}",
+                        )
+                        new_best_path = os.path.join(checkpoints_dir, best_name)
+                        best_payload = {
+                            "control_net": control_net.state_dict(),
+                            "denoiser": (None if args.freeze_denoiser else denoiser.state_dict()),
+                            "freeze_denoiser": bool(args.freeze_denoiser),
+                            "optimizer": optimizer.state_dict(),
+                            "epoch": epoch,
+                            "global_step": global_step,
+                            "best_geom_score": best_geom_score,
+                            "cv_score": float(geom["cv"]),
+                            "clumped_score": float(geom["clumped_pct"]),
+                            "current_geom_score": geom_score,
+                        }
+                        torch.save(best_payload, new_best_path)
 
-                    if best_geom_ckpt_path is not None and os.path.exists(best_geom_ckpt_path):
-                        try:
-                            os.remove(best_geom_ckpt_path)
-                        except OSError:
-                            pass
-                    best_geom_ckpt_path = new_best_path
-                    print(f"  -> new best-geom checkpoint: {new_best_path}")
+                        if best_geom_ckpt_path is not None and os.path.exists(best_geom_ckpt_path):
+                            try:
+                                os.remove(best_geom_ckpt_path)
+                            except OSError:
+                                pass
+                        best_geom_ckpt_path = new_best_path
+                        print(f"  -> new best-geom checkpoint: {new_best_path}")
 
                 if use_wandb:
                     wandb.log(

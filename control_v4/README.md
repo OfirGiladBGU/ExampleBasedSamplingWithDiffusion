@@ -14,7 +14,8 @@ problem formulation:
 - the loss is a Min-SNR-weighted noise-prediction MSE plus a KDE density loss
 - RePaint-style resampling jumps are supported but off by default
 - train, sample, overfit, ablation, and dataset-evaluation workflows are supported
-- W&B reporting, geometry metrics, periodic checkpoints, and best-geometry checkpoints are supported
+- W&B reporting, geometry metrics, periodic checkpoints, and optional best-geometry checkpoints are
+  supported
 
 > **Note on naming:** the code still tags its artifacts with a `v4` marker (W&B runs are named
 > `v4-train-...` / `v4-overfit-...`). The approaches that were tried and removed are documented
@@ -40,7 +41,8 @@ model from pure noise, at matched quality.
 - optional RePaint-style forward-backward resampling (`--resample_jumps`, default `0`)
 - CV / clumped% geometry scoring
 - periodic epoch checkpoints via `--save_every`, pruned via `--keep-every`
-- best-geometry checkpoint saving with score, CV, and clumped% in filename
+- optional best-geometry checkpoint saving (`--save-best`, off by default) with score, CV, and
+  clumped% in filename
 
 ### Current Paper Configuration (Feature Flags)
 
@@ -247,7 +249,7 @@ Important training flags:
 * `--min-snr-gamma`
 * `--points-source`, `--drop-white-points`, `--white-threshold`
 * `--save_every`, `--keep-every`
-* `--best-max-cv`, `--best-max-clumped-pct`
+* `--save-best` / `--no-save-best` (default: no), `--best-max-cv`, `--best-max-clumped-pct`
 * *(Note: Smart Init / SDF channel flags are safely defaulted to False in the code)*
 
 Training logs to Weights & Biases (project `Stipple-ControlNet`) and reads `WANDB_API_KEY` from a
@@ -365,7 +367,7 @@ control_v4/train_outputs_<Dataset>_<N>_<SAMPLER>/
   train_panel_ep<N>.png / val_panel_ep<N>.png
   checkpoints/
     dynamic_ep<N>.ckpt                # periodic checkpoints
-    best_dynamic_ep<N>_score..._cv..._clumped....ckpt
+    best_dynamic_ep<N>_score..._cv..._clumped....ckpt   # only with --save-best
 ```
 
 ## W&B reporting
@@ -383,7 +385,7 @@ Training logs per-epoch metrics and visual panels against `epoch`:
 
 ## Checkpoints
 
-Two checkpoint families are kept:
+Two checkpoint families exist:
 
 1. Periodic epoch checkpoints:
 
@@ -394,6 +396,8 @@ Two checkpoint families are kept:
 2. Best geometry checkpoints:
 
 * `checkpoints/best_dynamic_ep<N>_score..._cv..._clumped....ckpt`
+* written only with `--save-best` (off by default: the final periodic checkpoint is the one used,
+  and the best score is still tracked in every checkpoint's `best_geom_score`)
 * gated by geometry thresholds and best score improvement; never pruned
 
 Checkpoint payloads contain:
