@@ -391,7 +391,7 @@ Two checkpoint families exist:
 
 * `checkpoints/dynamic_ep<N>.ckpt`
 * saved every `--save_every` epochs (default 10); once an epoch is a multiple of `--keep-every`
-  (default 100), the earlier ones that are not multiples of it are deleted together with their panels
+  (default 500), the earlier ones that are not multiples of it are deleted together with their panels
 
 2. Best geometry checkpoints:
 

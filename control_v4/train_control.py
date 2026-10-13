@@ -116,11 +116,11 @@ VALID_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
 # Space management: once an epoch is a multiple of KEEP_EVERY, delete the intermediate
 # periodic checkpoints (and their train/val panels) whose epoch is NOT a multiple of
-# KEEP_EVERY. With SAVE_EVERY=10 and KEEP_EVERY=100, epochs 10..90 are pruned once epoch
-# 100 is saved, keeping 100, 200, ...  Set KEEP_EVERY=0 to disable. 'best_*' checkpoints
+# KEEP_EVERY. With SAVE_EVERY=10 and KEEP_EVERY=500, epochs 10..490 are pruned once epoch
+# 500 is saved, keeping 500, 1000, ...  Set KEEP_EVERY=0 to disable. 'best_*' checkpoints
 # are never touched. KEEP_EVERY must be 0 or a multiple of SAVE_EVERY.
 SAVE_EVERY = 10
-KEEP_EVERY = 100
+KEEP_EVERY = 500
 
 # Model parameters
 BASE_CONFIG_PATH = "config/GBN/config.json"
