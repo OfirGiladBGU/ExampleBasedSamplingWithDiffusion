@@ -2175,54 +2175,6 @@ def plot_visual_m1_cvt_vectors(points, image_01, ax):
     ax.set_title(f"{plot_title}", fontsize=_fs())
 
 
-def plot_visual_m5_spectrum(points, image_01, ax):
-    plot_title = "[M5] Power Spectrum"
-
-    H, W = image_01.shape
-    grid_size = max(H, W)
-
-    point_grid = np.zeros((grid_size, grid_size), dtype=np.float32)
-    x_idx = np.clip((points[:, 0] * grid_size).astype(int), 0, grid_size - 1)
-    y_idx = np.clip((points[:, 1] * grid_size).astype(int), 0, grid_size - 1)
-    point_grid[y_idx, x_idx] = 1.0
-
-    power = np.abs(np.fft.fft2(point_grid)) ** 2
-
-    yy, xx = np.mgrid[0:grid_size, 0:grid_size]
-    rr = np.maximum(
-        np.sqrt((xx - grid_size / 2) ** 2 + (yy - grid_size / 2) ** 2), 1.0
-    )
-    radial_bins = np.arange(1, grid_size // 2, dtype=np.float32)
-    radial_power = np.array([
-        power[(rr >= r) & (rr < r + 1)].mean() if ((rr >= r) & (rr < r + 1)).sum() > 0 else 0.0
-        for r in radial_bins
-    ])
-
-    valid = (radial_bins > 0) & (radial_power > 1e-10)
-    if valid.sum() > 2:
-        log_f = np.log(radial_bins[valid])
-        log_p = np.log(radial_power[valid])
-        slope, intercept = np.polyfit(log_f, log_p, 1)
-        ax.plot(radial_bins[valid], radial_power[valid],
-                color="steelblue", alpha=0.8, linewidth=1.0, label="Spectrum")
-        ax.plot(
-            radial_bins[valid],
-            np.exp(intercept) * (radial_bins[valid] ** slope),
-            color="red", linestyle="--", linewidth=1.2, label=f"Fit (slope {slope:.2f})",
-        )
-        ax.legend(fontsize=_fs())
-        ax.set_title(f"{plot_title}\nSlope: {slope:.3f}", fontsize=_fs())
-    else:
-        ax.set_title(f"{plot_title}\n(insufficient data)", fontsize=_fs())
-
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.grid(True, which="both", ls="-", alpha=0.2)
-    ax.tick_params(axis="both", labelsize=_fs())
-    ax.set_xlabel("Radial frequency", fontsize=_fs())
-    ax.set_ylabel("Power", fontsize=_fs())
-
-
 def visualize_spatial_metrics_panel(
     image_01,
     pred_pointsets,
@@ -2307,3 +2259,62 @@ def visualize_spatial_metrics_panel(
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()
     return save_path
+
+
+# ── Legacy / unused ───────────────────────────────────
+# Kept for reference only: not part of the reported M1-M5 battery, not wired
+# into any panel, and not used by the paper. Renamed from
+# ``plot_visual_m5_spectrum`` so it cannot be confused with M5, which is the
+# spatial measure rho (``compute_m5_spatial_measure``).
+#
+# Known issue, unverified: the radial bins below are measured from the centre
+# of the array, but ``np.fft.fft2`` leaves the DC term at index (0, 0). With no
+# ``np.fft.fftshift`` in between, the bins do not line up with the spectrum and
+# the fitted slope should not be trusted. Fix and validate before reusing this.
+
+def plot_visual_m0_spectrum(points, image_01, ax):
+    plot_title = "[M0] Power Spectrum (legacy, unused)"
+
+    H, W = image_01.shape
+    grid_size = max(H, W)
+
+    point_grid = np.zeros((grid_size, grid_size), dtype=np.float32)
+    x_idx = np.clip((points[:, 0] * grid_size).astype(int), 0, grid_size - 1)
+    y_idx = np.clip((points[:, 1] * grid_size).astype(int), 0, grid_size - 1)
+    point_grid[y_idx, x_idx] = 1.0
+
+    power = np.abs(np.fft.fft2(point_grid)) ** 2
+
+    yy, xx = np.mgrid[0:grid_size, 0:grid_size]
+    rr = np.maximum(
+        np.sqrt((xx - grid_size / 2) ** 2 + (yy - grid_size / 2) ** 2), 1.0
+    )
+    radial_bins = np.arange(1, grid_size // 2, dtype=np.float32)
+    radial_power = np.array([
+        power[(rr >= r) & (rr < r + 1)].mean() if ((rr >= r) & (rr < r + 1)).sum() > 0 else 0.0
+        for r in radial_bins
+    ])
+
+    valid = (radial_bins > 0) & (radial_power > 1e-10)
+    if valid.sum() > 2:
+        log_f = np.log(radial_bins[valid])
+        log_p = np.log(radial_power[valid])
+        slope, intercept = np.polyfit(log_f, log_p, 1)
+        ax.plot(radial_bins[valid], radial_power[valid],
+                color="steelblue", alpha=0.8, linewidth=1.0, label="Spectrum")
+        ax.plot(
+            radial_bins[valid],
+            np.exp(intercept) * (radial_bins[valid] ** slope),
+            color="red", linestyle="--", linewidth=1.2, label=f"Fit (slope {slope:.2f})",
+        )
+        ax.legend(fontsize=_fs())
+        ax.set_title(f"{plot_title}\nSlope: {slope:.3f}", fontsize=_fs())
+    else:
+        ax.set_title(f"{plot_title}\n(insufficient data)", fontsize=_fs())
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.grid(True, which="both", ls="-", alpha=0.2)
+    ax.tick_params(axis="both", labelsize=_fs())
+    ax.set_xlabel("Radial frequency", fontsize=_fs())
+    ax.set_ylabel("Power", fontsize=_fs())
