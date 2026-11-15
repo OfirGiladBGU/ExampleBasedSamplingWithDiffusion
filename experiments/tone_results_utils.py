@@ -159,10 +159,12 @@ class SamplerCfg:
     sdf_truncate_px: float = 8.0
     smart_init_seed: int = 42
     device: str = "cuda"
-    mode: str = "onestep"       # "onestep" | "unrolled"
+    mode: str = "onestep"       # "onestep" | "unrolled" | "ddim"
     unroll_steps: int = 8       # gradient-carrying steps at the end of the reverse process
     t_probe: int = 120          # onestep: the timestep at which x0 is estimated
     seed: int = 0
+    ddim_steps: int = 25        # ddim: model evaluations of the stochastic DDIM (eta = 1) chain
+    ddim_eta: float = 1.0
 
 
 class DifferentiableStippler(torch.nn.Module):
@@ -177,6 +179,10 @@ class DifferentiableStippler(torch.nn.Module):
     "unrolled" -- run the truncated reverse process, keeping gradients only for the final
                   `unroll_steps` steps. Faithful to what inference actually does, at
                   proportionally more memory.
+    "ddim"     -- run the whole truncated reverse process as stochastic DDIM with `ddim_steps`
+                  model evaluations (the few-step sampler of the rebuttal), keeping gradients
+                  through every step. The start noise and the per-step noise are drawn once
+                  and reused (common random numbers), as in the other modes.
     """
 
     def __init__(self, diffusion, control_net, cfg: SamplerCfg):
@@ -217,9 +223,13 @@ class DifferentiableStippler(torch.nn.Module):
         # the noise swamps the signal.
         g = torch.Generator(device=cfg.device).manual_seed(cfg.seed)
         noise = torch.randn(x_init.shape, device=cfg.device, dtype=x_init.dtype, generator=g)
+        step_noise = None
+        if cfg.mode == "ddim":
+            step_noise = torch.randn((cfg.ddim_steps, *x_init.shape[1:]), device=cfg.device,
+                                     dtype=x_init.dtype, generator=g)
 
         self._ctx = dict(image_01=image_01, high_res_sdf=high_res_sdf, target_sdf=target_sdf,
-                         x_init=x_init, smart_grid=smart_grid, noise=noise)
+                         x_init=x_init, smart_grid=smart_grid, noise=noise, step_noise=step_noise)
         return image_01
 
     def _set_condition(self, rho):
@@ -276,7 +286,26 @@ class DifferentiableStippler(torch.nn.Module):
                 d.model = prev
             return offsets_to_coords(img, cfg.grid_size, self._centers)
 
-        raise ValueError(f"mode must be 'onestep' or 'unrolled'; got {cfg.mode!r}")
+        if cfg.mode == "ddim":
+            # Same schedule as experiments/few_step_sampling_stage_1.py: K timesteps
+            # round(linspace(t_start - 1, 0, K)), eta-scaled posterior noise, x0 at the end.
+            t_start = int(np.clip(int(cfg.eval_timesteps * cfg.truncation_ratio), 1,
+                                  max(cfg.eval_timesteps - 1, 1)))
+            ts = list(dict.fromkeys(np.rint(np.linspace(t_start - 1, 0, cfg.ddim_steps)).astype(int).tolist()))
+            ac = d.alphas_cumprod
+            x = ac[t_start].sqrt() * x_init + (1.0 - ac[t_start]).sqrt() * self._ctx["noise"]
+            for i, t in enumerate(ts):
+                a_t = ac[t]
+                a_prev = ac[ts[i + 1]] if i + 1 < len(ts) else torch.ones_like(a_t)
+                eps = self.controlled(x, torch.full((1,), t, dtype=torch.int64, device=cfg.device))
+                x0 = (x - (1.0 - a_t).sqrt() * eps) / a_t.sqrt()
+                sigma = cfg.ddim_eta * ((1.0 - a_prev) / (1.0 - a_t) * (1.0 - a_t / a_prev)).sqrt()
+                x = a_prev.sqrt() * x0 + (1.0 - a_prev - sigma ** 2).clamp(min=0.0).sqrt() * eps
+                if cfg.ddim_eta > 0 and i + 1 < len(ts):
+                    x = x + sigma * self._ctx["step_noise"][i][None]
+            return offsets_to_coords(x, cfg.grid_size, self._centers)
+
+        raise ValueError(f"mode must be 'onestep', 'unrolled' or 'ddim'; got {cfg.mode!r}")
 
 
 def build_stippler(args, device):
@@ -290,7 +319,8 @@ def build_stippler(args, device):
         truncation_ratio=args.infer_truncation_ratio, sdf_features=args.sdf_features,
         smart_init_features=args.smart_init_features, sdf_truncate_px=args.sdf_truncate_px,
         smart_init_seed=args.smart_init_seed, device=device, mode=args.mode,
-        unroll_steps=args.unroll_steps, t_probe=args.t_probe, seed=args.seed)
+        unroll_steps=args.unroll_steps, t_probe=args.t_probe, seed=args.seed,
+        ddim_steps=getattr(args, "ddim_steps", SamplerCfg.ddim_steps))
     return DifferentiableStippler(diffusion, control_net, cfg).to(device)
 
 

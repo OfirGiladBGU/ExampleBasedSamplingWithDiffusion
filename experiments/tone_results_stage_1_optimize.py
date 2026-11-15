@@ -65,10 +65,12 @@ MANIFEST                       = f"{ROOT_DIR}/manifest.json"
 # ON by default -- a bare run must reproduce the reported figures and table.
 CONFIGS                        = "none,random,curve,field"
 LIMIT                          = -1
+OFFSET                         = 0
 CALIB_IMAGES                   = 6
 MODE                           = "onestep"
 UNROLL_STEPS                   = 8
 T_PROBE                        = 120
+DDIM_STEPS                     = 25
 SEED                           = 0
 DEVICE                         = "cuda"
 BASE_CONFIG_PATH               = "config/GBN/config.json"
@@ -92,6 +94,7 @@ def parse_args():
     p.add_argument("--output", default=OUT_DIR)
     p.add_argument("--configs", default=CONFIGS)
     p.add_argument("--limit", type=int, default=LIMIT, help="Process only the first N images")
+    p.add_argument("--offset", type=int, default=OFFSET, help="Skip the first N images (for splitting a run)")
 
     p.add_argument("--steps", type=int, default=STEPS)
     p.add_argument("--lr", type=float, default=LR)
@@ -107,9 +110,10 @@ def parse_args():
     p.add_argument("--calib-images", type=int, default=CALIB_IMAGES,
                    help="Images used to calibrate the ink gain")
 
-    p.add_argument("--mode", default=MODE, choices=["onestep", "unrolled"])
+    p.add_argument("--mode", default=MODE, choices=["onestep", "unrolled", "ddim"])
     p.add_argument("--unroll-steps", type=int, default=UNROLL_STEPS)
     p.add_argument("--t-probe", type=int, default=T_PROBE)
+    p.add_argument("--ddim-steps", type=int, default=DDIM_STEPS, help="ddim mode: model evaluations")
     p.add_argument("--seed", type=int, default=SEED)
     p.add_argument("--device", default=DEVICE)
 
@@ -337,7 +341,8 @@ def main():
         if device != a.device:
             print(f"WARNING: CUDA unavailable, falling back to {device}")
         man = json.loads(Path(a.manifest).read_text())
-        images = man["images"] if a.limit < 0 else man["images"][:a.limit]
+        images = man["images"][a.offset:]
+        images = images if a.limit < 0 else images[:a.limit]
         from tone_results_utils import build_stippler
         stippler = build_stippler(a, device)
         arrays = {}

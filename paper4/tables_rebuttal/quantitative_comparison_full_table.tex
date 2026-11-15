@@ -1,0 +1,54 @@
+\begin{table*}[b]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
+\textbf{Metric} & BNOT & WVS & GBN & \textbf{Ours-BNOT} & \textbf{Ours-WVS} & \textbf{Ours-GBN} \\
+\hline
+\multicolumn{7}{|l|}{\textbf{Icons-50 (1000 images, 1024 points)}} \\
+\hline
+CVT ($\times 10^{-5}$)\,$\downarrow$ & 2.355 $\pm$ 1.696 & \textbf{2.193 $\pm$ 1.583} & 2.370 $\pm$ 1.691 & 2.423 $\pm$ 1.709 & \underline{2.265 $\pm$ 1.601} & 2.449 $\pm$ 1.711 \\
+HOT ($\times 10^{-5}$)\,$\downarrow$ & \textbf{2.421 $\pm$ 1.734} & 10.536 $\pm$ 9.583 & 5.204 $\pm$ 4.864 & \underline{2.850 $\pm$ 1.866} & 6.459 $\pm$ 4.763 & 4.059 $\pm$ 3.055 \\
+Capacity $\delta_c$\,$\downarrow$ & \textbf{0.010 $\pm$ 0.004} & 0.041 $\pm$ 0.020 & \textbf{0.010 $\pm$ 0.009} & 0.019 $\pm$ 0.016 & 0.041 $\pm$ 0.025 & \underline{0.018 $\pm$ 0.022} \\
+Centroid $D$\,$\downarrow$ & \textbf{0.001 $\pm$ 0.000} & 0.014 $\pm$ 0.005 & 0.007 $\pm$ 0.004 & \underline{0.003 $\pm$ 0.002} & 0.010 $\pm$ 0.004 & 0.006 $\pm$ 0.003 \\
+EMD\,$\downarrow$ & \textbf{0.010 $\pm$ 0.002} & 0.020 $\pm$ 0.005 & 0.015 $\pm$ 0.005 & \underline{0.011 $\pm$ 0.002} & 0.016 $\pm$ 0.004 & 0.013 $\pm$ 0.004 \\
+Sinkhorn\,$\downarrow$ & \textbf{0.092 $\pm$ 0.003} & 0.094 $\pm$ 0.003 & \underline{0.093 $\pm$ 0.003} & \textbf{0.092 $\pm$ 0.003} & \underline{0.093 $\pm$ 0.003} & \textbf{0.092 $\pm$ 0.003} \\
+Spatial $\rho_s$\,$\uparrow$ & 0.525 $\pm$ 0.096 & \textbf{0.589 $\pm$ 0.110} & 0.516 $\pm$ 0.105 & 0.508 $\pm$ 0.104 & \underline{0.562 $\pm$ 0.117} & 0.494 $\pm$ 0.110 \\
+\hline
+\multicolumn{7}{|l|}{\textbf{CelebA (500 images, 1024 points)}} \\
+\hline
+CVT ($\times 10^{-5}$)\,$\downarrow$ & 5.927 $\pm$ 1.678 & \textbf{5.249 $\pm$ 1.593} & 6.357 $\pm$ 1.722 & 6.427 $\pm$ 1.727 & \underline{5.687 $\pm$ 1.638} & 6.766 $\pm$ 1.820 \\
+HOT ($\times 10^{-5}$)\,$\downarrow$ & \textbf{6.118 $\pm$ 1.719} & 21.807 $\pm$ 9.474 & 12.864 $\pm$ 6.241 & \underline{7.045 $\pm$ 1.956} & 11.030 $\pm$ 3.780 & 8.265 $\pm$ 2.493 \\
+Capacity $\delta_c$\,$\downarrow$ & \textbf{0.013 $\pm$ 0.003} & 0.054 $\pm$ 0.018 & \textbf{0.013 $\pm$ 0.006} & 0.023 $\pm$ 0.011 & 0.051 $\pm$ 0.022 & \underline{0.022 $\pm$ 0.011} \\
+Centroid $D$\,$\downarrow$ & \textbf{0.001 $\pm$ 0.000} & 0.016 $\pm$ 0.004 & 0.010 $\pm$ 0.004 & \underline{0.003 $\pm$ 0.001} & 0.009 $\pm$ 0.002 & 0.005 $\pm$ 0.002 \\
+EMD\,$\downarrow$ & \textbf{0.013 $\pm$ 0.000} & 0.024 $\pm$ 0.004 & 0.018 $\pm$ 0.003 & \underline{0.014 $\pm$ 0.001} & 0.017 $\pm$ 0.002 & 0.015 $\pm$ 0.001 \\
+Sinkhorn\,$\downarrow$ & \textbf{0.095 $\pm$ 0.001} & 0.097 $\pm$ 0.001 & \underline{0.096 $\pm$ 0.001} & \textbf{0.095 $\pm$ 0.001} & \underline{0.096 $\pm$ 0.001} & \textbf{0.095 $\pm$ 0.001} \\
+Spatial $\rho_s$\,$\uparrow$ & 0.659 $\pm$ 0.070 & \textbf{0.741 $\pm$ 0.073} & 0.604 $\pm$ 0.069 & 0.642 $\pm$ 0.077 & \underline{0.718 $\pm$ 0.082} & 0.599 $\pm$ 0.074 \\
+\hline
+\multicolumn{7}{|l|}{\textbf{ShapeNet2D (400 images, 1600 points)}} \\
+\hline
+CVT ($\times 10^{-5}$)\,$\downarrow$ & \underline{3.070 $\pm$ 1.511} & \textbf{2.629 $\pm$ 1.437} & 3.391 $\pm$ 1.562 & 3.467 $\pm$ 1.629 & 3.530 $\pm$ 1.824 & 3.688 $\pm$ 1.667 \\
+HOT ($\times 10^{-5}$)\,$\downarrow$ & \textbf{3.206 $\pm$ 1.547} & 11.432 $\pm$ 5.604 & 7.055 $\pm$ 3.918 & \underline{4.329 $\pm$ 1.640} & 7.253 $\pm$ 2.822 & 5.367 $\pm$ 1.915 \\
+Capacity $\delta_c$\,$\downarrow$ & \textbf{0.013 $\pm$ 0.006} & 0.043 $\pm$ 0.023 & \textbf{0.013 $\pm$ 0.009} & 0.039 $\pm$ 0.042 & 0.059 $\pm$ 0.057 & \underline{0.038 $\pm$ 0.045} \\
+Centroid $D$\,$\downarrow$ & \textbf{0.001 $\pm$ 0.000} & 0.012 $\pm$ 0.003 & 0.007 $\pm$ 0.004 & \underline{0.004 $\pm$ 0.002} & 0.008 $\pm$ 0.003 & 0.006 $\pm$ 0.003 \\
+EMD\,$\downarrow$ & \textbf{0.010 $\pm$ 0.001} & 0.019 $\pm$ 0.005 & 0.015 $\pm$ 0.004 & \underline{0.012 $\pm$ 0.003} & 0.015 $\pm$ 0.004 & 0.013 $\pm$ 0.003 \\
+Sinkhorn\,$\downarrow$ & \textbf{0.094 $\pm$ 0.002} & \underline{0.095 $\pm$ 0.002} & \textbf{0.094 $\pm$ 0.002} & \textbf{0.094 $\pm$ 0.002} & \underline{0.095 $\pm$ 0.002} & \textbf{0.094 $\pm$ 0.002} \\
+Spatial $\rho_s$\,$\uparrow$ & 0.539 $\pm$ 0.091 & \textbf{0.600 $\pm$ 0.103} & 0.534 $\pm$ 0.106 & 0.521 $\pm$ 0.097 & \underline{0.574 $\pm$ 0.106} & 0.521 $\pm$ 0.108 \\
+\hline
+\multicolumn{7}{|l|}{\textbf{Anime Chibi (263 images, 1600 points)}} \\
+\hline
+CVT ($\times 10^{-5}$)\,$\downarrow$ & \underline{0.847 $\pm$ 0.662} & \textbf{0.738 $\pm$ 0.581} & 0.913 $\pm$ 0.697 & 1.186 $\pm$ 0.964 & 1.146 $\pm$ 1.233 & 1.307 $\pm$ 1.344 \\
+HOT ($\times 10^{-5}$)\,$\downarrow$ & \textbf{1.300 $\pm$ 1.491} & 4.655 $\pm$ 3.642 & 3.262 $\pm$ 2.499 & \underline{1.977 $\pm$ 1.299} & 3.089 $\pm$ 2.029 & 2.608 $\pm$ 1.786 \\
+Capacity $\delta_c$\,$\downarrow$ & \underline{0.040 $\pm$ 0.104} & 0.061 $\pm$ 0.024 & \textbf{0.030 $\pm$ 0.023} & 0.110 $\pm$ 0.089 & 0.129 $\pm$ 0.081 & 0.107 $\pm$ 0.076 \\
+Centroid $D$\,$\downarrow$ & \textbf{0.002 $\pm$ 0.004} & 0.011 $\pm$ 0.004 & 0.010 $\pm$ 0.005 & \underline{0.005 $\pm$ 0.003} & 0.009 $\pm$ 0.003 & 0.007 $\pm$ 0.003 \\
+EMD\,$\downarrow$ & \textbf{0.009 $\pm$ 0.005} & 0.017 $\pm$ 0.005 & 0.016 $\pm$ 0.005 & \underline{0.012 $\pm$ 0.004} & 0.014 $\pm$ 0.004 & 0.013 $\pm$ 0.004 \\
+Sinkhorn\,$\downarrow$ & \textbf{0.093 $\pm$ 0.002} & \underline{0.094 $\pm$ 0.002} & \underline{0.094 $\pm$ 0.002} & \textbf{0.093 $\pm$ 0.002} & \textbf{0.093 $\pm$ 0.002} & \textbf{0.093 $\pm$ 0.002} \\
+Spatial $\rho_s$\,$\uparrow$ & 0.422 $\pm$ 0.085 & \textbf{0.469 $\pm$ 0.096} & 0.391 $\pm$ 0.081 & 0.390 $\pm$ 0.093 & \underline{0.433 $\pm$ 0.099} & 0.368 $\pm$ 0.088 \\
+\hline
+\end{tabular}
+\caption{Quantitative comparison of BNOT, WVS, GBN, and our three variants, Ours-BNOT, Ours-WVS and Ours-GBN, trained on BNOT, WVS and GBN exemplars respectively, across four benchmarks. Mean $\pm$ standard deviation over the respective test sets at each benchmark's point budget; best and second-best means per row are shown in bold and underlined, respectively. Each benchmark uses its corresponding trained checkpoints.
+}
+\label{tab:quantitative_comparison_full}
+\end{table*}

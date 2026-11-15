@@ -1,0 +1,54 @@
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.200}
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
+\textbf{Metric} & BNOT & WVS & GBN & Ours & Ours & Ours \\
+ & & & & BNOT & WVS & GBN \\
+\hline
+\multicolumn{7}{|l|}{\textbf{Icons-50 (1000 images, 1024 points)}} \\
+\hline
+CVT ($\times 10^{-5}$)\,$\downarrow$ & 2.355 & \textbf{2.193} & 2.370 & 2.423 & \underline{2.265} & 2.449 \\
+HOT ($\times 10^{-5}$)\,$\downarrow$ & \textbf{2.421} & 10.536 & 5.204 & \underline{2.850} & 6.459 & 4.059 \\
+Capacity $\delta_c$\,$\downarrow$ & \textbf{0.010} & 0.041 & \textbf{0.010} & 0.019 & 0.041 & \underline{0.018} \\
+Centroid $D$\,$\downarrow$ & \textbf{0.001} & 0.014 & 0.007 & \underline{0.003} & 0.010 & 0.006 \\
+EMD\,$\downarrow$ & \textbf{0.010} & 0.020 & 0.015 & \underline{0.011} & 0.016 & 0.013 \\
+Sinkhorn\,$\downarrow$ & \textbf{0.092} & 0.094 & \underline{0.093} & \textbf{0.092} & \underline{0.093} & \textbf{0.092} \\
+Spatial $\rho_s$\,$\uparrow$ & 0.525 & \textbf{0.589} & 0.516 & 0.508 & \underline{0.562} & 0.494 \\
+\hline
+\multicolumn{7}{|l|}{\textbf{CelebA (500 images, 1024 points)}} \\
+\hline
+CVT ($\times 10^{-5}$)\,$\downarrow$ & 5.927 & \textbf{5.249} & 6.357 & 6.427 & \underline{5.687} & 6.766 \\
+HOT ($\times 10^{-5}$)\,$\downarrow$ & \textbf{6.118} & 21.807 & 12.864 & \underline{7.045} & 11.030 & 8.265 \\
+Capacity $\delta_c$\,$\downarrow$ & \textbf{0.013} & 0.054 & \textbf{0.013} & 0.023 & 0.051 & \underline{0.022} \\
+Centroid $D$\,$\downarrow$ & \textbf{0.001} & 0.016 & 0.010 & \underline{0.003} & 0.009 & 0.005 \\
+EMD\,$\downarrow$ & \textbf{0.013} & 0.024 & 0.018 & \underline{0.014} & 0.017 & 0.015 \\
+Sinkhorn\,$\downarrow$ & \textbf{0.095} & 0.097 & \underline{0.096} & \textbf{0.095} & \underline{0.096} & \textbf{0.095} \\
+Spatial $\rho_s$\,$\uparrow$ & 0.659 & \textbf{0.741} & 0.604 & 0.642 & \underline{0.718} & 0.599 \\
+\hline
+\multicolumn{7}{|l|}{\textbf{ShapeNet2D (400 images, 1600 points)}} \\
+\hline
+CVT ($\times 10^{-5}$)\,$\downarrow$ & \underline{3.070} & \textbf{2.629} & 3.391 & 3.467 & 3.530 & 3.688 \\
+HOT ($\times 10^{-5}$)\,$\downarrow$ & \textbf{3.206} & 11.432 & 7.055 & \underline{4.329} & 7.253 & 5.367 \\
+Capacity $\delta_c$\,$\downarrow$ & \textbf{0.013} & 0.043 & \textbf{0.013} & 0.039 & 0.059 & \underline{0.038} \\
+Centroid $D$\,$\downarrow$ & \textbf{0.001} & 0.012 & 0.007 & \underline{0.004} & 0.008 & 0.006 \\
+EMD\,$\downarrow$ & \textbf{0.010} & 0.019 & 0.015 & \underline{0.012} & 0.015 & 0.013 \\
+Sinkhorn\,$\downarrow$ & \textbf{0.094} & \underline{0.095} & \textbf{0.094} & \textbf{0.094} & \underline{0.095} & \textbf{0.094} \\
+Spatial $\rho_s$\,$\uparrow$ & 0.539 & \textbf{0.600} & 0.534 & 0.521 & \underline{0.574} & 0.521 \\
+\hline
+\multicolumn{7}{|l|}{\textbf{Anime Chibi (263 images, 1600 points)}} \\
+\hline
+CVT ($\times 10^{-5}$)\,$\downarrow$ & \underline{0.847} & \textbf{0.738} & 0.913 & 1.186 & 1.146 & 1.307 \\
+HOT ($\times 10^{-5}$)\,$\downarrow$ & \textbf{1.300} & 4.655 & 3.262 & \underline{1.977} & 3.089 & 2.608 \\
+Capacity $\delta_c$\,$\downarrow$ & \underline{0.040} & 0.061 & \textbf{0.030} & 0.110 & 0.129 & 0.107 \\
+Centroid $D$\,$\downarrow$ & \textbf{0.002} & 0.011 & 0.010 & \underline{0.005} & 0.009 & 0.007 \\
+EMD\,$\downarrow$ & \textbf{0.009} & 0.017 & 0.016 & \underline{0.012} & 0.014 & 0.013 \\
+Sinkhorn\,$\downarrow$ & \textbf{0.093} & \underline{0.094} & \underline{0.094} & \textbf{0.093} & \textbf{0.093} & \textbf{0.093} \\
+Spatial $\rho_s$\,$\uparrow$ & 0.422 & \textbf{0.469} & 0.391 & 0.390 & \underline{0.433} & 0.368 \\
+\hline
+\end{tabular}
+\caption{Quantitative comparison of BNOT, WVS, GBN, and our three variants, Ours-BNOT, Ours-WVS and Ours-GBN, trained on BNOT, WVS and GBN exemplars respectively, across four benchmarks. All values are means over the respective test sets at each benchmark's point budget; best and second-best results per row are shown in bold and underlined, respectively. Each benchmark uses its corresponding trained checkpoints.}
+\label{tab:quantitative_comparison}
+\end{table}

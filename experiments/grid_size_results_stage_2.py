@@ -14,6 +14,10 @@ GRID_SIZES in step with stage 1).
     python experiments/grid_size_results_stage_2.py            # -> pointcount_generalization.pdf
     python experiments/grid_size_results_stage_2.py -o fig.png --dpi 300
     python experiments/grid_size_results_stage_2.py --marker 1.5 --auto-marker
+    python experiments/grid_size_results_stage_2.py --fewstep-dir experiments/outputs/grid_size_results/exact_ot --sampler ddpm-500 -o experiments/outputs/grid_size_results/pointcount_generalization_exactOT.pdf
+
+--fewstep-dir reads the point sets of few_step_sampling_stage_1.py instead of stage 1
+(<dir>/<LABEL>_<N>/<sampler>/<stem>.npy, see grid_size_exact_ot.sbatch: exact OT assignment).
 
 Point conventions (matching sample_control.py):
   npy is (N, 2) float in [0, 1]; plotted as scatter(x, 1 - y) with the y axis
@@ -60,6 +64,12 @@ ROW_IMAGES = [
     ["stress_test_density.png"],
 ]
 
+# Empty: the stage-1 point sets above. Otherwise a few_step_sampling_stage_1.py output folder
+# (grid_size_exact_ot.sbatch), read as <FEWSTEP_DIR>/<LABEL>_<N>/<SAMPLER>/<stem>.npy.
+FEWSTEP_DIR = ""
+SAMPLER = "ddpm-500"
+LABEL = "CN-GBN"
+
 def _normalize_rows(row_images):
     """Accept a flat list (one row with every image) or a list of lists (one row each)."""
     if all(isinstance(x, str) for x in row_images):
@@ -67,23 +77,27 @@ def _normalize_rows(row_images):
     return [[x] if isinstance(x, str) else list(x) for x in row_images]
 
 
-def _image_group(image_name, base_dir, grid_sizes):
+def _image_group(image_name, base_dir, grid_sizes, fewstep_dir="", sampler=SAMPLER, label=LABEL):
     """One image's cells: its Target, then one cell per grid size labelled grid*grid."""
     stem = os.path.splitext(image_name)[0]
     group = [{"Target": os.path.join(base_dir, "source", image_name)}]
     for g in grid_sizes:
-        npy = os.path.join(base_dir, "sample_outputs_%d" % g, stem, "npy", "%s.npy" % stem)
+        if fewstep_dir:
+            npy = os.path.join(fewstep_dir, "%s_%d" % (label, g * g), sampler, "%s.npy" % stem)
+        else:
+            npy = os.path.join(base_dir, "sample_outputs_%d" % g, stem, "npy", "%s.npy" % stem)
         group.append({str(g * g): npy})
     return group
 
 
-def _build_image_paths(base_dir=BASE_DIR, grid_sizes=GRID_SIZES, row_images=ROW_IMAGES):
+def _build_image_paths(base_dir=BASE_DIR, grid_sizes=GRID_SIZES, row_images=ROW_IMAGES,
+                       fewstep_dir=FEWSTEP_DIR, sampler=SAMPLER, label=LABEL):
     """[[{label: path}, ...], ...] -- see ROW_IMAGES for how rows are formed."""
     rows = []
     for row in _normalize_rows(row_images):
         cells = []
         for image_name in row:
-            cells.extend(_image_group(image_name, base_dir, grid_sizes))
+            cells.extend(_image_group(image_name, base_dir, grid_sizes, fewstep_dir, sampler, label))
         rows.append(cells)
     return rows
 
@@ -155,8 +169,8 @@ def draw_cell(ax, path, marker, alpha):
 # Figure assembly
 # --------------------------------------------------------------------------- #
 def render(out_path, cell=2.2, marker=2.0, alpha=0.85, dpi=300,
-           auto_marker=False):
-    rows = IMAGE_PATHS
+           auto_marker=False, rows=None):
+    rows = IMAGE_PATHS if rows is None else rows
     n_rows = len(rows)
     n_cols = max(len(r) for r in rows)
 
@@ -203,10 +217,18 @@ def main():
                     help="scatter point opacity")
     ap.add_argument("--dpi", type=int, default=300,
                     help="dpi (affects raster outputs / embedded images)")
+    ap.add_argument("--grid-sizes", type=int, nargs="+", default=GRID_SIZES,
+                    help="grid sizes to show (one column each)")
+    ap.add_argument("--fewstep-dir", default=FEWSTEP_DIR,
+                    help="read few_step_sampling_stage_1.py point sets from this folder")
+    ap.add_argument("--sampler", default=SAMPLER, help="sampler sub-folder with --fewstep-dir")
+    ap.add_argument("--label", default=LABEL, help="run label with --fewstep-dir")
     args = ap.parse_args()
 
+    rows = _build_image_paths(grid_sizes=args.grid_sizes, fewstep_dir=args.fewstep_dir,
+                              sampler=args.sampler, label=args.label)
     render(args.out, cell=args.cell, marker=args.marker, alpha=args.alpha,
-           dpi=args.dpi, auto_marker=args.auto_marker)
+           dpi=args.dpi, auto_marker=args.auto_marker, rows=rows)
 
 
 if __name__ == "__main__":

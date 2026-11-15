@@ -1,0 +1,223 @@
+% ---------------------------------------------------------------------------
+% StippleDiffusion -- SUPPLEMENTAL MATERIAL, Eurographics version.
+% Companion to main_EG.tex; shares base.bib and the figure folders.
+% (supplemental_material.tex is the older acmart version, from the SIGGRAPH Asia round.)
+% Pre-10-page version: archive/pre_10p_2026-09-23/supplemental_EG.tex
+% ---------------------------------------------------------------------------
+
+\documentclass{egpubl}
+\usepackage{eg2027}
+
+\ConferenceSubmission
+
+\usepackage[T1]{fontenc}
+\usepackage{dfadobe}
+
+\usepackage{cite}
+\BibtexOrBiblatex
+\electronicVersion
+\PrintedOrElectronic
+
+\ifpdf \usepackage[pdftex]{graphicx} \pdfcompresslevel=9
+\else \usepackage[dvips]{graphicx} \fi
+
+\usepackage{egweblnk}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\providecommand{\citet}[1]{\cite{#1}}
+
+\graphicspath{{./}{../paper/}}
+
+\title{StippleDiffusion: Capacity-Constrained Stippling using Controlled Diffusion\\
+       Supplemental Material}
+
+\author[paper1182]{paper1182}
+
+\begin{document}
+
+\setcounter{secnumdepth}{2}
+
+\maketitle
+
+%-------------------------------------------------------------------------
+\section{Differentiability: Sensitivity to the Ink Gain}
+
+Figure~\ref{fig:sup_gain_sweep} sweeps the ink gain of the renderer in the dot-gain experiment of the main paper, to show that the advantage of optimizing through the sampler is not an artifact of the calibrated value.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{results_v4/tone_correction/tone_gain_sweep_compact.pdf}
+    \caption{Sensitivity to the rendering model. Ink gain relative to its calibrated value, swept from a quarter to four times (x-axis, log scale), against the PSNR advantage of our optimized density over the uncorrected stipple and over the tone curve (y-axis, dB).}
+     \label{fig:sup_gain_sweep}
+\end{figure}
+
+%-------------------------------------------------------------------------
+\section{Runtime Profiling}
+
+% \begin{figure*}[t]
+%     \centering
+%     \begin{minipage}{0.49\textwidth}
+%         \centering
+%         \includegraphics[width=\linewidth]{figures_v3/selected_profiler_results/cpu_denoising_time_points.pdf}
+%     \end{minipage}
+%     \hfill
+%     \begin{minipage}{0.49\textwidth}
+%         \centering
+%         \includegraphics[width=\linewidth]{figures_v3/selected_profiler_results/gpu_6000_profiler_times_points.pdf}
+%     \end{minipage}
+%     \caption{Runtime profiling versus output point count. (Left) CPU denoising time grows steadily with the point budget. (Right) GPU profiler timings (RTX 6000) showing CPU operator, CUDA kernel, and wall time.}
+%     \label{fig:profiler_times_points}
+% \end{figure*}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{figures_v4/selected_profiler_results_appendix/cpu_denoising_time_points.pdf}
+    \caption{Denoising time on the CPU versus output point count.}
+    \label{fig:profiler_times_points1}
+\end{figure}
+
+%%%
+
+\begin{figure*}[t]
+    \centering
+    \begin{minipage}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures_v4/selected_profiler_results_appendix/gpu_6000_profiler_times_points.pdf}
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures_v4/selected_profiler_results_appendix/gpu_6000_scaling_by_points.pdf}
+    \end{minipage}
+    \caption{
+    Profiling on the RTX 6000 as a function of the output point count. Left: CPU operator, CUDA kernel and wall time. Right: per-component runtime.}
+    \label{fig:profiler_times_points2}
+\end{figure*}
+
+%%%
+
+% \begin{figure}[t]
+%     \centering
+%     \includegraphics[width=\linewidth]{figures_v4/selected_profiler_results/gpu_6000_profiler_times_points.pdf}
+%     \caption{Profiler timings on the RTX 6000 versus output point count: CPU operator, CUDA kernel and wall time.}
+%     \label{fig:profiler_times_points2}
+% \end{figure}
+
+% \begin{figure}[t]
+%     \centering
+%     \includegraphics[width=\linewidth]{figures_v4/selected_profiler_results_appendix/gpu_3090_profiler_times_points.pdf}
+%     \caption{The same profiler timings on a second GPU, the RTX 3090.}
+%     \label{fig:gpu_3090_profiler_times_points}
+% \end{figure}
+
+%%%%
+
+\begin{figure*}[t]
+    \centering
+    \begin{minipage}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures_v4/selected_profiler_results_appendix/gpu_3090_profiler_times_points.pdf}
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures_v4/selected_profiler_results_appendix/gpu_3090_scaling_by_points.pdf}
+    \end{minipage}
+    \caption{
+    The same profiling on a second GPU, the RTX 3090. Left: CPU operator, CUDA kernel and wall time. Right: per-component runtime.}
+    \label{fig:profiler_times_points3}
+\end{figure*}
+
+% \begin{figure}[t]
+%     \centering
+%     \includegraphics[width=\linewidth]{figures_v4/selected_profiler_results_appendix/gpu_6000_scaling_by_points.pdf}
+%     \caption{Per-component runtime on the RTX 6000 versus output point count.}
+%     \label{fig:gpu_6000_scaling_by_points}
+% \end{figure}
+
+% \begin{figure}[t]
+%     \centering
+%     \includegraphics[width=\linewidth]{figures_v4/selected_profiler_results_appendix/gpu_3090_scaling_by_points.pdf}
+%     \caption{Per-component runtime on the RTX 3090 versus output point count.}
+%     \label{fig:gpu_3090_scaling_by_points}
+% \end{figure}
+
+The runtimes in the runtime figure of the main paper were measured on one machine with an RTX 6000 GPU and an AMD EPYC 7343 CPU; WVS and BNOT run on the CPU, GBN and our method on the GPU, and each entry is the mean over 10 runs on Icons-50 targets. Here we profile a single generation while sweeping the OT grid from $16\times16$ (256 points) to $112\times112$ (12544 points).
+
+On the CPU, denoising time grows steadily with the point count (Figure~\ref{fig:profiler_times_points1}). On both GPUs (Figures~\ref{fig:profiler_times_points2} and~\ref{fig:profiler_times_points3}, left), the CUDA kernel time grows with the grid but stays small, while the wall time is dominated by a nearly constant overhead from launching many small kernels at every denoising step. The wall time therefore stays nearly flat and rises only beyond a few thousand points, as in the main paper. The per-component breakdowns (right) attribute this rise to the convolutional U-Net blocks. Profiling itself inflates the absolute timings, so these values should be read for their scaling only.
+
+%-------------------------------------------------------------------------
+\section{Extended Spectral Analysis}
+
+Figure~\ref{fig:Spectral1} complements the spectral analysis of the main paper with pair correlations on the \textsc{quad4} target, with $1024$ points and $25$ realizations, computed within each constant-density region from interior centers only. Coinciding curves mean that a sampler keeps its correlation structure as the density changes. All methods keep an empty exclusion zone and a first peak at $r \approx 1$; the peak height varies least for BNOT and WVS, and less for Ours-GBN than for its exemplar GBN, but more for Ours-WVS than for WVS.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\linewidth]{results_v4/spectral_analysis_full/pcf_quad4_by_method.pdf}
+    \caption{
+    Pair correlation $g(r)$ on \textsc{quad4}, $r$ in mean spacings: $\rho = 1.00$ (blue), $0.80$ (orange), $0.60$ (green), $0.40$ (red).
+    }
+    \label{fig:Spectral1}
+\end{figure*}
+
+%-------------------------------------------------------------------------
+\section{Qualitative Results \& Comparisons}
+
+% Figure~\ref{fig:sup_comparison} shows further held-out test images, complementing the qualitative figures of the main paper. Each example shows the target density map, followed by BNOT, WVS, GBN and our two variants, at the point budget of its dataset (1024 points for Icons-50 and CelebA, 1600 for ShapeNet2D and Anime Chibi).
+
+Figures~\ref{fig:sup_comparison1} and~\ref{fig:sup_comparison2} show further held-out test images, each as the target image followed by BNOT, WVS, GBN and our two variants, at the point budget of its dataset.
+
+
+% \begin{figure}[t]
+%     \centering
+%     \includegraphics[width=0.97\linewidth]{figures_v4/supplement/qualitative_comparison_appendix.pdf}
+%     \caption{
+%     Additional comparisons with BNOT, WVS and GBN on held-out Icons-50, CelebA, ShapeNet2D and Anime Chibi images.}
+%     \label{fig:sup_comparison}
+% \end{figure}
+
+% \begin{figure*}[t]
+%     \centering
+%     \begin{minipage}{0.49\textwidth}
+%         \centering
+%         \includegraphics[width=\linewidth]{figures_v4/supplement_full/qualitative_comparison_appendix_left.pdf}
+%     \end{minipage}
+%     \hfill
+%     \begin{minipage}{0.49\textwidth}
+%         \centering
+%         \includegraphics[width=\linewidth]{figures_v4/supplement_full/qualitative_comparison_appendix_right.pdf}
+%     \end{minipage}
+%     \caption{
+%     Additional comparisons with BNOT, WVS and GBN on held-out Icons-50, CelebA, ShapeNet2D and Anime Chibi images.}
+%     \label{fig:sup_comparison}
+% \end{figure*}
+
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\linewidth]{figures_v4/supplement_full/qualitative_comparison_appendix_left.pdf}
+    \caption{
+    Additional comparisons with BNOT, WVS and GBN on held-out Icons-50 and CelebA images, at 1024 points.}
+    \label{fig:sup_comparison1}
+\end{figure*}
+
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\linewidth]{figures_v4/supplement_full/qualitative_comparison_appendix_right.pdf}
+    \caption{
+    Additional comparisons with BNOT, WVS and GBN on held-out ShapeNet2D and Anime Chibi images, at 1600 points.}
+    \label{fig:sup_comparison2}
+\end{figure*}
+
+%-------------------------------------------------------------------------
+\section{Full Quantitative Comparison}
+
+Table~\ref{tab:quantitative_comparison_full} repeats the comparison of the main paper with the standard deviation over each test set, so that each variant can be checked against the sampler whose exemplars it was trained on, and against BNOT as an unranked reference.
+
+\input{tables_rebuttal/quantitative_comparison_full_table}
+
+\end{document}

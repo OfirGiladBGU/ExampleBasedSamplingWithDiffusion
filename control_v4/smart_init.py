@@ -50,9 +50,17 @@ def generate_smart_init_points_from_density(image_2d, n_points, seed=42):
     return np.asarray(points, dtype=np.float32)
 
 
-def smart_init_points_to_offsets(points):
-    """Convert smart-init points (N,2 in [0,1]) to offset grid (2,G,G)."""
-    offsets = to_image_optimal_transport(points.astype(np.float32))
+def smart_init_points_to_offsets(points, ot_solver="pot", device="cuda"):
+    """Convert smart-init points (N,2 in [0,1]) to offset grid (2,G,G).
+
+    ot_solver "pot" is the paper path (to_image_optimal_transport); see control_v4/ot_assignment.py
+    for the exact solvers ("pot-exact", "scipy", "auction" on the GPU).
+    """
+    if ot_solver == "pot":
+        offsets = to_image_optimal_transport(points.astype(np.float32))
+    else:
+        from control_v4.ot_assignment import points_to_offsets
+        offsets = points_to_offsets(points.astype(np.float32), solver=ot_solver, device=device)
     return offsets.astype(np.float32, copy=False)
 
 
