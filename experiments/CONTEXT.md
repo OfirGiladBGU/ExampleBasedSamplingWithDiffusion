@@ -25,6 +25,13 @@ results, or change a script.
 - Server: `ofirgila@slurm.bgu.ac.il` (needs VPN; SSH key login works). The repo is at
   `/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion`, branch `fm_and_clip`.
   The server holds all checkpoints and results. The local Windows checkout has code only.
+- **Git: rebuttal work lives on branch `rebuttal`** (created 2026-11-16 from `fm_and_clip`, first
+  commit bcdea5f, not pushed). The server checkout is on `rebuttal`. Do not switch it back to
+  `fm_and_clip` while jobs run: that would remove the rebuttal-only files (ot_assignment.py,
+  fast_smart_init.py, the experiments/ scripts). Commit new rebuttal scripts and notes there; results
+  in experiments/outputs and archive*/ folders are git-ignored. Unrelated uncommitted files (older
+  control_v4_mix / pilot work, config toggles in sample.py, sample_control.py,
+  quantitative_advance_metrics_*, .gitignore) were deliberately left out.
 - Workflow: edit locally, `scp` the files to the server, then `sed -i "s/\r$//"` on them
   (to strip Windows line endings).
 - Conda env: **`qmcdiffusion`** (Python 3.11, torch 2.1.1). The `control` env is old and
