@@ -890,3 +890,35 @@ fine-tune from `dynamic_ep5000.ckpt` with more weight on t < ~100 (larger γ, or
 evaluated with the Table 2 protocol and the from-exemplar test. Also free and untested: 8× flip /
 rotation augmentation (the trainer has none), and stopping at ~2500 epochs (the validation metrics
 are flat from there on).
+
+## 2026-11-18: low-noise fine-tune started (model study, not a rebuttal item)
+
+Tests the reading of A19: the capacity / CVT gap arises in the last low-noise steps, which the
+Min-SNR weighting (γ = 5) nearly ignores. Three 300-epoch fine-tunes of the paper's full Ours-GBN
+checkpoint (epoch 5000 copied into a new run folder and resumed, optimizer state included; all
+other settings = the full run):
+
+| Task | Run folder | Weighting |
+|---|---|---|
+| 24280693_0 | `control_v4/train_outputs_Icons-50_1024_GBN_ft-g5` | γ = 5, **control** (more training only) |
+| 24280693_1 | `..._ft-g50` | γ = 50: low-noise weight ×10 (t = 10: 0.008 → 0.08; t = 50: 0.09 → 0.88) |
+| 24280693_2 | `..._ft-g0` | no Min-SNR: plain eps loss, every step weight 1 |
+
+`ft_lownoise_train.sbatch` (array 0-2; checkpoints at 5100 / 5200 / 5300). All three resumed at
+start_epoch = 5000 (checked in the logs).
+
+Evaluation, chained (`logs/submit_ft_lownoise_20261118.sh`): `ft_lownoise_eval.sbatch` (array
+24280694, aftercorr the training tasks) samples the 200 held-out diagnostic images
+(`outputs/diag_generalization/test_*`) with the epoch-5300 checkpoint, same Smart Init and noise as
+the baseline runs `CN-GBN-test_1024` / `CN-GBN-test-fromGT_1024`: normal sampling (ddpm-500,
+ddim-25-eta1), start from the teacher's exemplar at K = 10 … 500, and the denoising error per noise
+level (`timestep_loss_ft-<tag>.md`; `diag_generalization_timestep_loss.py` got `--name`). Scorers
+24280695–700, then 24280701 runs `ft_lownoise_summary.py` → `outputs/diag_generalization/
+ft_lownoise_summary.md` (paired per image: ratio to the teacher, median per-image change, share of
+images worse, p, paired verdict).
+
+How to read it: compare g50 / g0 against **g5**, not only against the paper checkpoint. If g5 moves
+as much as the others, the change is from extra training, not from the weighting. If capacity
+improves at low K in the from-exemplar test but normal sampling gets worse on HOT / centroid, the
+low-noise emphasis is costing the coarse steps (then try γ = 50 with more epochs, or a t-sampling
+biased to low t, instead of removing Min-SNR).
