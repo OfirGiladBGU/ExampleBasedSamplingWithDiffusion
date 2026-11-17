@@ -45,6 +45,7 @@ def main():
     ap.add_argument("--output", default=OUTPUT_DIR)
     ap.add_argument("--control_ckpt_path", default=CONTROL_CKPT)
     ap.add_argument("--limit", type=int, default=-1)
+    ap.add_argument("--name", default="timestep_loss", help="output file stem (for other checkpoints)")
     ap.add_argument("--device", default="cuda")
     a = ap.parse_args()
     out = Path(a.output)
@@ -77,6 +78,7 @@ def main():
         res[split] = mse
 
     lines = ["# Denoising error per noise level: training vs held-out images (Ours-GBN, Icons-50)", "",
+             f"Checkpoint: `{a.control_ckpt_path}`", "",
              f"{res['train'].shape[0]} training and {res['test'].shape[0]} held-out images, {REPEATS} noise draws each.",
              "x0 RMS error is in grid-cell widths (1 cell = 1/32 of the image side).", "",
              "| t | noise std (cells) | Min-SNR weight | eps MSE train | eps MSE held-out | held-out / train | "
@@ -92,8 +94,8 @@ def main():
                       "mse_test": mv, "x0_rms_train": float(xt), "x0_rms_test": float(xv)})
         lines.append(f"| {t} | {np.sqrt(1 - at):.3f} | {w:.3f} | {mt:.4f} | {mv:.4f} | {mv / mt:.2f} | "
                      f"{xt:.3f} | {xv:.3f} |")
-    (out / "timestep_loss.md").write_text("\n".join(lines) + "\n")
-    (out / "timestep_loss.json").write_text(json.dumps(table, indent=1))
+    (out / f"{a.name}.md").write_text("\n".join(lines) + "\n")
+    (out / f"{a.name}.json").write_text(json.dumps(table, indent=1))
     print("\n".join(lines))
     return 0
 
