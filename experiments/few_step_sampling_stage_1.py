@@ -113,6 +113,9 @@ def parse_args():
                    help="Folder with same-named images to draw the Smart Init from instead of the condition")
     p.add_argument("--ot_solver", choices=OT_SOLVERS, default=OT_SOLVER,
                    help="Smart Init point-to-grid assignment solver (pot = the paper path)")
+    p.add_argument("--init_dir", default="",
+                   help="Folder with <stem>.npy offset grids (2, n, n) used instead of the Smart Init, "
+                        "e.g. the teacher's exemplar; each sampler noises it to its own start step")
     return p.parse_args()
 
 
@@ -243,7 +246,11 @@ def prepare_image(image_path, diffusion, control_net, args, image_index, batch=1
     if args.smart_init_source:
         si_image = load_condition(Path(args.smart_init_source) / image_path.name, args.grid_size,
                                   args.device, sdf_features=False)[0]
-    if getattr(args, "skip_smart_init", False):  # every sampler starts from pure noise
+    if getattr(args, "init_dir", ""):  # start from given offsets (e.g. the teacher's exemplar)
+        x_init = torch.from_numpy(np.load(Path(args.init_dir) / f"{image_path.stem}.npy").astype(np.float32))
+        x_init = x_init.unsqueeze(0).to(args.device)
+        time_si = 0.0
+    elif getattr(args, "skip_smart_init", False):  # every sampler starts from pure noise
         x_init = torch.zeros((1, 2, args.grid_size, args.grid_size), device=args.device)
         time_si = 0.0
     else:

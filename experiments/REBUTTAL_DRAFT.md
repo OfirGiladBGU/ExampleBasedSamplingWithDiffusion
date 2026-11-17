@@ -1,6 +1,6 @@
 # StippleDiffusion (paper1182): rebuttal draft and evidence bank
 
-Started 2026-10-28, last synced with the results 2026-11-15. This file collects every result we can
+Started 2026-10-28, last synced with the results 2026-11-18. This file collects every result we can
 use in the rebuttal ("ammo"), with its status, plus draft answers to the concerns we expect. Reviews
 arrive Nov 23; the rebuttal is due Nov 30. The experiment plan is in [REBUTTAL_PLAN.md](REBUTTAL_PLAN.md)
 and the run log in [CONTEXT.md](CONTEXT.md).
@@ -30,6 +30,9 @@ second review round; the main experiments use the paper configuration (DDPM-500)
 3. **"Ours-BNOT" contradicts the paper's claim that BNOT exemplars are impractical (A11).** Correct
    it in the rebuttal before a reviewer points it out.
 4. **The aspect ratio does not explain the capacity gap (A4).** Do not offer it as the reason.
+5. **Do not say the model "does not memorize" (A19).** It reproduces training exemplars more
+   closely than held-out ones (0.15 vs 0.23 cells; denoising error 20–24× lower on training images).
+   The claim that holds: its quality metrics are the same on training and held-out images.
 
 ---
 
@@ -277,11 +280,97 @@ anisotropic around the peak. Concede the anisotropy with numbers; do not claim i
 `outputs/e13_ddim25_summary.md` (`e13_summary.py`; ddim-25-eta1, SDEdit start, exact OT; all 12
 Table 1 checkpoints; current metric code for every column). Against the paper's own point sets
 (DDPM-500), paired over the full test sets: **capacity improves significantly in all 12 cases
-(−1.0% to −9.2%), ρs in all 12 (+1.1% to +2.3%)**; of the 84 cells, 1 is significantly worse
-(ShapeNet2D Ours-WVS CVT +0.1%) and the rest are equal or better. The six-method table keeps the
+(−1.0% to −9.2%), ρs in all 12 (+1.1% to +2.3%)**; of the 84 cells, **none is significantly worse**
+in the paired sense. (One cell, ShapeNet2D Ours-WVS CVT, has a mean change of +0.1% with p < 0.05,
+but its median per-image change is −0.4%: the test is paired, so it is an improvement. The summary
+now prints mean / median for every cell.) The six-method table keeps the
 paper's picture: Ours-BNOT is the best learned sampler on HOT, centroid, W2 and Sinkhorn on every
 dataset, and every learned variant beats the GBN sampler on HOT and W2 on every dataset. With A1's
 0.44 s per stipple, this answers W1 on all four datasets, not only Icons.
+
+### A19. Generalization diagnostics: the capacity gap is there on training images too — FINAL (numbers); the last bullet is a reading
+
+`outputs/diag_generalization/summary.md` and `timestep_loss.md` (`diag_generalization_*.py`,
+2026-11-16). Ours-GBN, Icons-50, 1024 points; 200 training images (seeded random draw from the 9000)
+and 200 held-out test images. Ratios are learned / the teacher's own exemplar of the same image,
+averaged over images (1.00 = the teacher; ρs is higher-is-better). Distances are in grid-cell
+widths (1 cell = 1/32 of the image side).
+
+| sampler | metric | training | held-out | p (Mann-Whitney) |
+|---|---|---|---|---|
+| DDPM-500 | CVT | 1.035 | 1.041 | 0.049 |
+| DDPM-500 | capacity δc | 1.88 | 2.03 | 0.27 |
+| DDPM-500 | ρs | 0.957 | 0.959 | 0.99 |
+| DDPM-500 | HOT | 1.24 | 1.13 | 0.34 |
+| DDPM-500 | centroid | 1.55 | 1.42 | 0.087 |
+| DDPM-500 | W2 | 0.965 | 0.941 | 0.091 |
+| DDPM-500 | distance to the exemplar's points | 0.149 | 0.235 | |
+| DDIM-25 | CVT | 1.029 | 1.034 | 0.0003 |
+| DDIM-25 | capacity δc | 1.61 | 1.83 | 0.02 |
+| DDIM-25 | ρs | 0.976 | 0.974 | 0.12 |
+| DDIM-25 | HOT | 1.21 | 1.12 | 0.55 |
+| DDIM-25 | centroid | 1.50 | 1.39 | 0.21 |
+| DDIM-25 | W2 | 0.956 | 0.937 | 0.18 |
+| DDIM-25 | distance to the exemplar's points | 0.143 | 0.234 | |
+
+Start from the teacher's exemplar noised to step K, then DDPM from K (training / held-out):
+
+| K | noise std (cells) | CVT | capacity δc | ρs | moved from the exemplar (cells) |
+|---|---|---|---|---|---|
+| 10 | 0.041 | 1.011 / 1.011 | 1.37 / 1.38 | 0.970 / 0.969 | 0.055 / 0.066 |
+| 20 | 0.065 | 1.016 / 1.018 | 1.50 / 1.55 | 0.965 / 0.961 | 0.069 / 0.094 |
+| 50 | 0.133 | 1.022 / 1.029 | 1.64 / 1.78 | 0.960 / 0.954 | 0.088 / 0.159 |
+| 100 | 0.242 | 1.024 / 1.034 | 1.71 / 1.91 | 0.959 / 0.957 | 0.098 / 0.214 |
+| 500 | 0.852 | 1.026 / 1.038 | 1.78 / 1.96 | 0.959 / 0.960 | 0.108 / 0.234 |
+
+- **Quality does not depend on having seen the image.** With the paper sampler the only ratio that
+  differs between training and held-out images is CVT (1.035 vs 1.041, p = 0.049). With DDIM-25,
+  capacity is better on training images (1.61 vs 1.83, p = 0.02) and CVT by 0.5%. HOT, centroid and
+  W2 lean better on the held-out images (not significant).
+- **The capacity gap is not a data gap.** On images the model was trained on, δc is still 1.6–1.9×
+  the teacher's (2.0× / 1.8× held-out). More training data of the same kind would not close it.
+- **The model does fit its training exemplars more closely; say so if asked.** Its points land
+  0.15 cells from the exemplar's points on training images against 0.23 on held-out images, and
+  from the noised exemplar at K = 500 it returns to within 0.11 cells (0.23 held-out). The denoising
+  error (eps MSE, the training objective) is 20–24× larger on held-out images at t = 150–500 (x0 RMS
+  error at t = 300: 0.07 vs 0.34 cells) and 1.3–2.2× larger at t <= 20. This closer fit does not
+  turn into better metrics (first bullet).
+- **The capacity is lost in the low-noise steps.** Ten DDPM steps from the teacher's exemplar
+  (noise std 0.04 cells) already give δc 1.37×, on training images too; starting from K = 500 it is
+  1.78× / 1.96×. At t <= 20 the eps MSE is 0.33–0.81 on training images (predicting zero gives 1.0), and
+  these steps have a Min-SNR weight of 0.002–0.02 in training (γ = 5).
+- **Reading (not tested):** capacity deviation reacts to position errors of a few hundredths of a
+  cell, which is the model's accuracy floor at low noise (x0 RMS error 0.02–0.04 cells at t <= 20,
+  training images). A remedy would be on the training side (more weight on the low-noise steps),
+  not more data. Offer it as future work only.
+- Use for: W2 (capacity), W6 (generalization, near-duplicates), the capacity limitation (A4).
+
+### A20. Gated-injection ablation (W5) — FINAL
+
+The paper's "full" model retrained without gated injection (plain zero convolutions; everything else
+identical: jointly trained, GECCO features, KDE loss, 5000 epochs), evaluated like E8: Table 2
+"Full + SDEdit" settings, the same 50 validation images and per-image noise, paired against the
+full checkpoint (`ablation_nokde_e500_b50_1024/summary_noGate.md`, jobs 24174334 / 24257553–660).
+
+| metric | median per-image change without gating | worse without gating on | p (Wilcoxon) |
+|---|---|---|---|
+| CVT | +0.8% | 78% of images | 2e-5 |
+| capacity δc | +7.7% | 82% | 5e-5 |
+| ρs | −0.7% | 76% | 4e-6 |
+| HOT | +0.8% | 54% | 0.40 |
+| centroid D | −0.4% | 46% | 0.46 |
+| power-cell CV | +0.9% | 64% | 0.14 |
+| EMD (W2) | +0.5% | 56% | 0.54 |
+| Sinkhorn | 0.0% | 54% | 0.79 |
+
+- **Gated injection gives a small, consistent gain in local regularity** (CVT, capacity, ρs) and
+  no measurable change in the transport metrics. This is the jointly trained ablation the reviewer
+  asked for; it supports gating as a contribution, with a modest effect size.
+- **Do not quote the mean capacity change.** The mean δc is 4.1% *lower* without gating (0.0253 vs
+  0.0264) because of a few outlier images, while 82% of the images are worse. Quote the paired
+  numbers above. (The first version of `summary_noGate.md` labelled δc "better" from the mean;
+  `ablation_nokde_stage_3.py` now prints the median change, the share of images and a paired verdict.)
+- 50 images, one training run per variant.
 
 ---
 
@@ -347,7 +436,8 @@ Table 3 with the full-chain results on the real sampler and describe the protoco
    of "all 24" (A12).**
 6. Fig. 4 with the exact OT assignment (A10); runtime graph with the new variant (A9).
 7. Cross-dataset results in the supplement (A8).
-8. Capacity-gap limitation: not the aspect ratio; budget or domain (A4).
+8. Capacity-gap limitation: not the aspect ratio; budget or domain (A4). It is also there on
+   training images and arises in the low-noise steps (A19).
 
 ---
 
@@ -367,8 +457,9 @@ Table 3 with the full-chain results on the real sampler and describe the protoco
 | E13 | Four-dataset table with ddim-25-eta1 | **done** (A18): `outputs/e13_ddim25_summary.md` |
 | E14 | Seeds with the new sampler | not run |
 | E15 | Spectra / anisotropy with the new sampler | **done** (A17) |
-| Gating | Joint GECCO without gated injection (W5) | **training** (job 24174334, ~2.5–4 days from 2026-11-15) |
+| Gating | Joint GECCO without gated injection (W5) | **done** (A20): gating helps CVT, capacity and ρs slightly but consistently |
 | Near-dup | Same-concept look-alikes vs quality (W6) | **done**: no memorization effect (A16) |
+| Gen. diag | Training vs held-out images; start from the exemplar; loss per noise level | **done** (A19): `outputs/diag_generalization/` |
 | Pure noise | DDIM / DDPM from pure noise, no Smart Init | **done** (A5) |
 | Fast OT | Fast Smart Init assignment | **done**: only `bisection-blocks16` passes; used above 2304 points (A1) |
 | E16 | Tone through the full sampler | **done** (A12) |
@@ -391,17 +482,17 @@ The full review text is in `experiments/reviews/mock_review_R1.md`. Strength of 
 | W1 tiles / lattices | none | Related-work paragraph: not example-based, not differentiable. |
 | W1 mottling at 4096 | partial | The large-budget panels used a truncated OT solver (A10); Fig. 4 is regenerated with the exact assignment. Budgets stay visual only (A9). |
 | W2 BNOT not trained | strong | Ours-BNOT on all 4 datasets (A3); exemplar cost ~38 h for Icons, ~1.7x GBN's (A11): agree with the reviewer and correct the "impractical" sentence. |
-| W2 title "capacity-constrained" | weak | Capacity stays 1.7–3.6x GBN's even for Ours-BNOT (A4). Offer a retitle (e.g. "capacity-aware") or define the term as "trained on capacity-constrained exemplars". |
+| W2 title "capacity-constrained" | weak | Capacity stays 1.7–3.6x GBN's even for Ours-BNOT (A4). Offer a retitle (e.g. "capacity-aware") or define the term as "trained on capacity-constrained exemplars". The gap is a model limit, not a data gap: 1.6–1.9x on training images too (A19). |
 | W3 one-step gradient, Q5 | strong, with a correction | Q5: no, Table 3 was the one-step proxy; replace it by the full-chain result: +0.39 dB (18/24, p = 0.002), above GBN's tone (A12). |
 | W3 iterative feedback baseline | strong | We ran it (D1): with GBN +0.24 dB, with our sampler +0.15/+0.18 dB, vs our gradient +0.36–0.39 dB (A12). Direct point optimization only wins PSNR by clumping (A12, E7). |
 | W4 / Q3 student beats teacher | strong | Paired test on 1000 images: HOT −22% (p = 8e-29), centroid −21%, EMD −13%; still −15% from pure noise; not the KDE loss (A14, A15). |
 | W4 Sinkhorn uninformative | concede | Move to the supplement. |
 | W5 steps / sampler / truncation | strong | Full sweep (A1b, A5, A6); pure noise is 8–16% worse (A5). |
 | W5 KDE loss | strong (null) | E8: no effect at epoch 5000, faster early training (A15). |
-| W5 gating without the rest | pending | Joint GECCO without gated injection is training (job 24174334). |
+| W5 gating without the rest | strong | We trained it: the full model without gated injection is worse on CVT (+0.8%, 78% of images), capacity (median +7.7%, 82%) and ρs (−0.7%, 76%), all p < 1e-4 paired; transport metrics unchanged (A20). Effect is modest; say so. |
 | W5 single runs / noise | partial | Paired tests everywhere; E14 (seeds) not run. |
 | W6 cross-dataset | strong | Icons→CelebA keeps transport quality and beats GBN on HOT/EMD; CelebA→Icons fails on capacity, stated as a limitation (A8). |
-| W6 near-duplicates in the split | strong | True that 997/1000 test icons have a same-concept training icon, but the learned/teacher ratio does not improve with look-alike similarity (all \|ρ\| <= 0.14; HOT slightly worse on close look-alikes) (A16). |
+| W6 near-duplicates in the split | strong | True that 997/1000 test icons have a same-concept training icon, but the learned/teacher ratio does not improve with look-alike similarity (all \|ρ\| <= 0.14; HOT slightly worse on close look-alikes) (A16). The learned/teacher ratios are also the same on training and held-out images (A19). |
 | W6 perfect-square n | concede | Limitation of the OT-grid representation. |
 | W7 anisotropy | partial / concede | A17: Ours-WVS more anisotropic than WVS around the peak, Ours-GBN within ~1 dB of GBN; the new sampler is bluer at low frequency but ~1 dB more anisotropic. |
 | W8 novelty | argument | Ours-BNOT, 78/82 paired rank preservation (A2), full-chain differentiability (A12), the SDEdit start as a quality component (A5). |

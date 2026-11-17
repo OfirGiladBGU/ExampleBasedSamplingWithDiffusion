@@ -1,6 +1,6 @@
 # Rebuttal work: context for the next agent
 
-Last updated: 2026-11-15. Keep this file current: update it whenever you submit jobs, get
+Last updated: 2026-11-18. Keep this file current: update it whenever you submit jobs, get
 results, or change a script.
 
 ## Goal and ground rules
@@ -795,3 +795,98 @@ significant in all 12; 1 of 84 cells significantly worse (ShapeNet2D Ours-WVS CV
 1. noGate training (24174334): epoch 1625/5000 on 2026-11-16 at ~46 s/epoch, i.e. done ~2026-11-18.
 2. When the noGate training finishes: Table 2-protocol evaluation (paired, seeded, vs `sdedit_seeded`).
 3. Still open: E14 (seeds), Fig. 3 strip percentages (one realization or an average?).
+
+## 2026-11-17: status check, and work from 2026-11-16 that was not recorded above
+
+- **noGate training (24174334)**: running, epoch 4509/5000 on 2026-11-17 11:30 (checkpoint
+  `dynamic_ep4500.ckpt` saved), ~46 s/epoch, i.e. done the evening of 2026-11-17. Nothing else is queued.
+- **blocks16 clean re-time (24061457 / 24061458) is done**, not pending as the 2026-11-10 section says:
+  `outputs/runtime_clean_blocks16-Icons-50/summary.md`. DDIM-25 total 0.74 / 0.94 / 1.13 / 1.38 s at
+  3136 / 4096 / 5184 / 6400 points (Smart Init 0.44 / 0.63 / 0.82 / 1.07 s), 3 reps, spread <= 2%.
+  Already used in REBUTTAL_DRAFT.md A1. Two things to know: the summary's title still says "exact OT"
+  (true only up to 2304), and the hybrid curve is not monotone (exact OT at 2304 = 0.99 s, blocks16 at
+  3136 = 0.74 s).
+- **Generalization diagnostics (2026-11-16 02:05–02:53; added to REBUTTAL_DRAFT.md as A19 on 2026-11-17)**:
+  `diag_generalization_stage_0.py`, `diag_generalization.sbatch` (array 0-4),
+  `diag_generalization_timestep_loss.py`, `diag_generalization_summary.py` →
+  `outputs/diag_generalization/summary.md` and `timestep_loss.md` (Ours-GBN, Icons-50, 200 training +
+  200 held-out images; scorer arrays 24212916 / 24212917). It needs the new `--init_dir` option of
+  `few_step_sampling_stage_1.py` (start from given offset grids, e.g. the teacher's exemplar), which
+  is **uncommitted** on `rebuttal`, as are the four diag_generalization files.
+  What the tables show:
+  - Denoising error is far larger on held-out images: eps MSE held-out / train = 1.3 at t = 2, 5.8 at
+    t = 50, 20–24 at t = 150–500; x0 RMS error at t = 300: 0.068 cells (train) vs 0.338 (held-out).
+  - Yet the quality gap to the teacher is nearly the same on training images. Normal sampling,
+    learned / exemplar capacity ratio: ddpm-500 1.88 (train) vs 2.03 (held-out), p = 0.27;
+    ddim-25-eta1 1.61 vs 1.83, p = 0.02. CVT ratio 1.03 vs 1.04. HOT and centroid ratios are not
+    significantly different.
+  - Starting from the teacher's own exemplar noised to step K: capacity ratio is already 1.37 / 1.38
+    (train / held-out) at K = 10 and 1.78 / 1.96 at K = 500. So the last few low-noise steps alone
+    lose most of the capacity quality, on training images too (eps MSE at t <= 20 is 0.3–0.8 on
+    training images, where the Min-SNR weight is 0.002–0.02).
+  - Reading (not verified further): the capacity gap is mainly a low-noise denoising limit of the
+    model, not a train/test generalization gap; the held-out images add a smaller part on top.
+- Other jobs in sacct since 2026-11-10 that failed or ran out of memory (pocfm-dti-deg, ml-step0,
+  hrs-a, conv-gbn / conv-wvs / conv-bnot) are not described in this file.
+
+### 2026-11-17: noGate (W5) evaluation submitted
+
+Table 2 protocol as in E8: "Full + SDEdit" settings, the same 50 validation images, the same
+per-image noise, compared paired against `sdedit_seeded` (the paper's full checkpoint, already
+exported and scored for E8; the metric code has not changed since 2026-10-19). Output goes next to
+E8: `outputs/ablation_nokde_e500_b50_1024/sdedit_noGate/` and `summary_noGate.md`.
+
+- Scripts: `ablation_nokde_stage_1.py` has a new `--model nogate` (the only entry with gated
+  injection off; `nokde` and `reference` behave as before), `ablation_nokde_stage_3.py` takes
+  `--variant / --label / --title / --summary` (defaults = the E8 behaviour). Backups
+  `*.bak_20261117`. New `ablation_nogate_export.sbatch` (CKPTS = checkpoint-name substrings, default
+  all) and `ablation_nogate_metrics.sbatch` (array task i = epoch (i + 1) * 500). All uncommitted.
+- Jobs (setup script kept at `logs/nogate_setup_20261117.sh`):
+
+| Job | What |
+|---|---|
+| 24257553 | `nogate-export-a`: epoch 500 only. It was meant for 500–4500, but `sbatch --export=ALL,CKPTS=a,b,...` splits on the commas, so only the first name arrived |
+| 24257658 | `nogate-export-a2`: epochs 1000–4500 (CKPTS passed through the environment instead) |
+| 24257659 (array 0-8) | `nogate-metrics-a`: scores epochs 500–4500, afterok 24257553 and 24257658 (replaces the cancelled 24257554) |
+| 24257555 | `nogate-export-b`: epoch 5000, **afterok the training job 24174334**; it stays pending forever if the training job fails (then resubmit the training script, it resumes, and resubmit this with `CKPTS=dynamic_ep5000`) |
+| 24257556 (array 9) | `nogate-metrics-b`: scores epoch 5000, afterok 24257555 |
+| 24257660 (replaces the cancelled 24257557) | `nogate-summary`: `ablation_nokde_stage_3.py --variant sdedit_noGate --label noGate --title "W5: gated-injection ablation" --summary summary_noGate.md`, afterok both scorers |
+
+- When `summary_noGate.md` exists: record the paired result at epoch 5000 here, fill the "W5 gating
+  without the rest" row and the "Gating" status row of REBUTTAL_DRAFT.md (now "pending"), and add an
+  evidence entry (A20). E8 showed that 50 images detect only large differences (δc −12% was
+  p = 0.64), so a null result here means "no measurable effect on 50 images", not "no effect".
+
+## 2026-11-18: noGate result, a fix to the paired summaries, commit
+
+- **noGate (W5) is done**: training 24174334 finished 2026-11-17 17:23, all export / scorer / summary
+  jobs completed. Result at epoch 5000, 50 paired images (→ REBUTTAL_DRAFT.md A20): without gated
+  injection the model is worse on CVT (+0.8% median, 78% of images, p = 2e-5), capacity δc (+7.7%
+  median, 82%, p = 5e-5) and ρs (−0.7%, 76%, p = 4e-6); HOT, centroid, EMD, Sinkhorn, power-cell CV
+  show no difference. Gating is supported, with a modest effect.
+- **Trap found and fixed: mean change vs paired test.** The first `summary_noGate.md` said
+  "δc −4.1% (better), p = 4.65e-05". The mean is lower because of a few outlier images, but the
+  Wilcoxon test is paired and significant in the other direction (worse on 82% of the images).
+  `ablation_nokde_stage_3.py` (backup `.bak_20261118`) now prints, per metric: both means, the change
+  of the mean, the median per-image change, the share of images where the variant is worse, p, and a
+  verdict taken from the paired columns. Both summaries were regenerated (job 24280672); the E8
+  verdicts did not change (all "no difference").
+- **Same check on the headline results** (E1 and the 12 E13 comparisons, 6 metrics each): mean and
+  paired median agree on every significant cell except ShapeNet2D Ours-WVS CVT in E13 (mean +0.1%,
+  median −0.4%, p < 0.05), which is therefore an improvement. So E13 has **no** significantly worse
+  cell (A18 corrected). `e13_summary.py` (backup `.bak_20261118`) now prints "mean / median" per cell.
+- **Rule for every paired table from now on:** when a p-value comes from a paired rank test, state
+  the direction from the median per-image change or the share of images, never from the means alone.
+- Committed and pushed on `rebuttal` (see `git log`): the generalization diagnostics
+  (`diag_generalization_*`, `--init_dir` in `few_step_sampling_stage_1.py`), the noGate evaluation
+  scripts, the two summary fixes, and these notes.
+
+### What the diagnostics say about the model (for work after the rebuttal)
+
+The capacity / CVT gap is not a data gap (same gap on training images, A19) and it arises in the
+last low-noise steps (10 DDPM steps from the teacher's exemplar already give δc 1.37×). Training
+uses Min-SNR with γ = 5, which gives those steps a weight of 0.002–0.02. Not tested yet: a short
+fine-tune from `dynamic_ep5000.ckpt` with more weight on t < ~100 (larger γ, or no cap there),
+evaluated with the Table 2 protocol and the from-exemplar test. Also free and untested: 8× flip /
+rotation augmentation (the trainer has none), and stopping at ~2500 epochs (the validation metrics
+are flat from there on).
