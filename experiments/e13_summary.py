@@ -34,6 +34,8 @@ def main():
     lines = ["# E13: Table 1 with the new variant (ddim-25-eta1, SDEdit start, exact OT)", "",
              "Means over each test set, current metric code. Best of the six in bold, best learned in italics.", ""]
     change = ["## Change vs the paper's point sets (DDPM-500), paired Wilcoxon (* p < 0.05)", "",
+              "Cells: change of the mean / median per-image change. The test is paired, so read its direction",
+              "from the median (the mean can be moved the other way by a few outlier images).", "",
               "| dataset | variant | images | " + " | ".join(m[1] for m in METRICS) + " |",
               "|---|---|---|" + "---|" * len(METRICS)]
     for ds in DATASETS:
@@ -64,7 +66,8 @@ def main():
             for key, lab, scale, lower in METRICS:
                 a = np.array([new[s][k][key] for k in ks]); b = np.array([paper[s][k][key] for k in ks])
                 p = wilcoxon(a, b).pvalue if np.any(a != b) else 1.0
-                cells.append(f"{100 * (a.mean() / b.mean() - 1):+.1f}%{'*' if p < 0.05 else ''}")
+                cells.append(f"{100 * (a.mean() / b.mean() - 1):+.1f}% / {100 * (np.median(a / b) - 1):+.1f}%"
+                             f"{'*' if p < 0.05 else ''}")
             change.append(f"| {ds} | Ours-{s} | {len(ks)} | " + " | ".join(cells) + " |")
     out = O / "e13_ddim25_summary.md"
     out.write_text("\n".join(lines + [""] + change) + "\n")
