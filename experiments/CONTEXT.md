@@ -985,8 +985,8 @@ t-sampling biased to low noise).
 > spacing), so all BNOT exemplars and BNOT quality numbers stay valid. Only the runtimes were wrong.
 >
 > **BNOT on the 10 pinned runtime images, re-run with the fixed binary** (AMD EPYC 7702P, 1 thread;
-> `outputs/icons_results_runtimes_bnot_fixed/summary.md` and `runtimes_avg_bnot_fixed.json`; the
-> stored `icons_results_runtimes/runtimes_avg.json` is NOT changed):
+> `summary.md` and `runtimes_avg_bnot_fixed.json` in the re-run's folder; the stored
+> `runtimes_avg.json` is being replaced, see the last section of this file):
 >
 > | points | 256 | 576 | 1024 | 1600 | 2304 | 3136 | 4096 | 5184 | 6400 |
 > |---|---|---|---|---|---|---|---|---|---|
@@ -1094,3 +1094,54 @@ suspicious than the large budgets but include the possible fixed overhead (item 
   from pure noise with 1000 DDPM steps and only the last row uses SDEdit; here every row uses SDEdit.
 - `few_step_sampling_stage_1.py` got `--base_ckpt_path`, `--[no-]gecco`, `--[no-]gate-injection`
   (defaults = the paper's full model), needed to load the frozen-base and partial variants.
+
+## 2026-11-18 (night): BNOT runtimes replaced, old ones archived — SUBMITTED, NOT CHECKED YET
+
+The user asked to update `runtimes_avg.json` and the runtime graphs with the fixed BNOT times and to
+archive the previous ones, and will check the results later. Nothing below was verified after
+submission; **check the job logs before using the new JSON or graphs.**
+
+| Job | What |
+|---|---|
+| 24307078 | BNOT with the fixed binary at the four larger budgets (7744, 9216, 10816, 12544 points), so the new JSON keeps all 13 budgets. Same 10 images and settings, into `outputs/icons_results_runtimes_bnot_fixed/` (256–6400 were done in job 24306496). `BNOT_V2/timing/fix/ten_images.sbatch` with `BUDGETS=...` |
+| 24307095 (afterok 24307078) | `BNOT_V2/timing/fix/archive_and_rebuild.sbatch`: archive, swap, rebuild (below). It stops without changing anything if any budget has fewer than 10 timing files |
+
+What job 24307095 does, in order:
+1. **Archive** to `outputs/a_archive/bnot_runtimes_eigen_solver_20261118/` (with a README): the old
+   per-method folder `icons_results_runtimes_bnot/` (moved); the old `runtimes_avg.json`, the old
+   Fig. 7 plots and the BNOT `timestamps_BNOT_*` folders of `icons_results_runtimes/`; copies of
+   `runtimes_avg_clean.json`, `summary.md` and `plots/` of `runtime_clean-Icons-50/` and
+   `runtime_clean_blocks16-Icons-50/`; and `icons_results_runtimes_bnot_spqr_minnorm_partial/`.
+2. **Swap**: `icons_results_runtimes_bnot_fixed/` becomes `icons_results_runtimes_bnot/`.
+3. **Rebuild**: `merge_runtime_results_stage_1.py --sources icons_results_runtimes_bnot`, then
+   stage 2 (`icons_results_runtimes/runtimes_avg.json`) and stage 3 (Fig. 7:
+   `icons_results_runtimes/plots/runtime_scaling_by_points.{png,pdf}`), then
+   `runtime_clean_stage_3.py` for `runtime_clean-Icons-50` and for
+   `runtime_clean_blocks16-Icons-50` (the new-variant graphs).
+4. **Check**, printed at the end of the log: CN / GBN / WVS entries of the JSON unchanged, BNOT has
+   13 budgets with 10 images each, and a previous-vs-new BNOT table.
+
+**How to check it** (logs in `/groups/asharf_group/ofirgila/BNOT_V2/timing/fix/logs/`):
+- `ten-images-24307078.out` ends with `All budgets done. failed=[]` and has no `Skipped` lines.
+- `archive-24307095.out` shows `CN unchanged: True`, `GBN unchanged: True`, `WVS unchanged: True`,
+  BNOT counts `[10]`, and new BNOT times of about 5–17 s up to 6400 points (measured in job
+  24306496: 5.2 / 5.8 / 7.1 / 8.5 / 9.5 / 20.9 / 12.9 / 15.3 / 17.2 s at 256 … 6400).
+- If job 24307078 fails, 24307095 never runs and nothing is replaced; rerun the same two sbatch
+  commands from `BNOT_V2/timing/fix/`.
+- Look at the three regenerated graphs: the BNOT curve should be nearly flat (5–17 s up to 6400
+  points) instead of climbing to 1802 s.
+
+**Still to do after the check (not done, on purpose):**
+- REBUTTAL_DRAFT.md still quotes the old BNOT times in A1 ("BNOT 13.56 / 25.51 s", "BNOT 1802 s"),
+  A3 ("13.6 s at 1024 points, 1802 s at 6400"), A11 ("13.6 s … 25.5 s", exemplar cost 38 / 19 / 28 /
+  19 h, "1.7× GBN's"), the draft answer "they cost about 1.7× GBN's", and the W1 / W2 / Q1 rows of
+  section 5. Replace with: BNOT 7.1 s at 1024, 8.5 s at 1600, 17.2 s at 6400; exemplar generation
+  with the fixed build ≈ 20 h (Icons), 10 h (CelebA), 9 h (ShapeNet2D), 6 h (Chibi), about the same
+  as GBN (8.1 s per image). The exemplars themselves were generated with the slow build (38 / 19 /
+  28 / 19 h); the point sets are identical. Watch-out 6 of the draft already warns about this.
+- REBUTTAL_PLAN.md says BNOT's cost "grows by about two orders of magnitude over the budget range":
+  obsolete, it grows about 3x (5 → 17 s).
+- The paper: Fig. 7 (copy the regenerated `runtime_scaling_by_points.pdf`) and the sentences built
+  on the old BNOT curve.
+- The curves come from different machines: BNOT's new times are from an AMD EPYC 7702P node, the
+  stored WVS / GBN / CN ones from the original (unrecorded) machine, ours from the clean run.
