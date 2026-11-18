@@ -955,3 +955,21 @@ of images where the fine-tuned model is better):
   sentence ("the capacity gap comes from the loss weighting of the last denoising steps; a
   300-epoch fine-tune without it lowers δc by 13% on 92% of held-out images with no metric worse"),
   since every table is from the paper checkpoints.
+
+### 2026-11-18: no-Min-SNR fine-tune continued to epoch 6000, trend evaluation
+
+Is the gain still growing? (`logs/submit_ft_lownoise_trend_20261118.sh`)
+
+| Job(s) | What |
+|---|---|
+| 24292272 / 24292275 | evaluate the saved ft-g0 checkpoints at epochs 5100 and 5200 (`ft_lownoise_eval.sbatch --array=2`, `EPOCH=<e>`; run folders `CN-GBN-test-ft-g0-ep<e>[-fromGT]_1024`, `timestep_loss_ft-g0-ep<e>`); scorers 24292273–74, 24292276–77 |
+| 24292278 | early trend table (`ft_lownoise_trend.py` → `outputs/diag_generalization/ft_lownoise_trend_g0.md`), epochs 5100–5300 |
+| 24292279_2 | **ft-g0 continued to epoch 6000** (`ft_lownoise_train.sbatch --array=2`, `EPOCHS=6000`); resumed at start_epoch = 5300 (checked); ~8 h; checkpoints every 100 epochs |
+| 24292280 / 24292283 | evaluate epochs 5600 and 6000 (afterok the training); scorers 24292281–82, 24292284–85 |
+| 24292286 | final trend table (same file, epochs 5100–6000) |
+
+`ft_lownoise_eval.sbatch` now names its outputs by epoch (5300 keeps the plain `ft-<tag>` name).
+The control (γ = 5) is not continued: in the first 300 epochs it left capacity unchanged.
+Read the trend from the paired columns; if capacity and ρs are flat from 5300 on, the fine-tune has
+converged and the remaining gap needs something else (training from scratch without Min-SNR, or a
+t-sampling biased to low noise).
