@@ -23,8 +23,10 @@ against 6.3 s for our 500-step sampler on the same GPU, 5.8 / 10.0 s for WVS and
 (the authors' CUDA implementation). Quality does not drop: across all 12 checkpoints and 4 test
 sets, capacity deviation improves by 1–9% and ρs by 1.1–2.3% (paired tests, p < 0.05), and no metric
 is significantly worse. Batched, the sampler produces 60 stipples per second. Deterministic solvers
-(DDIM η = 0, DPM-Solver++) are not an alternative: they lose 13–17% in HOT energy. *We will add the
-25-step sampler and its results to the paper and update the runtime figure.*
+(DDIM η = 0, DPM-Solver++) are not an alternative: they lose 13–17% in HOT energy. *We will present
+the 25-step sampler in the supplement (four-dataset table, step sweep, ablation, spectra) and add
+its curve and a short paragraph to the runtime section of the paper; the paper's tables keep the
+submitted 500-step sampler.*
 
 **Training on BNOT.** We trained it: Ours-BNOT beats the GBN and WVS samplers in HOT energy, centroid
 displacement and W2 on all four datasets, and comes close to BNOT (Icons-50 HOT ×10⁵: BNOT 2.42,
@@ -68,8 +70,8 @@ a limitation. The test icons are the held-out 10% of a seeded split. Most of the
 same-emoji icon from another vendor in training, as the reviewer suspected, but quality relative to
 the teacher does not improve with the similarity of that icon (|ρ| ≤ 0.14 for every metric).
 
-**Committed revisions.** Ours-BNOT in Table 1; the 25-step sampler with a four-dataset table and an
-updated runtime figure; Table 3 replaced; the gating and KDE ablations; paired tests and rank
+**Committed revisions.** Ours-BNOT in Table 1; the 25-step sampler in the supplement (same
+weights, no retraining) with its tables, and its curve in the runtime figure; Table 3 replaced; the gating and KDE ablations; paired tests and rank
 preservation; cross-dataset and anisotropy results in the supplement; Fig. 4 regenerated (see
 Part 2); corrected BNOT-cost and capacity wording; the missing references; code and checkpoints.
 
@@ -141,9 +143,10 @@ the revision, not as a new method.
 
 ## Part 3. To settle before sending
 
-1. **Sampler wording.** Part 1 says "add the 25-step sampler", i.e. DDPM-500 stays the paper's
-   sampler. If every table switches to DDIM-25 instead, change the Speed paragraph and the
-   committed revisions.
+1. **Sampler: decided (user, 2026-11-18).** The 25-step sampler goes into the supplement as a
+   faster sampling variant of the same trained weights (call it a sampler, not a new model), with
+   its curve and a short paragraph in the paper's runtime section. The paper's tables keep DDPM-500.
+   Part 1 is written this way.
 2. **Title.** Choose one of the two bracketed endings of the Capacity paragraph.
 3. **BNOT runtime.** No BNOT time is quoted in Part 1. If the investigation confirms the stored
    times at 1024 / 1600 points (13.6 / 25.5 s), add them to the Speed paragraph and add the exemplar
