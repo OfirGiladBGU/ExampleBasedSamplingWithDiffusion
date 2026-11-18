@@ -922,3 +922,36 @@ as much as the others, the change is from extra training, not from the weighting
 improves at low K in the from-exemplar test but normal sampling gets worse on HOT / centroid, the
 low-noise emphasis is costing the coarse steps (then try γ = 50 with more epochs, or a t-sampling
 biased to low t, instead of removing Min-SNR).
+
+### 2026-11-18: low-noise fine-tune result — the reweighting works
+
+All jobs completed (training ~3.5 h each). `outputs/diag_generalization/ft_lownoise_summary.md`,
+200 held-out images, paired per image against the paper checkpoint (median per-image change; share
+of images where the fine-tuned model is better):
+
+| variant | sampler | capacity δc | ρs | CVT | HOT / centroid / W2 |
+|---|---|---|---|---|---|
+| γ = 5 (control) | DDPM-500 | +0.7%, no difference (p = 0.69) | +0.1% | +0.3% (worse on 64%) | −1.8% / −4.7% / −1.1%, better |
+| γ = 50 | DDPM-500 | **−13.2%** (better on 92%) | +0.7% (86%) | no difference | no difference (W2 +0.1%) |
+| γ = 50 | DDIM-25 | −9.7% (84%) | +0.3% | +0.1% (worse) | +1.3% / +2.4% / +0.5%, worse |
+| **no Min-SNR** | DDPM-500 | **−12.8%** (92%) | **+1.5%** (95%) | **−0.6%** (82%) | no difference |
+| **no Min-SNR** | DDIM-25 | −7.2% (76%) | +0.6% (76%) | −0.3% (70%) | no difference |
+
+- **The gain comes from the weighting, not from more training:** the control (γ = 5, same 300
+  epochs) does not change capacity at all; it only improves the transport metrics a little.
+- **Removing Min-SNR is the best variant:** capacity, ρs and CVT all improve on 82–95% of the images
+  with the paper sampler, and nothing gets worse. γ = 50 gets the same capacity gain but a smaller ρs
+  gain, no CVT gain, and slightly worse transport metrics with DDIM-25.
+- **It confirms where the loss was:** from the teacher's exemplar at K = 10, capacity goes from 1.28×
+  to 1.17× the teacher's (no Min-SNR), at K = 500 from 1.75× to 1.53×; x0 RMS error at t ≤ 20 drops by
+  10–17% on held-out images. The coarse steps (t ≥ 300) are unchanged on held-out images and
+  slightly worse on training images.
+- **The gap is reduced, not closed:** capacity to the teacher 1.78× → 1.57× (DDPM-500), 1.63× → 1.50×
+  (DDIM-25); CVT 1.028× → 1.021×; ρs 0.962 → 0.977. This is after only 300 epochs on a checkpoint
+  trained 5000 epochs with the old weighting.
+- Checkpoints: `control_v4/train_outputs_Icons-50_1024_GBN_ft-{g5,g50,g0}/checkpoints/dynamic_ep{5100,5200,5300}.ckpt`.
+- Not done: the trend over 5100 / 5200 / 5300 (is it still improving?), a longer fine-tune, training
+  from scratch without Min-SNR, the other 11 checkpoints. For the rebuttal this is at most one
+  sentence ("the capacity gap comes from the loss weighting of the last denoising steps; a
+  300-epoch fine-tune without it lowers δc by 13% on 92% of held-out images with no metric worse"),
+  since every table is from the paper checkpoints.
