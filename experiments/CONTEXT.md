@@ -976,6 +976,35 @@ t-sampling biased to low noise).
 
 ## TODO (user, 2026-11-18): the BNOT runtime numbers do not make sense — investigate
 
+> **RESOLVED 2026-11-18 (evening). Full write-up: `/groups/asharf_group/ofirgila/BNOT_V2/CONTEXT.md`.**
+> Cause: our BNOT port (`BNOT_new/ibnot_cli`) had replaced the original's SuiteSparse QR by Eigen's
+> `SparseQR`, which behaves like a dense factorization on the weight Laplacian (6.7 s per solve at
+> 3136 sites, 260 s at 10,000). Fixed in BNOT_new (commit 7ba8a7c, branch `scripts-update`):
+> SuiteSparse QR with the same solution the Eigen path returned. **The point sets are unchanged**
+> (the 10 runtime images at 256–6400 points reproduce the stored results to < 1e-5 of a site
+> spacing), so all BNOT exemplars and BNOT quality numbers stay valid. Only the runtimes were wrong.
+>
+> **BNOT on the 10 pinned runtime images, re-run with the fixed binary** (AMD EPYC 7702P, 1 thread;
+> `outputs/icons_results_runtimes_bnot_fixed/summary.md` and `runtimes_avg_bnot_fixed.json`; the
+> stored `icons_results_runtimes/runtimes_avg.json` is NOT changed):
+>
+> | points | 256 | 576 | 1024 | 1600 | 2304 | 3136 | 4096 | 5184 | 6400 |
+> |---|---|---|---|---|---|---|---|---|---|
+> | stored BNOT (s) | 7.2 | 8.8 | 13.6 | 25.5 | 59.2 | 333 | 393 | 872 | 1802 |
+> | fixed BNOT (s) | 5.2 | 5.8 | 7.1 | 8.5 | 9.5 | 20.9 | 12.9 | 15.3 | 17.2 |
+>
+> 100K points on the BNOT paper's `memorial.png`: ~2 min with the fixed binary (paper: 498 s in 2012).
+>
+> **Consequences, not applied yet (user decisions):**
+> - Fig. 7's BNOT curve and every sentence built on it are wrong: "1802 s at 6400 points", "BNOT's
+>   cost grows by more than 100x", "13.6 s per image" (exemplar cost ≈ 38 h for Icons → about 20 h).
+>   BNOT is 5–17 s from 256 to 6400 points; our DDIM-25 sampler (0.31–1.38 s) is still faster at
+>   every budget, by about 10–28x instead of up to 1300x (different machines, so indicative).
+> - REBUTTAL_DRAFT.md entries to revise with these numbers: A1, A3, A11, watch-out 6, and the
+>   W1 / W2 / Q1 rows of section 5. The argument "BNOT exemplars are affordable" gets stronger; the
+>   argument "BNOT does not scale" is gone.
+> - If one machine for all curves matters, re-time BNOT on the node used for our clean run.
+
 **Problem.** The BNOT paper (de Goes et al. 2012, "Blue Noise through Optimal Transport") reports
 stippling **100K points in 498 s** (per the user; confirm the exact figure, density and machine in
 the paper). Our stored measurement passes that time with far fewer points:
