@@ -1037,3 +1037,8 @@ suspicious than the large budgets but include the possible fixed overhead (item 
   (5300) with DDPM-500; ρs +1.5% from epoch 5100 on; CVT −0.4% → −0.6%. The run to 6000
   (24292279_2) will show whether anything is left; expect a plateau.
 - The `bnot-time` jobs in the queue belong to the other session that investigates the BNOT runtime.
+- **Rebuttal text, draft 1: `experiments/REBUTTAL_TEXT.md`** (2026-11-18). Part 1 = the one-page
+  text ordered for the mock review; Part 2 = short answers to use only if asked; Part 3 = what must
+  be settled before sending (sampler wording, title, BNOT runtime, the pending E14 / Fig. 3 /
+  parameter-count numbers). Every number in it is a FINAL entry of REBUTTAL_DRAFT.md; no BNOT time
+  and no budget other than the training budget is quantified.
