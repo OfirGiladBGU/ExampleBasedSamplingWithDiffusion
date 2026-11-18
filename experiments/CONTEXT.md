@@ -1042,3 +1042,26 @@ suspicious than the large budgets but include the possible fixed overhead (item 
   be settled before sending (sampler wording, title, BNOT runtime, the pending E14 / Fig. 3 /
   parameter-count numbers). Every number in it is a FINAL entry of REBUTTAL_DRAFT.md; no BNOT time
   and no budget other than the training budget is quantified.
+
+### 2026-11-18: sampler decision confirmed; supplement section for the few-step sampler
+
+- **Decision (user):** the 25-step sampler goes into the **supplement** as a boost found over the
+  original idea: a faster sampling variant of the same trained weights. Call it a sampler, not a new
+  model (no retraining). The main paper gets its curve in the runtime figure and a short paragraph;
+  every main table keeps DDPM-500. REBUTTAL_TEXT.md and REBUTTAL_DRAFT.md are written this way.
+- **Supplement section, what exists:** Icons-50 comparison on 1000 images (A1), step sweep (A1b),
+  four-dataset table for all 12 checkpoints (A18, `outputs/e13_ddim25_summary.md`), deterministic
+  solvers fail (A6), clean runtime (`runtime_clean_blocks16-Icons-50`), spectra and anisotropy
+  (A17), Fig. 4 with the sampler (`grid_size_results/pointcount_generalization_*_ddim-25-eta1`),
+  seed robustness (E14, running). Report with it that the sampler is ~1 dB more anisotropic around
+  the blue-noise peak, although bluer at low frequency.
+- **Ablation table with the sampler, submitted** (`logs/submit_ablation_ddim25_20261118.sh`):
+  `ablation_ddim25.sbatch` (array 24304064) samples the Table 2 variants at epoch 5000 (vanilla,
+  unfrozen, gecco, agi, full) plus noGate and noKDE with ddim-25-eta1 and ddpm-500 from the SDEdit
+  start, on the 50 Table 2 images, same Smart Init and noise for every variant →
+  `outputs/ablation_ddim25_e5000_b50_1024/CN-<variant>_1024`; scorers 24304065–71;
+  `ablation_ddim25_summary.py` (24304072) → `summary.md` (means per variant, and each variant
+  paired against full). Difference from the paper's Table 2: there the architecture rows are sampled
+  from pure noise with 1000 DDPM steps and only the last row uses SDEdit; here every row uses SDEdit.
+- `few_step_sampling_stage_1.py` got `--base_ckpt_path`, `--[no-]gecco`, `--[no-]gate-injection`
+  (defaults = the paper's full model), needed to load the frozen-base and partial variants.

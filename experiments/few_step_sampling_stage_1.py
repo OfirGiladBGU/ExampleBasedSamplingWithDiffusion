@@ -116,6 +116,14 @@ def parse_args():
     p.add_argument("--init_dir", default="",
                    help="Folder with <stem>.npy offset grids (2, n, n) used instead of the Smart Init, "
                         "e.g. the teacher's exemplar; each sampler noises it to its own start step")
+    # Architecture of the checkpoint. The defaults are the paper's full model; the Table 2 ablation
+    # variants need the frozen pretrained base and / or GECCO or gated injection switched off.
+    p.add_argument("--base_ckpt_path", default="",
+                   help="Pretrained base denoiser for frozen-base checkpoints (e.g. config/GBN/model.ckpt); "
+                        "empty = the jointly trained base stored in the control checkpoint")
+    p.add_argument("--gecco", action=argparse.BooleanOptionalAction, default=ENABLE_GECCO)
+    p.add_argument("--gate-injection", action=argparse.BooleanOptionalAction,
+                   default=ENABLE_ADAPTIVE_GATE_INJECTION)
     return p.parse_args()
 
 
@@ -296,8 +304,8 @@ def main():
 
     print(f"Control weights: {Path(args.control_ckpt_path).resolve()}")
     diffusion, control_net = load_pipeline(
-        args.base_config_path, "", args.control_ckpt_path, args.grid_size,
-        ENABLE_GECCO, ENABLE_ADAPTIVE_GATE_INJECTION, False, False, False, args.device,
+        args.base_config_path, args.base_ckpt_path, args.control_ckpt_path, args.grid_size,
+        args.gecco, args.gate_injection, False, False, False, args.device,
     )
     diffusion.set_num_timesteps(args.eval_timesteps)
     diffusion.eval()

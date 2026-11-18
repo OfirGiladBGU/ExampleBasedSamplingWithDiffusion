@@ -12,9 +12,11 @@ and the run log in [CONTEXT.md](CONTEXT.md).
 Status tags: **FINAL** (numbers verified, can be quoted) · **CHECK** (computed, needs one more
 verification) · **PENDING** (experiment running or not started).
 
-**Sampler decision (user, 2026-10-30):** the new variant is stochastic DDIM with 25 steps
-(`ddim-25-eta1`), same SDEdit start (t = 500). It is kept in reserve for the supplement and a
-second review round; the main experiments use the paper configuration (DDPM-500).
+**Sampler decision (user, 2026-10-30, confirmed 2026-11-18):** the few-step sampler is stochastic
+DDIM with 25 steps (`ddim-25-eta1`), same SDEdit start (t = 500), same trained weights. It goes into
+the **supplement** as a faster sampling variant found after submission (a sampler, not a new model:
+no retraining), with its curve and a short paragraph in the paper's runtime section. The paper's
+tables keep the submitted configuration (DDPM-500).
 
 ---
 
@@ -459,6 +461,7 @@ Table 3 with the full-chain results on the real sampler and describe the protoco
 | E7 | Direct point-optimization baseline (tone) | **done** (A12) |
 | E8 | KDE-loss ablation | **done, null**: no metric differs at epoch 5000 (A15) |
 | E13 | Four-dataset table with ddim-25-eta1 | **done** (A18): `outputs/e13_ddim25_summary.md` |
+| Ablation, new sampler | Table 2 variants (+ noGate, noKDE) with ddim-25-eta1 for the supplement | **running** (job 24304064, scorers 24304065–71, summary 24304072) → `outputs/ablation_ddim25_e5000_b50_1024/summary.md` |
 | E14 | Seed robustness, 3 independent runs (W5) | **running** (job 24303895, scorers 24303896–97, summary 24303898) → `outputs/e14_seeds-Icons-50_1024/summary.md` |
 | Fig. 3 strips | Strip percentages over 25 realizations; parameter counts | **running** (24303895_2) → `outputs/fig3_strip_realizations/summary.md`, `outputs/model_stats.md` |
 | E15 | Spectra / anisotropy with the new sampler | **done** (A17) |
@@ -526,9 +529,9 @@ Every planned experiment is done or running. What remains is mostly decisions an
   BNOT's large-budget times and the BNOT curve of the runtime figure.
 
 **Decisions only the user can make:**
-1. Default sampler in the revision: keep DDPM-500 as the paper's sampler and add DDIM-25 as a faster
-   variant (less change, recommended under "no large unrequested changes"), or switch every table to
-   DDIM-25 (E13 has all 12 checkpoints ready).
+1. ~~Default sampler in the revision~~ **decided 2026-11-18:** DDIM-25 goes into the supplement as
+   a faster sampling variant, with its curve and a paragraph in the paper's runtime section; the
+   paper's tables keep DDPM-500.
 2. The title: keep "Capacity-Constrained", or retitle / define the term (W2 is our weakest answer).
 3. When to start editing the paper files (`paper4/*_rebuttal_11.10.tex`): the rule so far was "not
    before the experiments are done"; they now are.
