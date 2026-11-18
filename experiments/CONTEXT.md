@@ -1018,3 +1018,22 @@ REBUTTAL_DRAFT.md A1 (13.56 / 25.51 s and 1802 s), A3 ("BNOT: 13.6 s at 1024 poi
 6400"), A11 (exemplar cost ≈ 38 h for Icons from 13.6 s per image), the W1 / W2 / Q1 rows of
 section 5; this file's runtime sections. The 1024 / 1600-point values (13.6 / 25.5 s) are less
 suspicious than the large budgets but include the possible fixed overhead (item 4).
+
+## 2026-11-18 (evening): remaining rebuttal items
+
+- **Open-items list: REBUTTAL_DRAFT.md section 6** (what is running, the decisions that are the
+  user's, the writing that can be prepared, the answers that stay weak).
+- **E14 + Fig. 3 strips + parameter counts submitted** (`logs/submit_seeds_20261118.sh`,
+  `rebuttal_seeds.sbatch` array 24303895): tasks 0 / 1 = Ours-GBN on the 1000 Icons test images with
+  Smart Init seeds 43 / 44 and noise seeds 100000 / 200000 (seed 0 = the E1 run), ddpm-500 +
+  ddim-25-eta1 → `outputs/e14_seeds-Icons-50_1024/CN-GBN-seed<k>_1024`; scorers 24303896 / 97;
+  `e14_summary.py` (24303898) → `summary.md` there. Task 2 = the Fig. 3 quadratic image, 25
+  realizations of Ours-GBN and Ours-WVS → `outputs/fig3_strip_realizations/summary.md`
+  (`fig3_strip_realizations.py`), then `model_stats.py` → `outputs/model_stats.md`.
+- **Fig. 3 fact:** the strip percentages in the paper are from one stored point set per method
+  (`experiments/compare_advance_metrics_stage_1.py`, `images_results_metrics/quadratic/target_*`).
+- **Fine-tune early trend** (`outputs/diag_generalization/ft_lownoise_trend_g0.md`, job 24292278):
+  with no Min-SNR the gain is complete by epoch 5200: capacity −5.5% (5100), −15.0% (5200), −12.8%
+  (5300) with DDPM-500; ρs +1.5% from epoch 5100 on; CVT −0.4% → −0.6%. The run to 6000
+  (24292279_2) will show whether anything is left; expect a plateau.
+- The `bnot-time` jobs in the queue belong to the other session that investigates the BNOT runtime.

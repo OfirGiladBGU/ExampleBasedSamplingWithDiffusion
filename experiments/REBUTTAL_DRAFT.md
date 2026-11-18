@@ -459,7 +459,8 @@ Table 3 with the full-chain results on the real sampler and describe the protoco
 | E7 | Direct point-optimization baseline (tone) | **done** (A12) |
 | E8 | KDE-loss ablation | **done, null**: no metric differs at epoch 5000 (A15) |
 | E13 | Four-dataset table with ddim-25-eta1 | **done** (A18): `outputs/e13_ddim25_summary.md` |
-| E14 | Seeds with the new sampler | not run |
+| E14 | Seed robustness, 3 independent runs (W5) | **running** (job 24303895, scorers 24303896–97, summary 24303898) → `outputs/e14_seeds-Icons-50_1024/summary.md` |
+| Fig. 3 strips | Strip percentages over 25 realizations; parameter counts | **running** (24303895_2) → `outputs/fig3_strip_realizations/summary.md`, `outputs/model_stats.md` |
 | E15 | Spectra / anisotropy with the new sampler | **done** (A17) |
 | Gating | Joint GECCO without gated injection (W5) | **done** (A20): gating helps CVT, capacity and ρs slightly but consistently |
 | Near-dup | Same-concept look-alikes vs quality (W6) | **done**: no memorization effect (A16) |
@@ -504,9 +505,49 @@ The full review text is in `experiments/reviews/mock_review_R1.md`. Strength of 
 | Q2 aspect ratio | strong | Not given to the network (condition resized to the grid, per-axis normalization), but not the cause: on already-square images the gap remains 2–4x (A4, E3). |
 | Q4 50–100 steps, deterministic | strong | 50 / 100 steps also beat DDPM-500 (δc −6.4% / −4.4%); deterministic solvers lose 13–17% HOT (A1b, A6). |
 | Minor: EMD is W1 | fact | Our M3 is the 2-Wasserstein distance (sqrt of the OT cost with squared distances, `compute_m3_emd`); rename it "W2" in the revision. |
-| Minor: Fig. 3 strip % | check | Not verified whether one realization or an average. |
+| Minor: Fig. 3 strip % | fact | One realization per method (`compare_advance_metrics_stage_1.py` reads one stored point set each). The mean ± std over 25 realizations of ours is being computed (job 24303895_2); state it in the caption. |
 | Minor: refs, Fig. 8 size, training time | concede | Add the four references; enlarge Fig. 8; training 31–95 h per checkpoint (A11), parameter count, code release. |
 
 **Raise-the-score list:** BNOT variant (have it), quality-vs-time over step counts (have it; WVS
 stays the reference implementation), 4K–10K quantitative (decline: visual only, models trained at
 one budget), tone vs iterative feedback with a classical sampler (have it, D1).
+
+---
+
+## 6. What is still open before the reviews (written 2026-11-18; reviews Nov 23, rebuttal due Nov 30)
+
+Every planned experiment is done or running. What remains is mostly decisions and writing.
+
+**Running (results land without action):**
+- E14 seed robustness and the Fig. 3 strip averages + parameter counts (jobs above).
+- The no-Min-SNR fine-tune to epoch 6000 (model study; at most one sentence in the rebuttal). Early
+  trend: the gain is complete by epoch 5200 (capacity −15% at 5200, −13% at 5300; ρs +1.5% from 5100).
+- BNOT runtime investigation (another session; watch-out 6). **Blocks** every sentence that uses
+  BNOT's large-budget times and the BNOT curve of the runtime figure.
+
+**Decisions only the user can make:**
+1. Default sampler in the revision: keep DDPM-500 as the paper's sampler and add DDIM-25 as a faster
+   variant (less change, recommended under "no large unrequested changes"), or switch every table to
+   DDIM-25 (E13 has all 12 checkpoints ready).
+2. The title: keep "Capacity-Constrained", or retitle / define the term (W2 is our weakest answer).
+3. When to start editing the paper files (`paper4/*_rebuttal_11.10.tex`): the rule so far was "not
+   before the experiments are done"; they now are.
+4. Whether to mention the low-noise fine-tune result at all.
+
+**Writing that can be prepared now (no compute):**
+- The one-page rebuttal text from section 2 and section 5 (PLAN section 4 has the skeleton); the real
+  reviews will reorder it, but the numbered answers can be drafted.
+- Related-work paragraph on tile / lattice methods and the four missing references (W1, minor).
+- Replacement Table 3 (full-chain tone numbers, A12), six-column Table 1 with Ours-BNOT (A3 / A18),
+  Table 2 caption (50-image subset, A7), the gating and KDE rows (A15, A20).
+- Updated runtime figure (our curve is final: `runtime_clean_blocks16-Icons-50`; BNOT curve pending).
+- Limitations paragraph: capacity gap (A4, A19), perfect-square n, anisotropy (A17), CelebA→Icons.
+
+**Answers that stay weak (prepare the concession, do not spend compute):**
+- "Unoptimized WVS baseline" (reference NumPy implementation; not re-timed).
+- No comparison with tile / lattice samplers.
+- No quantitative results at 4K–10K points (models trained at one budget; Fig. 4 and runtime only).
+- Training-seed variance: one training run per variant (E14 covers sampling noise only).
+- Break-even, if asked: exemplars + training ≈ 80 h per model against ≈ 7.7 s saved per stipple vs
+  GBN, i.e. tens of thousands of stipples. Do not volunteer it; the case rests on amortized use,
+  batching (60 stipples/s) and differentiability.
