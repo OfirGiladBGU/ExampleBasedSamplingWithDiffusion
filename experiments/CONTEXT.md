@@ -973,3 +973,48 @@ The control (γ = 5) is not continued: in the first 300 epochs it left capacity 
 Read the trend from the paired columns; if capacity and ρs are flat from 5300 on, the fine-tune has
 converged and the remaining gap needs something else (training from scratch without Min-SNR, or a
 t-sampling biased to low noise).
+
+## TODO (user, 2026-11-18): the BNOT runtime numbers do not make sense — investigate
+
+**Problem.** The BNOT paper (de Goes et al. 2012, "Blue Noise through Optimal Transport") reports
+stippling **100K points in 498 s** (per the user; confirm the exact figure, density and machine in
+the paper). Our stored measurement passes that time with far fewer points:
+
+| points | 256 | 576 | 1024 | 1600 | 2304 | 3136 | 4096 | 5184 | 6400 |
+|---|---|---|---|---|---|---|---|---|---|
+| BNOT, stored (s) | 7.2 | 8.8 | 13.6 | 25.5 | 59.2 | 333 | 393 | 872 | 1802 |
+
+(`outputs/icons_results_runtimes/runtimes_avg.json`, 10 pinned Icons-50 images, driver
+`/groups/asharf_group/ofirgila/BNOT_new/run_bnot_data_gen_v2_all.py` → `bnot_data_gen.py`, the
+authors' C++ CLI; parameters in `archive/E4_budget_generalization_scripts/budget_teachers_driver.py`:
+max_iters 25, max_newton_iters 50, epsilon 1.0, seed 7, invert, 512 x 512 input.) 1802 s for 6400
+points is ~3.6x the paper's time for ~16x fewer points, so something in our setup is off.
+
+**Until this is resolved, do not lean on BNOT's large-budget runtime** (the 333–1802 s values, "more
+than 100x growth", "1802 s at 6400") in the rebuttal or the revision. This overrides the earlier
+"baseline runtimes are final" rule for BNOT only; WVS and GBN stay as stored.
+
+**Things to check** (none done yet):
+1. The jump between 2304 and 3136 points: 59 s → 333 s (5.6x for 1.36x the points). It looks like a
+   regime change, not scaling: iteration caps being hit, a fallback path, or memory / swap.
+   Per-image timings and the solver's own iteration logs (`--keep_stats`) for 2304 vs 3136.
+2. Convergence settings. `outputs/spectral_analysis/FINDINGS.md` found that `epsilon` scales the
+   exit thresholds (at epsilon 1.0 the coarse loop stopped after 2 iterations on a uniform image).
+   Which thresholds end the run on the icon images, and are the Newton iterations (max 50) all used?
+3. The density. The paper's timings are probably on smooth densities; our icons have large
+   zero-ink (white) regions after inversion, which can make the power-diagram / Newton solve
+   ill-conditioned. Time a constant and a smooth-ramp image at 1024 / 4096 / 6400 points.
+4. Fixed overhead: 7.2 s at 256 points suggests ~7 s of startup, image loading or I/O per image
+   inside `total_wall_seconds`. Separate solver time from wrapper time.
+5. The build: optimization flags (-O2 / -O3 vs a debug build), CGAL version and kernel, single
+   thread. Compare with the paper's stated machine.
+6. How the timing was taken: node, concurrency (were several BNOT processes or shards running on
+   the same node?), and which clock.
+7. What the paper's 498 s covers (which density, which stopping criterion, multi-scale init or not),
+   so the comparison is like for like.
+
+**Where the BNOT runtime is used and must be re-checked afterwards:** paper Fig. 7 and its text;
+REBUTTAL_DRAFT.md A1 (13.56 / 25.51 s and 1802 s), A3 ("BNOT: 13.6 s at 1024 points, 1802 s at
+6400"), A11 (exemplar cost ≈ 38 h for Icons from 13.6 s per image), the W1 / W2 / Q1 rows of
+section 5; this file's runtime sections. The 1024 / 1600-point values (13.6 / 25.5 s) are less
+suspicious than the large budgets but include the possible fixed overhead (item 4).

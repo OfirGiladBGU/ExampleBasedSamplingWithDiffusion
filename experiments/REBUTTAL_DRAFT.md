@@ -33,6 +33,10 @@ second review round; the main experiments use the paper configuration (DDPM-500)
 5. **Do not say the model "does not memorize" (A19).** It reproduces training exemplars more
    closely than held-out ones (0.15 vs 0.23 cells; denoising error 20–24× lower on training images).
    The claim that holds: its quality metrics are the same on training and held-out images.
+6. **BNOT runtime is under investigation (user, 2026-11-18).** The BNOT paper reports 100K points in
+   498 s, while our stored BNOT times are 333–1802 s at 3136–6400 points. Do not quote the
+   large-budget BNOT times or "more than 100x growth" until the TODO in CONTEXT.md is resolved; the
+   1024 / 1600-point values (13.6 / 25.5 s) may include a fixed per-image overhead.
 
 ---
 
