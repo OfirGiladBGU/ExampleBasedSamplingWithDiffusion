@@ -6,8 +6,8 @@ arrive Nov 23; the rebuttal is due Nov 30. The experiment plan is in [REBUTTAL_P
 and the run log in [CONTEXT.md](CONTEXT.md).
 
 **Paper files to update once the experiments are done** (not before; see CONTEXT.md ground rules):
-`paper4/main_EG_rebuttal_11.10.tex`, `paper4/supplemental_EG_rebuttal_11.10.tex` and
-`paper4/tables_rebuttal/` on the server (copies of the user's local files, 2026-10-28).
+`paper_rebuttal/main_EG_rebuttal_11.10.tex`, `paper_rebuttal/supplemental_EG_rebuttal_11.10.tex` and
+`paper_rebuttal/tables_rebuttal/` on the server (copies of the user's local files, 2026-10-28).
 
 Status tags: **FINAL** (numbers verified, can be quoted) · **CHECK** (computed, needs one more
 verification) · **PENDING** (experiment running or not started).
@@ -76,7 +76,7 @@ tables keep the submitted configuration (DDPM-500).
    there); raw data and mean / exact-OT variants in `outputs/runtime_v10/`. Readings: DDPM-500 is on
    par with BNOT at the training budgets (5.5 / 5.9 s against 6.1 / 5.8 s) and slower at 256 / 576;
    it beats GBN at every budget; DDIM-25 is 14x / 10x faster than BNOT at 1024 / 1600. Paper figures:
-   `paper4/figures_rebuttal/` (the full version's Fig. 7, and the supplement graph with DDIM-25 for
+   `paper_rebuttal/figures_rebuttal/` (the full version's Fig. 7, and the supplement graph with DDIM-25 for
    both versions). The non-full version keeps the submitted Fig. 7 and adds DDIM-25 (mean, same
    run) to it in the supplement.
 
@@ -363,7 +363,7 @@ now prints mean / median for every cell.) The six-method table keeps the
 paper's picture: Ours-BNOT is the best learned sampler on HOT, centroid, W2 and Sinkhorn on every
 dataset, and every learned variant beats the GBN sampler on HOT and W2 on every dataset. With A1's
 0.42 s per stipple, this answers W1 on all four datasets, not only Icons. LaTeX version (mean ± std,
-supplement style): `paper4/tables_rebuttal/quantitative_comparison_ddim25_table.tex`
+supplement style): `paper_rebuttal/tables_rebuttal/quantitative_comparison_ddim25_table.tex`
 (`experiments/e13_ddim25_tex_table.py`).
 
 ### A19. Generalization diagnostics: the capacity gap is there on training images too — FINAL (numbers); the last bullet is a reading
@@ -568,7 +568,7 @@ and describe the protocol exactly.*
 
 ## 3. Paper changes to make in the revision (collect here; apply to the `_rebuttal_11.10` files)
 
-**Applied 2026-11-20 (user decision: two versions, all in `paper4/`, compiled without errors):**
+**Applied 2026-11-20 (user decision: two versions, all in `paper_rebuttal/`, compiled without errors):**
 - `*_rebuttal_11.10.tex` (non-full): the submitted text and numbers unchanged; new results only. A
   supplement section "Faster Sampling" (DDIM-25, fast OT assignment, six-method DDIM-25 table, the
   submitted Fig. 7 curves + DDIM-25 in a new graph) and one pointer sentence in the main runtime
@@ -580,8 +580,8 @@ and describe the protocol exactly.*
   the full version: the tone figures and the ink-gain sweep show the one-step proxy.~~ **Done
   2026-11-21:** ToneMechanism, ToneGraph and the supplement's gain sweep regenerated on the real
   sampler (A12); no tone TODOs remain in the full version.
-- Originals backed up in `paper4/archive/rebuttal_bak_20261120/`; new figures in
-  `paper4/figures_rebuttal/`, tables in `paper4/tables_rebuttal/`.
+- Originals backed up in `paper_rebuttal/archive/rebuttal_bak_20261120/`; new figures in
+  `paper_rebuttal/figures_rebuttal/`, tables in `paper_rebuttal/tables_rebuttal/`.
 
 1. The few-step sampler (`ddim-25-eta1`): in the paper, or in the supplement with E13's full table;
    updated Fig. 7 and runtime text (A1, E13).
@@ -700,7 +700,7 @@ Every planned experiment is done or running. What remains is mostly decisions an
 - ~~Replacement Table 3~~ (done 2026-11-20/21 with its two figures and the gain sweep, A12), six-column Table 1 with Ours-BNOT (A3 / A18),
   Table 2 caption (50-image subset, A7), the gating and KDE rows (A15, A20).
 - ~~Updated runtime figure~~ **done 2026-11-20:** all curves re-timed (runtime_v10), median, blocks16
-  from 3136 points (watch-out 7); in `paper4/figures_rebuttal/` and the full tex version.
+  from 3136 points (watch-out 7); in `paper_rebuttal/figures_rebuttal/` and the full tex version.
 - Limitations paragraph: capacity gap (A4, A19), perfect-square n, anisotropy (A17), CelebA→Icons.
 
 **Answers that stay weak (prepare the concession, do not spend compute):**

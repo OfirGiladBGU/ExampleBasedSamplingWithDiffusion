@@ -274,8 +274,8 @@ Conclusions:
   `control_v4/train_outputs_<Dataset>_<WVS|GBN|BNOT>/checkpoints/dynamic_ep5000.ckpt`, except Icons-50
   GBN, which is `train_outputs_Icons-50_1024_GBN_full`. Stage 1 takes `--source`, `--grid_size`
   (32 / 40) and `--label`, so it needs only a new job script.
-- The user's latest paper files are on the server for later edits: `paper4/main_EG_rebuttal_11.10.tex`,
-  `paper4/supplemental_EG_rebuttal_11.10.tex` and `paper4/tables_rebuttal/`. **Do not edit them until
+- The user's latest paper files are on the server for later edits: `paper_rebuttal/main_EG_rebuttal_11.10.tex`,
+  `paper_rebuttal/supplemental_EG_rebuttal_11.10.tex` and `paper_rebuttal/tables_rebuttal/`. **Do not edit them until
   the experiments are done.**
 
 ## 2026-10-29 / 10-30: sampler choice, runtime, OT-assignment bug, remaining experiments
@@ -1391,7 +1391,7 @@ break-even "7.7 s") and REBUTTAL_TEXT.md (lines ~22, 89-96: 0.44 / 0.61, 7.1 / 1
 ## 2026-11-20 evening: paper tex in two versions; rebuttal drafts updated
 User decisions: DDIM-25 is reported in the SUPPLEMENT only (new section "Faster Sampling" with a
 six-method table: BNOT, WVS, GBN + our three variants sampled with ddim-25-eta1, mean +- std, and a
-runtime graph with DDIM-25). Two versions of the paper (local paper4/, mirrored to server paper4/):
+runtime graph with DDIM-25). Two versions of the paper (local paper_rebuttal/, mirrored to server paper_rebuttal/):
 - *_rebuttal_11.10.tex (non-full): submitted text/numbers untouched; new results only. Supplement
   graph = the submitted Fig. 7 curves + DDIM-25 (runtime_v10, blocks16, MEAN). One pointer sentence
   in the main runtime paragraph.
@@ -1403,7 +1403,7 @@ runtime graph with DDIM-25). Two versions of the paper (local paper4/, mirrored 
   still the one-step proxy.
 New scripts: experiments/e13_ddim25_tex_table.py -> outputs/e13_ddim25_tex/,
 experiments/runtime_rebuttal_graphs.py -> outputs/runtime_rebuttal_graphs/{full,nonfull}/.
-Backups: paper4/archive/rebuttal_bak_20261120/ (local), REBUTTAL_{DRAFT,TEXT}.md.bak_20261120.
+Backups: paper_rebuttal/archive/rebuttal_bak_20261120/ (local), REBUTTAL_{DRAFT,TEXT}.md.bak_20261120.
 REBUTTAL_DRAFT.md watch-out 7 = runtimes of record (runtime_v10); REBUTTAL_TEXT.md numbers updated.
 
 ## 2026-11-20 (late): tone figures rebuilt from the full-chain results (full version only)
@@ -1418,7 +1418,7 @@ REBUTTAL_DRAFT.md watch-out 7 = runtimes of record (runtime_v10); REBUTTAL_TEXT.
   (seed mean); the figure shows seed 0, RMS 0.0773 -> 0.0690.
 - paper4: `figures_rebuttal/tone_{improvement,explain_compact}_fullchain.pdf` used in
   main_EG_rebuttal_full_11.10.tex (Figs ToneMechanism/ToneGraph, captions rewritten; Feedback replaces
-  Random Search). Backup: paper4/archive/rebuttal_bak_20261120/main_EG_rebuttal_full_11.10.before_tonefigs.tex.
+  Random Search). Backup: paper_rebuttal/archive/rebuttal_bak_20261120/main_EG_rebuttal_full_11.10.before_tonefigs.tex.
   Still open: supplement ink-gain sweep (one-step proxy; a full-chain re-run is needed).
 
 ## 2026-11-21: ink-gain sweep on the real sampler (job 24362421, done, 3:37 h)
@@ -1432,7 +1432,7 @@ REBUTTAL_DRAFT.md watch-out 7 = runtimes of record (runtime_v10); REBUTTAL_TEXT.
 - field - curve: -0.09 (p=0.02, curve better), -0.14, -0.17, +0.12, +0.07 dB (none of the last four significant).
   So the gain over uncorrected grows with ink gain, but the field does not beat the tone curve at any gain;
   the submitted caption's "ordering unchanged" claim does not hold. Not yet put in the supplement (user decision).
-- 2026-11-21: put into paper4/supplemental_EG_rebuttal_full_11.10.tex as figures_rebuttal/tone_gain_sweep_fullchain.pdf
+- 2026-11-21: put into paper_rebuttal/supplemental_EG_rebuttal_full_11.10.tex as figures_rebuttal/tone_gain_sweep_fullchain.pdf
   (intro sentence and caption rewritten: gain over uncorrected grows with dot gain; field and curve within
   0.2 dB at every gain). Backup: archive/rebuttal_bak_20261120/supplemental_EG_rebuttal_full_11.10.before_gainsweep.tex.
   No tone TODOs remain in the full version.
@@ -1465,6 +1465,21 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
   3. If the supplement gets an ablation table with noGate / noKDE rows as means, Full is not the best
      on mean capacity (A24 caution).
 - **Uncommitted on `rebuttal` as of this check:** everything since e420c8b (2026-11-18 20:18): the
-  three docs, `paper4/` (both versions, figures_rebuttal, two new tables), and the new scripts
+  three docs, `paper_rebuttal/` (both versions, figures_rebuttal, two new tables), and the new scripts
   (bnot_*, runtime_v10_*, runtime_rebuttal_graphs.py, e13_ddim25_tex_table.py, tone stage 9 / 10,
   tone_gain_sweep_ddim25.sbatch, the stage-2 `--mode` change).
+
+## 2026-11-22: paper folder renamed, untracked and trimmed (user request)
+
+- **`paper4/` is now `paper_rebuttal/`** (every `paper4/` path in this file and in REBUTTAL_DRAFT.md
+  was rewritten to the new name, also in older entries).
+- **The paper files are no longer tracked by git and must not be committed.** They were removed
+  from the index (they stay on disk) and `paper*/` is in `.gitignore`. They remain in the history
+  of the `rebuttal` branch on GitHub (commits bcdea5f and c396da8); removing them from there would
+  need a history rewrite and a force push, which was not done.
+- **`paper/` (untracked, ignored) is the user's snapshot of the current Overleaf project**, uploaded
+  2026-11-21. `paper_rebuttal/` now holds only files that are new or changed against it: the four
+  tex files, seven figures in `figures_rebuttal/`, two tables in `tables_rebuttal/`. The two tables
+  identical to Overleaf's (`quantitative_comparison_table.tex`, `..._full_table.tex`) were removed.
+  The upload list is `paper_rebuttal/UPLOAD_TO_OVERLEAF.md`; `python3 logs/refs_check_paper.py
+  paper_rebuttal` re-checks that every file the tex files reference exists in one of the two folders.
