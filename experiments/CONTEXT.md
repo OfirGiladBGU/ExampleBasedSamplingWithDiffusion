@@ -1483,3 +1483,37 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
   identical to Overleaf's (`quantitative_comparison_table.tex`, `..._full_table.tex`) were removed.
   The upload list is `paper_rebuttal/UPLOAD_TO_OVERLEAF.md`; `python3 logs/refs_check_paper.py
   paper_rebuttal` re-checks that every file the tex files reference exists in one of the two folders.
+
+## 2026-11-22: paper files purged from the `rebuttal` branch history (user request)
+
+- The 14 commits of `rebuttal` were rewritten without `paper4/` and force-pushed (with lease).
+  Messages, authors and dates are unchanged; the final tree is identical, so the checkout was not
+  touched. Branch point (`fm_and_clip`, 5587875) and every other branch are unchanged.
+- **Every rebuttal commit hash changed.** Hashes quoted earlier in this file are the old ones:
+
+  | old | new | commit |
+  |---|---|---|
+  | bcdea5f | 6df34e1 | Rebuttal experiments (EG 2027, paper1182) |
+  | e83e840 | cb538b0 | CONTEXT: record the rebuttal branch |
+  | 6d92ec8 | d0c4818 | Rebuttal: gating ablation, generalization diagnostics, paired-summary fix |
+  | e72f87e | 2df7a93 | Low-noise fine-tune experiment |
+  | 1ea96e4 | 5fe435c | CONTEXT: low-noise fine-tune result |
+  | 7b191dc | c478eb4 | Low-noise fine-tune: continue to epoch 6000 |
+  | a6155d6 | 22040d3 | TODO: investigate BNOT runtime numbers |
+  | 6c99561 | 8b20b64 | Rebuttal: E14 seed robustness, Fig. 3 strip realizations, parameter counts |
+  | 09b9cea | e2f5a3f | Rebuttal text, draft 1 |
+  | 3081ea1 | 7776403 | Few-step sampler goes to the supplement; ablation table with DDIM-25 |
+  | 0e1122e | d37dbf8 | BNOT runtime TODO resolved |
+  | e420c8b | 4893ded | CONTEXT: BNOT runtimes being replaced and archived |
+  | c396da8 | 639e5e1 | Rebuttal: BNOT runtime fix, runtime_v10, tone on the real sampler |
+  | 5419ce1 | df36c23 | Stop tracking the paper files; ignore paper folders |
+
+- **Local safety copy of the old history:** branch `backup/rebuttal-before-purge-20261122` in this
+  server repository only (never pushed). It still contains the paper files; delete it with
+  `git branch -D backup/rebuttal-before-purge-20261122` when it is no longer wanted.
+- **What the purge does not do:** GitHub still serves the old commits to anyone who asks for them by
+  hash (checked right after the push), until GitHub's own garbage collection removes them; only
+  GitHub Support can force that. The repository is public (its page loads without login), so the
+  rebuttal notes on this branch (this file, REBUTTAL_DRAFT.md, REBUTTAL_TEXT.md, the mock review)
+  are public too. Whether that is acceptable is the user's decision.
+- Anyone who had fetched the old `rebuttal` must reset to `origin/rebuttal`, not merge.
