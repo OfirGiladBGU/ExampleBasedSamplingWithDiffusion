@@ -96,6 +96,7 @@ DEFAULT_COMPARE_LIST = [
     {"GBN": "experiments/outputs/images_results_metrics/quadratic/target_GBN_1024/quadratic_density_gradient.npy"},
     {"Ours-WVS": "experiments/outputs/images_results_metrics/quadratic/target_CN-WVS_1024/quadratic_density_gradient.npy"},
     {"Ours-GBN": "experiments/outputs/images_results_metrics/quadratic/target_CN-GBN_1024/quadratic_density_gradient.npy"},
+    {"Ours-BNOT": "experiments/outputs/images_results_metrics/quadratic/target_CN-BNOT_1024/quadratic_density_gradient.npy"},
 ]
 CLIP_TO_DOMAIN = False
 CAPACITY_TEST = True

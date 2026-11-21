@@ -19,6 +19,9 @@ Images come straight from the validation folders (no model, no rendering):
     GBN      -> target_GBN_<N>/<stem>.npy
     Ours-WVS -> target_CN-WVS_<N>/<stem>.npy   (our ControlNet, trained on WVS targets)
     Ours-GBN -> target_CN-GBN_<N>/<stem>.npy   (our ControlNet, trained on GBN targets)
+    Ours-BNOT -> target_CN-BNOT_<N>/<stem>.npy (our ControlNet, trained on BNOT targets;
+                 not in the default COLUMNS, which stay those of the submitted figure --
+                 add it with --columns, see qualitative_ours_bnot.sbatch)
 
 <N> is the dataset's point budget and is NOT hard-coded: icons/faces use 1024 and
 ShapeNet uses 1600, so each target folder is resolved by glob per dataset.
@@ -103,6 +106,7 @@ COL_TO_DIR = {
     "GBN": "target_GBN_*",
     "Ours-WVS": "target_CN-WVS_*",
     "Ours-GBN": "target_CN-GBN_*",
+    "Ours-BNOT": "target_CN-BNOT_*",
 }
 
 CELL = 2.0            # inches per cell

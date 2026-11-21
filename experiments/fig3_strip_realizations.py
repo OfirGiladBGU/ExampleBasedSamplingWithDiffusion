@@ -43,7 +43,7 @@ def main():
              "## Stored point sets (one realization each; the numbers printed in the paper's figure)", "",
              "| method | " + " | ".join(f"strip {i + 1}" for i in range(STRIPS)) + " | max abs error (pp) |",
              "|---|" + "---|" * (STRIPS + 1)]
-    for m in ("BNOT", "WVS", "GBN", "CN-WVS", "CN-GBN"):
+    for m in ("BNOT", "WVS", "GBN", "CN-BNOT", "CN-WVS", "CN-GBN"):
         f = STORED / f"target_{m}_{N}" / f"{STEM}.npy"
         if f.exists():
             s = shares(np.load(f))
