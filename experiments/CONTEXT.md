@@ -1551,3 +1551,22 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
   sentences were checked against the papers' abstracts; **the Stippling by Example sentence could not
   be checked** (publisher pages refused the fetch) and is flagged in `UPLOAD_TO_OVERLEAF.md`.
 - Not compiled here (no LaTeX on the server side of this session).
+
+### 2026-11-22: changed text marked in blue in `paper_rebuttal/` (user request)
+
+- **Convention (user):** in the rebuttal paper files, everything that is new or changed against the
+  **submitted** version (`paper/main_EG.tex`, `paper/supplemental_EG.tex`, and the `tables_v4/` tables
+  they input) is wrapped in `\textcolor{blue}{...}`. Applied to the four tex files and the four
+  tables of `paper_rebuttal/tables_rebuttal/`.
+- **Tool (tracked, not paper content):** `experiments/paper_mark_changes_blue.py` (one file) and
+  `experiments/paper_mark_all_blue.sh paper paper_rebuttal` (all eight). It removes existing marks
+  first, so **re-run it after every edit of those files**; `--strip` removes the marks. Line
+  alignment with difflib, then word-level comparison with balanced braces / math; structure
+  (figures, `\input`, `\label`, `\multicolumn`, `&`, `\\`) is never wrapped; bold / underline around a
+  table value is ignored; display math and the preamble are skipped. Its docstring has the details.
+- **Verified:** removing the marks gives back the unmarked files byte for byte; a second run changes
+  nothing; all four files compile with pdfLaTeX + BibTeX (local MiKTeX, placeholder graphics, 0
+  errors, 0 undefined citations or references). The server files are identical to the compiled ones.
+- Unmarked copies from before: `logs/paper_rebuttal_unmarked_20261122/`.
+- Limits to tell the user about: figures cannot be coloured (only their captions), removed text is
+  not shown, reference-list entries are not coloured.
