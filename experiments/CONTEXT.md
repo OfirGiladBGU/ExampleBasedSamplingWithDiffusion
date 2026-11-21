@@ -1145,3 +1145,326 @@ What job 24307095 does, in order:
   on the old BNOT curve.
 - The curves come from different machines: BNOT's new times are from an AMD EPYC 7702P node, the
   stored WVS / GBN / CN ones from the original (unrecorded) machine, ours from the clean run.
+
+### 2026-11-18 21:15: BNOT runtime replacement CHECKED (jobs 24307078 / 24307095)
+
+Checked by another session, from the logs, the new JSON and the regenerated graphs:
+
+- `ten-images-24307078.out`: all four budgets `processed=10, skipped=0`; ends with
+  `All budgets done. failed=[]`.
+- `archive-24307095.out`: `CN unchanged: True`, `GBN unchanged: True`, `WVS unchanged: True`; BNOT has
+  13 budgets x 10 images; archive folder `a_archive/bnot_runtimes_eigen_solver_20261118/` exists with
+  its README; `runtimes_avg.json` and the three graphs are dated 20:56.
+- New BNOT means (s): 5.2 / 5.8 / 7.1 / 8.5 / 9.5 / 20.9 / 12.9 / 15.3 / 17.2 at 256 … 6400, then
+  **179.7 / 41.7 / 23.4 / 25.0 at 7744 / 9216 / 10816 / 12544**.
+- **The means at 3136, 7744 and 9216 are each carried by one or two slow images**, not by scaling.
+  Per-image `native_wall_seconds`: at 3136, `twitter_0_arrow_pointing_rightwards_then_curving_upwards`
+  88 s and `emoji-one_3_waving_hand_sign` 39 s, the other eight 7–15 s; at 7744, the same arrow icon
+  1191 s and `samsung_4_squared_cjk_unified_ideograph_7533` 470 s, the other eight 10–38 s; at 9216,
+  the ideograph 256 s, the other nine 12–34 s. The median over images would be flat (about 10–15 s).
+  If Fig. 7 keeps the mean, say so; or plot the median for every method.
+- The graphs stop at 6400 points, so only the 3136 bump is visible (BNOT 20.9 s, just above WVS).
+- **New consequence for the main paper's curve (DDPM-500, stored 5.65–9 s):** it is no longer
+  faster than BNOT at small budgets. BNOT 5.2 s vs ours ~5.7 s at 256 points, equal at 576, and only
+  ~1.2x slower than ours at 1024 (7.1 vs 5.8 s). Do not write "faster than every sampler" for the
+  DDPM-500 configuration at the training budgets; the claim holds for the 25-step sampler
+  (0.31–1.38 s, about 10–28x below BNOT, different machines).
+- Still not done: the REBUTTAL_DRAFT.md / REBUTTAL_TEXT.md / REBUTTAL_PLAN.md / paper edits listed
+  just above.
+
+### 2026-11-18 21:40: BNOT numbers updated in REBUTTAL_DRAFT.md and REBUTTAL_TEXT.md
+
+Done on the user's request (backups `*.bak_20261118_bnot`; patch script
+`logs/patch_bnot_times_20261118.py`; uncommitted):
+- REBUTTAL_DRAFT.md: watch-out 6 rewritten (all nine fixed-build times, and three cautions: the
+  500-step sampler is not clearly faster than BNOT, the 3136 mean is two slow images, the machines
+  differ); A1 (BNOT 7.08 / 8.49 s at 1024 / 1600, 17.2 s at 6400), A3, A11 (exemplar cost ≈ 20 / 10 /
+  9 / 6 h, about GBN's; 38 h was the slow build), the "impractical" draft answer, paper-change item 6
+  (Fig. 7's BNOT curve), the W1 / W2 / Q1 rows, and the open-items list.
+- REBUTTAL_TEXT.md: BNOT 7.1 / 8.5 s added to the Speed paragraph, the exemplar cost to the BNOT
+  paragraph, the correction of the submitted BNOT times as a Part 2 (Q1) answer, Part 3 item 3
+  marked resolved with one open decision (whether the correction moves to Part 1).
+- Not touched: REBUTTAL_PLAN.md ("two orders of magnitude"), the paper files (Fig. 7 and its text),
+  and Part 3 item 4 of REBUTTAL_TEXT.md, which still lists E14 / Fig. 3 / parameter count as pending
+  although their summaries exist.
+
+### 2026-11-18 21:50: BNOT default parameters, re-timing on the paper's CPU, convergence test running
+
+**Original BNOT defaults** (the user's copy, `BNOT_V2/bnot-src/ibnot`, the stippling variant):
+`m_epsilon = 1.0`, `m_max_iters = 500` (outer iterations), 500 Newton iterations per weight solve
+(hard-coded in the `optimize_all(stepW, stepX, 500, epsilon, max_iters)` call), `stepX = stepW = 0`
+(0 = line search), thresholds `0.1 * epsilon * A / N` (weights) and `0.1 * epsilon * sqrt(A^3) / N`
+(positions); coarse loop at 2x the threshold, then the fine loop. (`pbnot` / `bbnot`, the
+constant-density variants, use 0.03 instead of 0.1.) Our port's CLI has the same defaults (500 / 500
+/ 1.0). **Our Python driver overrides two of them: `max_iters = 25`, `max_newton_iters = 50`**
+(`bnot_data_gen.py`, `budget_teachers_driver.py`); epsilon stays 1.0.
+- So the paper's "published default stopping criteria ... up to 25 Newton iterations for BNOT" is
+  not accurate: the defaults are 500 outer / 500 Newton, and ours are 25 outer / 50 Newton.
+- The outer cap does not bind: the fixed-build runs of the 10 runtime images stop after 2–4 outer
+  iterations at 256 / 1024 / 1600 / 3136 / 6400 points (stats `iterations:`). Whether the Newton cap
+  of 50 binds on the slow images is not known yet.
+- **Job 24308577** (`bnot_convergence_check.sbatch`, `bnot_convergence_summary.py`) tests it on the
+  10 runtime images: epsilon 1.0 with 25 / 50 (paper) and 500 / 500 (original defaults), epsilon 0.1
+  and 0.01 with 500 / 500, epsilon 0.01 with 25 / 50; 1024 points scored with the paper metrics,
+  6400 points timed. → `outputs/bnot_convergence_check/summary.md`.
+
+**BNOT re-timed on the paper's machine type** (job 24308505, `bnot_retime_epyc7343.sbatch`, node
+ise-6000-02, AMD EPYC 7343, load ~30 of 64 threads; the supplement states RTX 6000 + EPYC 7343 for
+Fig. 7) → `outputs/icons_results_runtimes_bnot_epyc7343/`. Mean / median s, 10 images:
+
+| points | 256 | 576 | 1024 | 1600 | 2304 | 3136 | 4096 | 5184 | 6400 |
+|---|---|---|---|---|---|---|---|---|---|
+| EPYC 7343, mean | 2.98 | 3.47 | 4.26 | 4.94 | 5.79 | 12.77 | 7.67 | 9.07 | 10.51 |
+| EPYC 7343, median | 2.70 | 3.41 | 4.26 | 4.79 | 4.96 | 6.50 | 7.19 | 7.21 | 8.51 |
+| EPYC 7702P, mean (in `runtimes_avg.json`) | 5.22 | 5.81 | 7.08 | 8.49 | 9.46 | 20.89 | 12.88 | 15.33 | 17.20 |
+| paper's own curve (DDPM-500, stored) | 5.75 | 5.80 | 5.88 | 6.02 | 6.33 | 6.77 | 7.66 | 7.92 | 9.08 |
+
+**On the paper's CPU, BNOT (epsilon 1.0) is faster than the paper's 500-step sampler from 256 to
+2304 points** (4.26 vs 5.88 s at 1024) and about equal or slower above. `runtimes_avg.json` and the
+graphs still hold the EPYC 7702P times; nothing was replaced. The paper files are not edited yet:
+the BNOT curve depends on the tolerance question above (user, 2026-11-18).
+
+### 2026-11-18 21:42: where the paper's Fig. 7 runtimes were measured (correction to the note above)
+
+The user: the paper's BNOT times were measured on a CPU-only machine, not on the RTX 6000 node.
+Checked against the file dates of the stored runs and the interactive `pycharm_srv` sessions in
+`sacct` (the runs were started from those sessions; the match is by start time, so it is an
+inference, not a recorded fact):
+
+| curve | stored files | session it matches | node type |
+|---|---|---|---|
+| BNOT 256–2304 | 2026-08-09 18:52–19:01 (log `run_bnot_data_gen_v2_all.py_20260809_185210.log`) | 19971816, cs-cpu-08, from 18:51 | CPU only |
+| BNOT, larger budgets | logs of 08-11 16:03, 08-13 14:02, 08-14 23:54 | ise-cpu128-11, cs-cpu-11, ise-cpu-intl-07 | CPU only, three other nodes |
+| WVS 1024 | 2026-08-10 18:51 | 20001090, ise-cpu-intl-04, from 18:49 | CPU only |
+| Ours (CN) 1024 | 2026-08-15 02:03 | 20168179, ise-6000-06, from 01:59 | RTX 6000 node |
+| GBN 1024 | 2026-08-15 17:17 | 20189152, ise-cpu256-10, from 17:12 | RTX 6000 on a cpu256 node |
+
+- So the supplement's sentence "measured on one machine with an RTX 6000 GPU and an AMD EPYC 7343
+  CPU; WVS and BNOT run on the CPU" is not accurate: the four curves come from at least four nodes,
+  and the old BNOT curve itself from several CPU-only nodes. It has to be rewritten whatever BNOT
+  numbers are used.
+- **The BNOT curve for the paper stays the CPU-only measurement** already in `runtimes_avg.json`
+  (fixed build, ise-cpu128-07, AMD EPYC 7702P: 7.08 s at 1024, 17.2 s at 6400), which is the same
+  kind of machine as the original. The EPYC 7343 run (`icons_results_runtimes_bnot_epyc7343/`,
+  4.26 s at 1024) is a side measurement of how much the CPU matters (about 1.6x); do not put it in
+  Fig. 7 unless the user decides to time everything on one node.
+- Comparison that follows for the paper's 500-step sampler: 5.88 s against BNOT 7.08 s at 1024 and
+  6.02 against 8.49 s at 1600, on different machines; BNOT faster at 256, equal at 576.
+
+### 2026-11-18 21:55: BNOT convergence test restarted with a per-image time limit (job 24308720)
+
+- **First attempt (24308577) cancelled after 10 min.** At epsilon 0.1 with the original caps
+  (500 / 500), six images finished in ~40 s, then the seventh, `emoji-one_3_waving_hand_sign`, ran
+  for more than 8 min without finishing (the icon `BNOT_V2/CONTEXT.md` already flags: large empty
+  regions, nearly singular weight Laplacian). The script ran all 10 images in one call under one
+  2-hour limit, so a stall blocked the rest of the setting.
+- **Restart: job 24308720**, same `bnot_convergence_check.sbatch`, now one image per call
+  (`--start i --end i+1`) under `timeout`: 600 s per image at 1024 points, 1800 s at 6400. A stopped
+  image is printed in the log ("STOPPED after ... s") and listed in `summary.md`. A setting counts
+  as done when `data/timestamps_<tag>_<points>/` exists, so the two finished settings were kept.
+- **Partial results at 1024 points (10 runtime images, fixed build, node ise-cpu128-01):**
+  - epsilon 1.0, caps 25 / 50 (paper): 2–3 outer iterations per image, 3.8–10.5 s.
+  - epsilon 1.0, caps 500 / 500 (original defaults): the same iteration counts and capacity errors,
+    3.4–9.5 s. **9 of 10 point sets are byte-identical to the paper setting**; the one that differs is
+    `twitter_0_arrow_pointing_rightwards_then_curving_upwards` (same outer iterations, same reported
+    capacity error, so probably the Newton cap of 50 inside one weight solve). How far its points
+    move is not measured yet (`summary.md`, nearest-point distance column).
+  - epsilon 0.1, 500 / 500, the six images that finished in the first attempt: 3–5 outer iterations
+    (1–2 more than at epsilon 1.0), capacity errors 5e-8 … 3e-5. Not scored yet.
+- **Reading so far:** the 25-iteration cap is not what stops BNOT at epsilon 1.0; the tolerance is.
+  A tighter tolerance needs only a few more iterations on most icons but can stall on some, which is
+  the practical reason for a cap or a time limit. Whether it improves the paper metrics is what the
+  scored 1024-point table of `outputs/bnot_convergence_check/summary.md` will show.
+- **If epsilon is changed for the paper**, it is not only Fig. 7: the BNOT columns of Table 1 and the
+  Ours-BNOT training exemplars were generated at epsilon 1.0 with caps 25 / 50.
+
+### 2026-11-18 22:05: user decision (epsilon stays 1.0) and the exemplar check (job 24308964)
+
+- **Decision (user): epsilon 1.0 is enough for all results.** No BNOT result is regenerated at a
+  tighter tolerance. The convergence job 24308720 is left running for the record only; so far, at
+  epsilon 0.1 with caps 500 / 500, 9 of 10 images finish and `emoji-one_3_waving_hand_sign` is
+  stopped by the 600 s limit.
+- **Open question (user): does the solver fix change the BNOT point sets, i.e. do the exemplars have
+  to be regenerated and Ours-BNOT retrained?** Evidence before this check: the other session's
+  comparison of the 10 runtime images at 256–6400 points (stored vs fixed build, differences
+  <= 3e-6 of a point spacing) and six old-vs-fixed runs (`BNOT_V2/CONTEXT.md`).
+- **Job 24308964** (array 0-3, `bnot_fix_validation.sbatch` + `bnot_fix_validation.py`) tests it on
+  the training exemplars themselves: a seeded random sample of each BNOT dataset (Icons-50 60 images,
+  CelebA-5K 40, ShapeNet2D-4K 40, Anime-Chibi 40) is regenerated with the **old** binary
+  (`BNOT_new/ibnot_cli/build.eigen_20261118/ibnot_new_cli`) and with the **fixed** one, same inputs
+  and settings (seed 7, 25 / 50, epsilon 1.0, invert, 900 s limit per image). The input size is
+  chosen per dataset as the one whose result reproduces the stored exemplar (none / 512 / 448).
+  Compared: nearest-point distance old vs fixed and old vs stored (in point spacings), outer
+  iterations, capacity error, and the paper metrics of both sets.
+  → `outputs/bnot_fix_validation/summary.md` (per dataset: `result.json`).
+- How to read it: "old vs fixed" near zero on every image = no regeneration and no retraining.
+  "old vs stored" near zero confirms the test used the real generation settings; if it is large for
+  a dataset, the settings were not reproduced and only the old-vs-fixed column counts there.
+
+## 2026-11-19 00:30: BNOT runtime at its TRUE defaults (user request)
+
+- **User decision:** BNOT results stay at the default tolerance (epsilon 1.0), and the runtime graphs
+  must use BNOT's true default parameters: **max_iters 500, max_newton_iters 500**, not the paper
+  driver's 25 / 50 caps (point sets are the same at 1024 points on 9/10 images, see the convergence
+  check, but the timing must be of the real defaults).
+- `bnot_retime_defaults.sbatch` (fixed build, 10 pinned runtime images, 512 x 512, seed 7, invert,
+  1 thread, CPU-only EPYC 7702P cpu128 node like the current fixed-build curve; the job exits if the
+  CPU differs; one image per call with a 3600 s guard, a stopped image is printed)
+  -> `outputs/icons_results_runtimes_bnot_defaults500/`.
+  Job 24310372: 256-6400. Job 24310374 (afterany): 7744-12544.
+- `bnot_defaults_runtime_stage_3.py` (jobs 24310373 after the first, 24310375 after the second)
+  -> `outputs/runtime_graphs_bnot_defaults500/`: `summary.md` (500/500 vs 25/50 per budget: mean,
+  median, max, counts), `runtimes_avg.json` (= stored JSON with BNOT replaced; budgets with < 10
+  timings left out), Fig. 7 in `plots/`, the new-variant graph (runtime_clean_stage_3 on the
+  runtime_clean_blocks16 reps, symlinked) in `new_variant/plots/`. **Nothing stored is replaced**;
+  swap into icons_results_runtimes only after the user has seen the graphs.
+
+## 2026-11-19 02:00: runtime graphs re-measured on a NEW image set (user decision)
+
+- The BNOT true-defaults re-time on the old 10 pinned images (job 24310372, cancelled at 4096) showed
+  two icons dominating: at 3136 points `twitter_0_arrow_pointing_rightwards_then_curving_upwards`
+  840 s (25/50 caps: 88 s) and `emoji-one_3_waving_hand_sign` 273 s (39 s); the other eight 8-15 s.
+  Up to 2304 points 500/500 cost only 2-7% more than 25/50 (5.5 / 6.2 / 7.4 / 8.6 / 10.2 s). Folder
+  `outputs/icons_results_runtimes_bnot_defaults500/` (256-3136 complete). The 50-Newton cap was
+  binding on exactly those two icons.
+- **User decision: re-time ALL methods on a new set, the first 10 (sorted) Icons-50 validation
+  images** (`outputs/runtime_v10_subset.txt`: apple_0_automobile ... apple_0_eagle), staged with
+  `budget_teachers_stage_0.py --prefix runtime_v10` (WVS/BNOT from Icons-50_1024_WVS/source, GBN from
+  its own source) and `outputs/runtime_v10_source` (symlinks, ours). BNOT at its TRUE defaults
+  (500 / 500, epsilon 1.0). If any image again blows up, report it; do not swap images silently.
+- Jobs: 24310751 `runtime_v10_cpu.sbatch` (BNOT then WVS, one EPYC 7702P cpu128 node, 1 thread);
+  24310752 `runtime_v10_gpu.sbatch` (GBN then ours, exclusive cpu256 RTX 6000 Ada node, ours 3 reps,
+  pot-exact at all budgets + bisection-blocks16 at 3136-6400); 24310753 `runtime_v10_stage_3.py`
+  (afterany both) -> `outputs/runtime_v10/`: summary.md (mean / median / max per method and budget),
+  runtimes_avg_{exact,blocks16}.json, plots_{exact,blocks16}/{fig7,new_variant}/. Nothing stored is
+  replaced. The exclusive GPU node may queue for days (the last one did); fallback = same script
+  without --exclusive (dedicated GPU, CPUs reserved), to be decided with the user.
+
+## 2026-11-19 12:30: runtime_v10 CPU part done; GPU part queued
+
+- **BNOT (true defaults) and WVS on the new 10 images: done** (job 24310751, ise-cpu128-09, EPYC 7702P).
+  BNOT mean / median s: 14.3 / 3.6 (256), 4.1 / 3.9, 5.9 / 6.1, 5.8 / 5.8, 6.7 / 7.0, 8.2 / 8.3,
+  9.5 / 9.4, 11.0 / 10.8, 12.9 / 12.8 (6400). WVS 1.8 ... 50.3 s (close to the stored curve).
+  No image stopped. **One outlier: apple_0_cloud_with_lightning at 256 points, 110 s** (others ~3.6 s).
+  Re-run alone (`outputs/runtime_v10_cloud_check/`, job bnot-cloud): 121.5 / 122.1 s with 500 / 500,
+  15.9 s with 25 / 50, 4 outer iterations each; the 500/500 and 25/50 point sets differ by at most
+  3.7e-4 point spacings (same energy / capacity error). So it is reproducible: BNOT's default Newton
+  cap spends ~100 s polishing converged weights on this image/budget; not noise, not a bad image.
+- **User decision:** generate the new runtime graphs from the new images, with the **mean** for now;
+  also compute the **median** as a backup. `runtime_v10_stage_3.py` now writes both:
+  `runtimes_avg_<ot>.json` + `plots_<ot>/` (mean) and `runtimes_avg_<ot>_median.json` +
+  `plots_<ot>_median/` (median; "avg" holds the median there), ot = exact / blocks16. Tested on the
+  CPU part only (GBN / ours empty), then the test folder was removed.
+- GPU job 24310752 (GBN + ours, exclusive cpu256 RTX 6000 Ada) pending, Slurm estimate 2026-11-20
+  05:01; summary job 24310753 runs after it.
+
+## 2026-11-20: runtime_v10 GPU part moved off the exclusive node
+The exclusive cpu256 job (24310752) was estimated to start Nov 23 15:43 (all 32 cpu256 nodes full of
+other users CPU jobs until Nov 23-29). User decision: shared node, one dedicated RTX 6000 Ada,
+our own runs strictly one at a time. runtime_v10_gpu.sbatch now: --constraint=rtx_6000,
+--cpus-per-task=16 (= THREADS), no --exclusive; logs load and GPU process count per step.
+Cancelled 24310752 / 24310753; resubmitted as 24332116 (GPU) and 24332117 (summary, afterany).
+Caveat for the write-up: GBN / ours timed on a shared node (reserved cores and GPU), BNOT / WVS on
+a CPU-only node as before.
+
+## 2026-11-20: runtime_v10 done (new image set, all four methods re-timed)
+GPU 24332116 (cs-6000-03, RTX 6000 Ada, 16 cores; node load 4-25 of 64, no other GPU processes)
+and summary 24332117 finished 01:49. Outputs in experiments/outputs/runtime_v10/ (summary.md, JSONs,
+plots_{exact,blocks16}{,_median}/{fig7,new_variant}). Mean at 256 / 3136 / 6400 points (s):
+BNOT 14.3 / 8.2 / 12.9 (256 mean = one 110 s image; median 3.6); WVS 1.8 / 21.5 / 50.3;
+GBN 8.2 / 9.7 / 10.2; ours ddpm-500 exact 5.3 / 6.8 / 13.1, blocks16 5.3 / 5.9 / 6.9;
+ours ddim-25 exact 0.27 / 1.6 / 7.5, blocks16 0.27 / 0.69 / 1.3. Stored runtimes_avg.json and the
+paper figures are NOT replaced (waiting for the user).
+
+## 2026-11-20 17:20: runtime_v10 SWAPPED IN (user decision: median, blocks16 OT)
+icons_results_runtimes/runtimes_avg.json and plots/ now = runtime_v10 median / blocks16 (fig7 = paper
+figure; plots/runtime_scaling_by_points_with_ddim25.* = with the DDIM-25 curve, for the supplement).
+"avg" in the JSON holds the MEDIAN over 10 images. Old: runtimes_avg.json.bak_20261120 (13 budgets),
+plots_bak_20261120/. Provenance: icons_results_runtimes/RUNTIMES_SOURCE.txt. The timestamps_* folders
+there are the old raw timings. runtime_clean*-Icons-50 graphs are superseded (not deleted).
+New medians (s) at 1024 / 1600 / 6400 points: BNOT 6.06 / 5.83 / 12.79 (true defaults) | WVS 6.78 /
+10.98 / 50.76 | GBN 9.50 / 9.47 / 10.11 | ours DDPM-500 5.50 / 5.88 / 6.96 | ours DDIM-25 0.42 /
+0.60 / 1.33. At 256: BNOT 3.63, WVS 1.67, GBN 9.27, ours 5.31 / 0.27.
+STALE NUMBERS to replace in REBUTTAL_DRAFT.md (watch-out 6, A1, A3, A11, W1/Q1 rows, section 6,
+break-even "7.7 s") and REBUTTAL_TEXT.md (lines ~22, 89-96: 0.44 / 0.61, 7.1 / 17.2, GBN 8.1 s).
+
+## 2026-11-20 evening: paper tex in two versions; rebuttal drafts updated
+User decisions: DDIM-25 is reported in the SUPPLEMENT only (new section "Faster Sampling" with a
+six-method table: BNOT, WVS, GBN + our three variants sampled with ddim-25-eta1, mean +- std, and a
+runtime graph with DDIM-25). Two versions of the paper (local paper4/, mirrored to server paper4/):
+- *_rebuttal_11.10.tex (non-full): submitted text/numbers untouched; new results only. Supplement
+  graph = the submitted Fig. 7 curves + DDIM-25 (runtime_v10, blocks16, MEAN). One pointer sentence
+  in the main runtime paragraph.
+- *_rebuttal_full_11.10.tex (full): every fix too. Fig. 7 = runtime_v10 median blocks16; Fig. 4 exact
+  OT; BNOT exemplar / checkpoint / abstract wording (12 checkpoints); A2 rank statistic; A4 capacity
+  paragraph; ablation caption (50-image subset); tone Table 3 + text on the real sampler (DDPM-500
+  eval, fresh seeds, gradient through DDIM-25; random search replaced by D1 feedback); supplement
+  hardware paragraph; OT-truncation note. Open (marked % TODO): tone figures + ink-gain sweep are
+  still the one-step proxy.
+New scripts: experiments/e13_ddim25_tex_table.py -> outputs/e13_ddim25_tex/,
+experiments/runtime_rebuttal_graphs.py -> outputs/runtime_rebuttal_graphs/{full,nonfull}/.
+Backups: paper4/archive/rebuttal_bak_20261120/ (local), REBUTTAL_{DRAFT,TEXT}.md.bak_20261120.
+REBUTTAL_DRAFT.md watch-out 7 = runtimes of record (runtime_v10); REBUTTAL_TEXT.md numbers updated.
+
+## 2026-11-20 (late): tone figures rebuilt from the full-chain results (full version only)
+
+- New `experiments/tone_results_stage_9_fullchain_plots.py` (jobs 24361835 render, 24361962 `--replot`)
+  -> `outputs/tone_results/plots_fullchain/` (tone_improvement, tone_explain_compact_lg_2_woman_with_bunny_ears,
+  per_image.csv, summary.md). Densities from the E16 stage-1 run (`tone_results/ddim25`), stipples from
+  DDPM-500 on fresh seeds 0/1/2 (stage 5 samples; feedback = D1 fresh re-evaluation). Means reproduce
+  full_sampler_ddim25 and fixed_point summaries exactly (16.51 / 16.66 / 16.88 / 16.89).
+- Per image: field - curve +0.01 dB, field better on 11/24 (p=1); field - feedback +0.23 (16/24, p=0.06);
+  curve - feedback +0.22 (18/24, p=0.02). Hero lg_2_woman_with_bunny_ears: curve +1.29 > field +0.80
+  (seed mean); the figure shows seed 0, RMS 0.0773 -> 0.0690.
+- paper4: `figures_rebuttal/tone_{improvement,explain_compact}_fullchain.pdf` used in
+  main_EG_rebuttal_full_11.10.tex (Figs ToneMechanism/ToneGraph, captions rewritten; Feedback replaces
+  Random Search). Backup: paper4/archive/rebuttal_bak_20261120/main_EG_rebuttal_full_11.10.before_tonefigs.tex.
+  Still open: supplement ink-gain sweep (one-step proxy; a full-chain re-run is needed).
+
+## 2026-11-21: ink-gain sweep on the real sampler (job 24362421, done, 3:37 h)
+
+- `tone_gain_sweep_ddim25.sbatch`: stage 2 now takes `--mode` (default onestep = submitted sweep);
+  run with `--mode ddim`, submitted size (12 targets, 150 steps, x0.25..x4), then
+  `tone_results_stage_10_gain_sweep_fullchain.py` (prepare / summarize): ddpm-500, fresh seeds 0/1/2,
+  rendered at each gain -> `outputs/tone_results/gain_sweep_ddim25/{summary.md,gain_sweep_real_sampler.csv,
+  tone_gain_sweep_compact.*}` (`gain_sweep.csv` there is stage 2's own stage-1-path table).
+- field - none: +0.03, +0.04, +0.25 (9/12, p=0.06), +0.82 (10/12, p=0.003), +1.36 dB (11/12, p=0.001).
+- field - curve: -0.09 (p=0.02, curve better), -0.14, -0.17, +0.12, +0.07 dB (none of the last four significant).
+  So the gain over uncorrected grows with ink gain, but the field does not beat the tone curve at any gain;
+  the submitted caption's "ordering unchanged" claim does not hold. Not yet put in the supplement (user decision).
+- 2026-11-21: put into paper4/supplemental_EG_rebuttal_full_11.10.tex as figures_rebuttal/tone_gain_sweep_fullchain.pdf
+  (intro sentence and caption rewritten: gain over uncorrected grows with dot gain; field and curve within
+  0.2 dB at every gain). Backup: archive/rebuttal_bak_20261120/supplemental_EG_rebuttal_full_11.10.before_gainsweep.tex.
+  No tone TODOs remain in the full version.
+
+- 2026-11-21: REBUTTAL_DRAFT.md (watch-out 1, A12, section 2 tone answer, section 3, item 5, W3 rows, section 6) and REBUTTAL_TEXT.md (Tone paragraph, committed revisions) updated with the real-sampler tone results; backups .bak_20261121.
+
+## 2026-11-21 (night): check of the week's changes; pending results recorded
+
+Checked by the first rebuttal session. Backups of the three docs: `*.bak_20261121b`.
+
+- **Recorded (REBUTTAL_DRAFT.md A21–A25, status table, section 5 rows; REBUTTAL_TEXT.md placeholders
+  filled):** E14 seeds, Fig. 3 strips over 25 realizations, model size (44.1 M), the ablation with
+  the few-step sampler, and the final low-noise fine-tune trend.
+- **Two statements softened because of the new results:**
+  1. The gap to GBN is seed-dependent in size: HOT mean −21 / −12 / −20% in three runs (always
+     significant). REBUTTAL_TEXT.md now says "12–21% lower in three runs", not "−22%".
+  2. Gating: a second, independent evaluation gives a smaller effect than A20 (CVT +0.3%, capacity
+     +4.5% median). The text now gives the range and calls the effect small.
+- **Checked and consistent:** REBUTTAL_TEXT.md runtimes against `runtime_v10/summary.md` (medians,
+  blocks16); the full paper's runtime sentences (fastest from 1024 points on except 1600, on par
+  with BNOT there; WVS and BNOT faster at 256 / 576); the supplement's hardware sentence (job
+  24332116 ran on cs-6000-03, AMD EPYC 7343, RTX 6000 Ada).
+- **Still wrong in the paper files (not edited by this session):**
+  1. Fig. 3 paragraph, both versions: "within about one percentage point" (twice) does not hold for
+     Ours-WVS (1.9 points on average, A22).
+  2. The non-full version keeps, by design, the submitted BNOT curve (up to 1802 s) and the sentence
+     "faster than BNOT and GBN at every evaluated budget, with the gap to BNOT widening", which we
+     now know are wrong; its new supplement figure shows that curve next to DDIM-25. If the non-full
+     version is the one that is submitted, it knowingly carries the error.
+  3. If the supplement gets an ablation table with noGate / noKDE rows as means, Full is not the best
+     on mean capacity (A24 caution).
+- **Uncommitted on `rebuttal` as of this check:** everything since e420c8b (2026-11-18 20:18): the
+  three docs, `paper4/` (both versions, figures_rebuttal, two new tables), and the new scripts
+  (bnot_*, runtime_v10_*, runtime_rebuttal_graphs.py, e13_ddim25_tex_table.py, tone stage 9 / 10,
+  tone_gain_sweep_ddim25.sbatch, the stage-2 `--mode` change).

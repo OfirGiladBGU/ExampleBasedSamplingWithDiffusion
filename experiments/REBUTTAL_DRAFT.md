@@ -27,6 +27,13 @@ tables keep the submitted configuration (DDPM-500).
    sampler, that one-step field gives +0.09 dB (n.s.). With gradients through the full DDIM-25 chain
    it is +0.39 dB (18/24, p = 0.002). Never quote +0.83 dB or "all 24 targets" as a property of the
    sampler's output.
+   **Updated 2026-11-21:** quote the paper's 500-step sampler, as the full tex version does:
+   +0.38 dB (17/24, p = 0.004); +0.39 dB (18/24) is the 25-step output. **Do not claim the field
+   beats the tone curve:** optimized the same way, the curve reaches the same PSNR on the real
+   sampler (field − curve +0.01 dB, better on 11/24, p = 1), and within 0.2 dB at every gain of the
+   sweep. The field's own advantages: lowest MAE, and +0.23 dB over gradient-free feedback.
+   "Above GBN's tone" holds clearly only for the 25-step output (16.95 vs 16.81 dB); on the
+   500-step sampler it is 16.89 vs 16.81, so do not lead with it.
 2. **Point budgets are visual only (A9).** The models are trained at one budget. Do not report
    metrics at other budgets; answer with Fig. 4 and the runtime graph.
 3. **"Ours-BNOT" contradicts the paper's claim that BNOT exemplars are impractical (A11).** Correct
@@ -35,12 +42,43 @@ tables keep the submitted configuration (DDPM-500).
 5. **Do not say the model "does not memorize" (A19).** It reproduces training exemplars more
    closely than held-out ones (0.15 vs 0.23 cells; denoising error 20–24× lower on training images).
    The claim that holds: its quality metrics are the same on training and held-out images.
-6. **The stored BNOT runtimes are wrong; do not quote them (resolved 2026-11-18).** Our BNOT port
+6. **BNOT runtimes (2026-11-18). The NUMBERS in this item are superseded by watch-out 7; the solver
+   story still holds.** Our BNOT port
    used a slow linear solver (Eigen `SparseQR` instead of the original's SuiteSparse QR). With the
-   fix BNOT takes 5.2 / 7.1 / 8.5 / 17.2 s at 256 / 1024 / 1600 / 6400 points (stored: 7.2 / 13.6 /
-   25.5 / 1802 s). "BNOT grows by more than 100x" and "1802 s at 6400" must go; entries A1, A3, A11
-   and the W1 / W2 / Q1 rows below still carry the old numbers. The BNOT point sets and quality
-   numbers are unchanged. See the resolved TODO in CONTEXT.md and `BNOT_V2/CONTEXT.md`.
+   fix BNOT takes 5.2 / 5.8 / 7.1 / 8.5 / 9.5 / 20.9 / 12.9 / 15.3 / 17.2 s at 256 / 576 / 1024 /
+   1600 / 2304 / 3136 / 4096 / 5184 / 6400 points (old, wrong: 7.2 / 8.8 / 13.6 / 25.5 / 59.2 / 333 /
+   393 / 872 / 1802 s). Never write "BNOT grows by more than 100x", "1802 s at 6400" or "13.6 s per
+   image". A1, A3, A11 and the W1 / W2 / Q1 rows below carry the new numbers; `runtimes_avg.json` and
+   the runtime graphs are rebuilt. The BNOT point sets and quality numbers are unchanged. Cautions:
+   - **The paper's 500-step sampler is no longer clearly faster than BNOT.** Fig. 7 values: ours
+     5.75 / 5.80 / 5.88 / 6.02 s against BNOT 5.2 / 5.8 / 7.1 / 8.5 s at 256 / 576 / 1024 / 1600
+     points, i.e. BNOT is faster at 256, equal at 576, and we are 1.2x / 1.4x faster at the training
+     budgets. Do not claim a speed advantage over BNOT for DDPM-500; the 25-step sampler has it
+     (0.44 / 0.61 s, 16x / 14x at 1024 / 1600).
+   - The 3136 mean (20.9 s) is carried by two slow images (88 s and 39 s; the other eight 7–15 s).
+   - BNOT was re-timed on an AMD EPYC 7702P node (1 thread); WVS, GBN and the paper's own curve are
+     the stored measurements from the original, unrecorded machine.
+   See the resolved TODO in CONTEXT.md and `BNOT_V2/CONTEXT.md`.
+7. **Runtimes of record (2026-11-20): `runtime_v10`, all four methods re-timed; quote only these.**
+   10 Icons-50 validation images (the first 10, sorted; the old pinned images made BNOT at its true
+   defaults blow up), BNOT at its true defaults (500 / 500 iterations, epsilon 1.0, fixed build).
+   BNOT / WVS: one CPU-only EPYC 7702P node, 1 thread. GBN / ours: one job on a dedicated RTX 6000
+   Ada with 16 reserved EPYC 7343 cores (node shared with other users' jobs, our runs never
+   overlapping). Ours: median of 3 repetitions per image; exact OT below 3136 points,
+   `bisection-blocks16` from 3136. **Median over the 10 images** (user decision), at 256 / 576 / 1024 /
+   1600 / 2304 / 3136 / 4096 / 5184 / 6400 points:
+   - BNOT 3.6 / 3.9 / 6.1 / 5.8 / 7.0 / 8.3 / 9.4 / 10.8 / 12.8 s
+   - WVS 1.7 / 3.8 / 6.8 / 11.0 / 15.9 / 21.5 / 32.9 / 37.8 / 50.8 s
+   - GBN 9.3 / 9.0 / 9.5 / 9.5 / 9.6 / 9.7 / 9.9 / 10.0 / 10.1 s
+   - Ours DDPM-500 5.3 / 5.4 / 5.5 / 5.9 / 6.1 / 5.9 / 6.3 / 6.5 / 7.0 s
+   - Ours DDIM-25 0.27 / 0.32 / 0.42 / 0.60 / 1.01 / 0.70 / 0.88 / 1.06 / 1.33 s
+   Stored in `outputs/icons_results_runtimes/runtimes_avg.json` (provenance `RUNTIMES_SOURCE.txt`
+   there); raw data and mean / exact-OT variants in `outputs/runtime_v10/`. Readings: DDPM-500 is on
+   par with BNOT at the training budgets (5.5 / 5.9 s against 6.1 / 5.8 s) and slower at 256 / 576;
+   it beats GBN at every budget; DDIM-25 is 14x / 10x faster than BNOT at 1024 / 1600. Paper figures:
+   `paper4/figures_rebuttal/` (the full version's Fig. 7, and the supplement graph with DDIM-25 for
+   both versions). The non-full version keeps the submitted Fig. 7 and adds DDIM-25 (mean, same
+   run) to it in the supplement.
 
 ---
 
@@ -63,13 +101,18 @@ Source: `experiments/outputs/few_step_sampling-Icons-50_1024/summary.md`.
 
 \* p < 0.05. CVT and HOT are ×10⁻⁵. † Different GPU (see CONTEXT.md, E1 open question 3).
 
-- **Total time per stipple, clean run** (job 23786262: exclusive node, RTX 6000 Ada, exact OT,
+- **Total time per stipple, runtime of record (watch-out 7, 2026-11-20):** DDIM-25 **0.42 s at 1024
+  and 0.60 s at 1600 points**, against 5.5 / 5.9 s for DDPM-500 in the same runs; WVS 6.8 / 11.0 s,
+  GBN 9.5 / 9.5 s, BNOT 6.1 / 5.8 s; at 6400 points 1.33 s (blocks16) against WVS 50.8, GBN 10.1,
+  BNOT 12.8 s (medians over 10 images). The clean-run bullet below is superseded.
+- *(Superseded 2026-11-20)* **Total time per stipple, clean run** (job 23786262: exclusive node, RTX 6000 Ada, exact OT,
   10 pinned runtime images, 3 repetitions, `outputs/runtime_clean-Icons-50/summary.md`): DDIM-25
   **0.44 s at 1024 and 0.61 s at 1600 points**, against 6.29 / 6.53 s for DDPM-500 re-timed on the
-  same node. Stored paper baselines at 1024 / 1600: WVS 5.82 / 10.04 s, GBN 8.10 / 8.19 s, BNOT
-  13.56 / 25.51 s. With `bisection-blocks16` above 2304 points (visual-only budgets, Fig. 4
-  unchanged): 1.38 s at 6400 (`outputs/runtime_clean_blocks16-Icons-50/summary.md`), against WVS
-  45.7 s, GBN 10.2 s, BNOT 1802 s. (The older `runtime_fewstep` numbers, 0.64 s, are superseded.)
+  same node. Baselines at 1024 / 1600: WVS 5.82 / 10.04 s, GBN 8.10 / 8.19 s (stored paper
+  measurements), BNOT 7.08 / 8.49 s (fixed build, re-timed 2026-11-18; watch-out 6). With
+  `bisection-blocks16` above 2304 points (visual-only budgets, Fig. 4 unchanged): 1.38 s at 6400
+  (`outputs/runtime_clean_blocks16-Icons-50/summary.md`), against WVS 45.7 s, GBN 10.2 s, BNOT
+  17.2 s. (The older `runtime_fewstep` numbers, 0.64 s, are superseded.)
 - **Throughput** at batch 32, 1024 points: 60 stipples/s (DDIM-25), 149 (DDIM-10), 3.3 (DDPM-500).
 - Denoising time is flat in the point budget (0.36 s for DDIM-25); the CPU Smart Init (mostly the
   OT assignment) dominates from about 1600 points.
@@ -112,8 +155,10 @@ All six methods re-scored with one metric code on all 4 datasets; 84 pairs (4 da
 | Anime Chibi | 1.300 / **1.977** / 3.262 / 4.655 | 0.002 / **0.005** / 0.010 / 0.011 | 0.009 / **0.012** / 0.016 / 0.017 |
 
 Ours-BNOT beats GBN and WVS on HOT, centroid displacement and EMD on all 4 datasets at the training
-budget, and comes close to BNOT itself, at a fixed cost per stipple (BNOT: 13.6 s at 1024 points,
-1802 s at 6400). These numbers will change slightly with E13.
+budget, and comes close to BNOT itself. Speed (watch-out 7): BNOT takes 6.1 s at 1024 points
+and 12.8 s at 6400; a learned variant takes 5.5 s / 7.0 s with the paper's 500-step sampler (the
+cost does not depend on the exemplar sampler), so no real advantage there, and 0.42 s / 1.33 s
+with the 25-step sampler (A1).
 
 ### A4. The capacity gap comes from the model, not the exemplars; not from the aspect ratio — FINAL
 
@@ -184,11 +229,17 @@ DDPM-500, current metric code.
   (`grid_size_results/pointcount_generalization_exactOT_*`).
 - Use only if a reviewer questions the large-budget results; otherwise just fix it in the revision.
 
-### A11. Cost of BNOT exemplars and of training (E6 / E10) — FINAL (stored measurements)
+### A11. Cost of BNOT exemplars and of training (E6 / E10) — FINAL (BNOT re-timed with the fixed build, 2026-11-18)
 
-- BNOT per image: 13.6 s at 1024 points, 25.5 s at 1600. Exemplar generation ≈ 38 h (Icons),
-  19 h (CelebA), 28 h (ShapeNet2D), 19 h (Chibi) of single-image BNOT time, only about 1.7× GBN's
-  cost (8.1 s per image). **This contradicts the paper's "impractical" wording.**
+- BNOT per image, fixed build: 7.1 s at 1024 points, 8.5 s at 1600 (paper driver caps, old images).
+  Exemplar generation at that speed ≈ 20 h (Icons), 10 h (CelebA), 9 h (ShapeNet2D), 6 h (Chibi) of
+  single-image BNOT time, about the same as GBN's cost (8.1 / 8.2 s per image). With the runtimes of
+  record (watch-out 7, true defaults): 6.1 / 5.8 s per image against GBN 9.5 / 9.5 s, so in the
+  paper write "a few seconds per image on one CPU thread, comparable to GBN". **This contradicts the paper's
+  "impractical" wording.**
+- Our exemplars were generated with the slow build (13.6 / 25.5 s per image: 38 / 19 / 28 / 19 h).
+  The point sets are the same (the 10 runtime images agree to < 1e-5 of a point spacing), so quote
+  the fixed-build cost; the 38 h figure is only what we happened to spend.
 - Training: about 31–95 h per checkpoint for 5000 epochs (upper bounds from checkpoint times).
 
 ### A12. Tone correction: what holds on the real sampler (E7, E16, D1, D3) — FINAL, with a caveat
@@ -213,6 +264,23 @@ DDPM-500, current metric code.
   / +0.18 dB (DDIM-25). Our full-chain gradient correction: +0.36–0.39 dB. So the gradient beats
   feedback, also feedback with a classical sampler. Claim quality, not cost: our optimization takes
   ~160 s per image, comparable to 8 GBN calls.
+- **Per image on DDPM-500, fresh seeds 0/1/2** (2026-11-20, `tone_results/plots_fullchain/summary.md`,
+  stage 9): uncorrected 16.51, feedback 16.66, curve 16.88, field 16.89 dB. field − curve +0.01 dB
+  (11/24, p = 1); field − feedback +0.23 dB (16/24, p = 0.06); curve − feedback +0.22 dB (18/24,
+  p = 0.02). The gains vary strongly between targets (−0.4 to +2.7 dB for the field). Hero image of
+  the ToneMechanism figure (lg_2_woman_with_bunny_ears): curve +1.29 dB > field +0.80 dB (the
+  figure does not show the curve). Image 19 (whatsapp_0_woman_doing_cartwheel_type_5) is where the
+  field clearly wins (+1.92 vs +1.23) if a different example is wanted.
+- **Ink-gain sweep on the real sampler** (2026-11-21, job 24362421,
+  `tone_results/gain_sweep_ddim25/summary.md`; submitted size: 12 targets, 150 steps, DDIM-25
+  gradient, DDPM-500 scoring, seeds 0/1/2, rendered at each gain). field − none: +0.03, +0.04,
+  +0.25 (p = 0.06), +0.82 (p = 0.003), +1.36 dB (11/12, p = 0.001) at ×0.25 … ×4. field − curve:
+  −0.09 (p = 0.02, curve better), −0.14, −0.17, +0.12, +0.07 dB (n.s.). The submitted sweep (one-step
+  proxy) had the field ahead of the curve at every gain; that no longer holds.
+- **Full tex version** now uses all of this: Table 3 and text (DDPM-500), ToneMechanism and
+  ToneGraph regenerated (`figures_rebuttal/tone_*_fullchain.pdf`), supplement gain sweep
+  (`figures_rebuttal/tone_gain_sweep_fullchain.pdf`). The non-full version keeps the submitted
+  one-step figures.
 
 ### A13. Rendered-tone fidelity of every method (E17) — FINAL, weak
 
@@ -294,7 +362,9 @@ but its median per-image change is −0.4%: the test is paired, so it is an impr
 now prints mean / median for every cell.) The six-method table keeps the
 paper's picture: Ours-BNOT is the best learned sampler on HOT, centroid, W2 and Sinkhorn on every
 dataset, and every learned variant beats the GBN sampler on HOT and W2 on every dataset. With A1's
-0.44 s per stipple, this answers W1 on all four datasets, not only Icons.
+0.42 s per stipple, this answers W1 on all four datasets, not only Icons. LaTeX version (mean ± std,
+supplement style): `paper4/tables_rebuttal/quantitative_comparison_ddim25_table.tex`
+(`experiments/e13_ddim25_tex_table.py`).
 
 ### A19. Generalization diagnostics: the capacity gap is there on training images too — FINAL (numbers); the last bullet is a reading
 
@@ -382,20 +452,80 @@ full checkpoint (`ablation_nokde_e500_b50_1024/summary_noGate.md`, jobs 24174334
 
 ---
 
+### A21. Seed robustness (E14) — FINAL
+
+`outputs/e14_seeds-Icons-50_1024/summary.md`: Ours-GBN, 1000 Icons-50 test images, three independent
+runs (Smart Init seeds 42 / 43 / 44, different noise), both samplers.
+- **Spread of the dataset mean across runs** (std, % of the mean): CVT 0.05%, ρs 0.04%, Sinkhorn
+  0.07%; capacity 1.5–1.9%; W2 2.4%; **HOT 6–7%, centroid 5%**. HOT and centroid are heavy-tailed: a
+  third of the HOT difference between two runs comes from 10 of the 1000 images.
+- **What holds in every run** (paired per image): DDIM-25 vs DDPM-500 capacity −10.0 / −10.4 / −10.2%
+  (median), ρs +1.5%, CVT −0.5%, all p < 1e-70. The gap to GBN: HOT mean −21 / −12 / −20% (median
+  per image −12 / −8 / −11%, better on 59–62% of images, p <= 1e-11), centroid −20 / −13 / −20%, W2
+  −13 / −9 / −12%.
+- **What does not:** DDIM-25 vs DDPM-500 in HOT, centroid and W2 (−0.4% to −1.9%, p from 4e-4 to
+  0.2 depending on the run). Do not claim a transport-metric gain for the few-step sampler.
+- Consequence: quote the gap to GBN as a range ("HOT 12–21% lower in three runs"), not "−22%".
+- One training run per variant; this is sampling noise only.
+
+### A22. Fig. 3 strip percentages over realizations — FINAL
+
+`outputs/fig3_strip_realizations/summary.md` (targets 1.7 / 11.0 / 29.7 / 57.6%). The figure's
+numbers are one stored realization per method. Mean ± std over 25 realizations (new Smart Init and
+noise seeds), DDPM-500: **Ours-GBN 1.4 ± 0.2 / 10.7 ± 0.4 / 30.4 ± 0.4 / 57.4 ± 0.8** (largest error
+of the mean 0.8 points; worst single realization 2.0); **Ours-WVS 1.2 ± 0.3 / 12.7 ± 0.7 /
+30.4 ± 0.6 / 55.7 ± 1.0** (1.9 points; worst 3.7). DDIM-25 is the same within 0.2 points. Stored
+single realizations: BNOT and GBN within 0.2 points, WVS 3.6.
+- **The paper's "within about one percentage point" (twice in the Fig. 3 paragraph, both paper
+  versions) holds for Ours-GBN only.** For Ours-WVS it is about two points on average. Fix the
+  sentence; Ours-WVS is still closer than WVS itself (3.6 points in its stored realization).
+
+### A23. Model size — FINAL
+
+`outputs/model_stats.md`: 44.1 M parameters (base denoiser 27.3 M, conditioning branch 16.7 M).
+Training about 2.6 days per model on one RTX 6000-class GPU (5000 epochs; noKDE / noGate runs).
+
+### A24. Ablation with the few-step sampler (for the supplement) — FINAL, read the caution
+
+`outputs/ablation_ddim25_e5000_b50_1024/summary.md`: the five Table 2 variants plus noGate and
+noKDE at epoch 5000, 50 Table 2 images, SDEdit start for every row, same Smart Init and noise.
+- Against Full, paired (DDIM-25): Vanilla, Unfrozen, GECCO-only and Gated-only are significantly
+  worse on capacity (+51% to +179% median) and on CVT (+0.9% to +6.9%); the single components help
+  far less than their combination, as in Table 2.
+- **Second evaluation of the gating ablation (independent of A20's noise):** without gating, CVT
+  +0.3% (DDIM-25) / +0.4% (DDPM-500) and capacity +4.5% / +5.9% median, both significantly worse;
+  ρs −0.2% (worse, DDPM-500 only); transport metrics no difference. Same direction as A20 (CVT
+  +0.8%, capacity +7.7%, ρs −0.7%), smaller size. Quote the range and call the effect small.
+- noKDE: no difference on any metric, with both samplers (as A15).
+- **Caution for any table of means:** Full does not have the best mean capacity among these rows
+  (0.0266 against 0.0230 without gating and 0.0224 without the KDE loss, DDIM-25), because a few
+  outlier images raise its mean, while per image it is better than noGate on 64% of images. A means
+  table that adds the noGate / noKDE rows will show Full not in bold for capacity; give the paired
+  columns next to it or keep those two rows in text.
+
+### A25. Low-noise fine-tune, final trend — FINAL (model study)
+
+`outputs/diag_generalization/ft_lownoise_trend_g0.md`: no Min-SNR, epochs 5100–6000, 200 held-out
+images, paired vs the paper checkpoint, DDPM-500. Capacity −5.5% (5100), −15.0% (5200), −12.8%
+(5300), −9.3% (5600), −18.1% (6000), always significant (better on 69–92% of images); ρs +1.5% to
++1.8%; CVT −0.4% to −0.8%; transport metrics unchanged. The gain appears within 200 epochs and
+then fluctuates between checkpoints; it does not keep growing. Capacity stays 1.5–1.6× the
+teacher's. One optional sentence in the rebuttal at most.
+
 ## 2. Draft answers to the concerns we expect
 
 Each answer quotes a number from section 1 and commits a change to the revision.
 
 **"Too slow: 500 diffusion steps."** With stochastic DDIM, 25 steps match or improve all seven
 metrics against our 500-step sampler on 1000 Icons-50 images (capacity −8%, ρs +1.5%, p < 0.05),
-and cut the time per stipple from 7.7 s to 0.64 s on the same GPU (0.42 s with 10 steps); batched,
-the sampler produces 60 stipples/s. *We will add the few-step sampler to the paper and update
-Fig. 7.* (A1, A1b)
+and cut the time per stipple from 5.5 s to 0.42 s at 1024 points on the same GPU (median over 10
+images, watch-out 7); batched, the sampler produces 60 stipples/s. *We will present the 25-step
+sampler in the supplement, with its table and runtime graph.* (A1, A1b)
 
 **"BNOT dominates; why not train on BNOT?"** We did: Ours-BNOT beats GBN and WVS on HOT, centroid
 displacement and EMD on all four datasets and comes close to BNOT (A3), at a fixed cost per
 stipple. *We will add Ours-BNOT to Table 1 and correct the statement that BNOT exemplars are
-impractical: they cost about 1.7× GBN's (A11).*
+impractical: they cost about the same as GBN's (A11).*
 
 **"Is it really example-based?"** Where the exemplar samplers differ significantly, the learned
 variants reproduce their order in 78 of 82 cases (paired tests over 4 datasets × 7 metrics; Kendall
@@ -419,11 +549,14 @@ assignment (A10) and update the runtime graph with the new sampler.*
 22% capacity; CelebA → Icons fails on capacity. *We will report this in the supplement.*
 
 **"Tone correction uses a one-step gradient / small gains / why not optimize the points directly?"**
-With gradients through the full 25-step sampler, the correction improves the real sampler's output
-by +0.39 dB (18/24 targets, p = 0.002) and renders above GBN's tone (A12). Optimizing the points
+With gradients through the full 25-step sampler, the correction improves the output of the paper's
+500-step sampler by +0.38 dB (17/24 targets, p = 0.004), against +0.15 dB for gradient-free
+feedback (A12). A global tone curve optimized the same way reaches the same PSNR; the field gives
+the lowest MAE. The gain grows with the dot gain (+1.36 dB at ×4). Optimizing the points
 directly reaches higher PSNR only by breaking the distribution (δc 0.36 vs 0.05); with enough
 repulsion to keep the spacing, it renders worse than our corrected sampler (A12). *We will replace
-Table 3 with the full-chain results on the real sampler and describe the protocol exactly.*
+Table 3, the two tone figures and the gain sweep with the full-chain results on the real sampler
+and describe the protocol exactly.*
 
 **"Why t = 500? Why diffusion rather than the prior alone?"** A5.
 
@@ -435,14 +568,33 @@ Table 3 with the full-chain results on the real sampler and describe the protoco
 
 ## 3. Paper changes to make in the revision (collect here; apply to the `_rebuttal_11.10` files)
 
+**Applied 2026-11-20 (user decision: two versions, all in `paper4/`, compiled without errors):**
+- `*_rebuttal_11.10.tex` (non-full): the submitted text and numbers unchanged; new results only. A
+  supplement section "Faster Sampling" (DDIM-25, fast OT assignment, six-method DDIM-25 table, the
+  submitted Fig. 7 curves + DDIM-25 in a new graph) and one pointer sentence in the main runtime
+  paragraph.
+- `*_rebuttal_full_11.10.tex` (full): all of the non-full version plus every fix: items 2, 3, 4, 5,
+  6 and 8 below (Fig. 7 re-timed, watch-out 7; Fig. 4 exact OT; BNOT exemplar / checkpoint /
+  abstract wording; A2 statistic; A4 capacity paragraph; ablation caption; tone Table 3 and text on
+  the real sampler; conclusion). Item 7 (cross-dataset) is not in either version. ~~Still open in
+  the full version: the tone figures and the ink-gain sweep show the one-step proxy.~~ **Done
+  2026-11-21:** ToneMechanism, ToneGraph and the supplement's gain sweep regenerated on the real
+  sampler (A12); no tone TODOs remain in the full version.
+- Originals backed up in `paper4/archive/rebuttal_bak_20261120/`; new figures in
+  `paper4/figures_rebuttal/`, tables in `paper4/tables_rebuttal/`.
+
 1. The few-step sampler (`ddim-25-eta1`): in the paper, or in the supplement with E13's full table;
    updated Fig. 7 and runtime text (A1, E13).
 2. Ours-BNOT in Table 1 and the corrected BNOT-exemplar statement (A3, A11).
 3. The rank-preservation statistic (A2).
 4. Table 2 caption and text: the 50-image subset (A7).
-5. **Table 3 and the tone text: E16 numbers on the real sampler, exact protocol, "18 of 24" instead
-   of "all 24" (A12).**
+5. **Table 3 and the tone text: E16 numbers on the real sampler, exact protocol, "17 of 24"
+   (DDPM-500) instead of "all 24"; the tone curve ties the field; figures and gain sweep
+   regenerated (A12).** Done in the full version.
 6. Fig. 4 with the exact OT assignment (A10); runtime graph with the new variant (A9).
+   **Fig. 7's BNOT curve from the fixed build**, and every sentence built on the old curve
+   ("1802 s at 6400 points", "grows by more than 100x", BNOT slower than ours at every budget):
+   see watch-out 6. State the correction in the rebuttal (REBUTTAL_TEXT.md Part 2, Q1).
 7. Cross-dataset results in the supplement (A8).
 8. Capacity-gap limitation: not the aspect ratio; budget or domain (A4). It is also there on
    training images and arises in the low-noise steps (A19).
@@ -463,9 +615,9 @@ Table 3 with the full-chain results on the real sampler and describe the protoco
 | E7 | Direct point-optimization baseline (tone) | **done** (A12) |
 | E8 | KDE-loss ablation | **done, null**: no metric differs at epoch 5000 (A15) |
 | E13 | Four-dataset table with ddim-25-eta1 | **done** (A18): `outputs/e13_ddim25_summary.md` |
-| Ablation, new sampler | Table 2 variants (+ noGate, noKDE) with ddim-25-eta1 for the supplement | **running** (job 24304064, scorers 24304065–71, summary 24304072) → `outputs/ablation_ddim25_e5000_b50_1024/summary.md` |
-| E14 | Seed robustness, 3 independent runs (W5) | **running** (job 24303895, scorers 24303896–97, summary 24303898) → `outputs/e14_seeds-Icons-50_1024/summary.md` |
-| Fig. 3 strips | Strip percentages over 25 realizations; parameter counts | **running** (24303895_2) → `outputs/fig3_strip_realizations/summary.md`, `outputs/model_stats.md` |
+| Ablation, new sampler | Table 2 variants (+ noGate, noKDE) with ddim-25-eta1 for the supplement | **done** (A24): `outputs/ablation_ddim25_e5000_b50_1024/summary.md` |
+| E14 | Seed robustness, 3 independent runs (W5) | **done** (A21): `outputs/e14_seeds-Icons-50_1024/summary.md` |
+| Fig. 3 strips | Strip percentages over 25 realizations; parameter counts | **done** (A22, A23) |
 | E15 | Spectra / anisotropy with the new sampler | **done** (A17) |
 | Gating | Joint GECCO without gated injection (W5) | **done** (A20): gating helps CVT, capacity and ρs slightly but consistently |
 | Near-dup | Same-concept look-alikes vs quality (W6) | **done**: no memorization effect (A16) |
@@ -476,7 +628,8 @@ Table 3 with the full-chain results on the real sampler and describe the protoco
 | E17 | Rendered-tone fidelity | **done** (A13) |
 | E18 | OT-assignment bug | **found and fixed** (A10) |
 | D1 | Gradient-free fixed point (tone) | **done** (A12) |
-| Runtime, new variant | clean 3-rep re-timing | **done** (A1): `runtime_clean-Icons-50`, `runtime_clean_blocks16-Icons-50` |
+| Runtime, new variant | clean 3-rep re-timing | **superseded** by runtime_v10 (watch-out 7) |
+| Runtime, all methods | runtime_v10: all four methods re-timed on 10 new images, BNOT true defaults | **done 2026-11-20** (watch-out 7): `outputs/runtime_v10/` |
 
 ---
 
@@ -487,31 +640,31 @@ The full review text is in `experiments/reviews/mock_review_R1.md`. Strength of 
 
 | Point | Strength | Answer (evidence) |
 |---|---|---|
-| W1 speed "≈ WVS at 1024–1600" | strong | 25-step stochastic DDIM: 0.44 s at 1024, 0.61 s at 1600 incl. exact OT Smart Init, vs WVS 5.8 / 10.0, GBN 8.1 / 8.2 (GPU), BNOT 13.6 / 25.5 s; equal or better on all 7 metrics than our DDPM-500 (A1, A1b). 60 stipples/s batched. |
-| W1 "unoptimized WVS" | partial | It is Rougier's NumPy/SciPy reference implementation; say so. Even a 10x faster WVS only ties us at 1024 and grows with N (45.7 s at 6400 vs our 1.38 s). Baselines are not re-timed (user decision). |
+| W1 speed "≈ WVS at 1024–1600" | strong | 25-step stochastic DDIM: 0.42 s at 1024, 0.60 s at 1600 incl. exact OT Smart Init, vs WVS 6.8 / 11.0, GBN 9.5 / 9.5 (GPU), BNOT 6.1 / 5.8 s (true defaults; medians, watch-out 7); equal or better on all 7 metrics than our DDPM-500 (A1, A1b). 60 stipples/s batched. |
+| W1 "unoptimized WVS" | partial | It is Rougier's NumPy/SciPy reference implementation; say so. Even a 10x faster WVS only ties us at 1024 and grows with N (50.8 s at 6400 vs our 1.33 s). All methods were re-timed on one protocol (watch-out 7); WVS is still the reference implementation. |
 | W1 tiles / lattices | none | Related-work paragraph: not example-based, not differentiable. |
 | W1 mottling at 4096 | partial | The large-budget panels used a truncated OT solver (A10); Fig. 4 is regenerated with the exact assignment. Budgets stay visual only (A9). |
-| W2 BNOT not trained | strong | Ours-BNOT on all 4 datasets (A3); exemplar cost ~38 h for Icons, ~1.7x GBN's (A11): agree with the reviewer and correct the "impractical" sentence. |
+| W2 BNOT not trained | strong | Ours-BNOT on all 4 datasets (A3); exemplar cost ~20 h for Icons with the fixed BNOT build, about the same as GBN's (A11): agree with the reviewer and correct the "impractical" sentence. |
 | W2 title "capacity-constrained" | weak | Capacity stays 1.7–3.6x GBN's even for Ours-BNOT (A4). Offer a retitle (e.g. "capacity-aware") or define the term as "trained on capacity-constrained exemplars". The gap is a model limit, not a data gap: 1.6–1.9x on training images too (A19). |
-| W3 one-step gradient, Q5 | strong, with a correction | Q5: no, Table 3 was the one-step proxy; replace it by the full-chain result: +0.39 dB (18/24, p = 0.002), above GBN's tone (A12). |
-| W3 iterative feedback baseline | strong | We ran it (D1): with GBN +0.24 dB, with our sampler +0.15/+0.18 dB, vs our gradient +0.36–0.39 dB (A12). Direct point optimization only wins PSNR by clumping (A12, E7). |
-| W4 / Q3 student beats teacher | strong | Paired test on 1000 images: HOT −22% (p = 8e-29), centroid −21%, EMD −13%; still −15% from pure noise; not the KDE loss (A14, A15). |
+| W3 one-step gradient, Q5 | moderate, with a correction | Q5: no, Table 3 was the one-step proxy; replace it by the full-chain result on the 500-step sampler: +0.38 dB (17/24, p = 0.004). The tone curve optimized the same way ties it (A12); say so. |
+| W3 iterative feedback baseline | strong | We ran it (D1): with GBN +0.24 dB, with our sampler +0.15/+0.18 dB, vs our gradient +0.38 dB on DDPM-500 (field − feedback +0.23 dB, 16/24). Direct point optimization only wins PSNR by clumping (A12, E7). |
+| W4 / Q3 student beats teacher | strong | Paired tests on 1000 images in three independent runs: HOT 12–21% lower (p <= 1e-11 in each), centroid 13–20%, W2 9–13%; still lower from pure noise; not the KDE loss (A14, A15, A21). Quote the range, not −22%. |
 | W4 Sinkhorn uninformative | concede | Move to the supplement. |
 | W5 steps / sampler / truncation | strong | Full sweep (A1b, A5, A6); pure noise is 8–16% worse (A5). |
 | W5 KDE loss | strong (null) | E8: no effect at epoch 5000, faster early training (A15). |
 | W5 gating without the rest | strong | We trained it: the full model without gated injection is worse on CVT (+0.8%, 78% of images), capacity (median +7.7%, 82%) and ρs (−0.7%, 76%), all p < 1e-4 paired; transport metrics unchanged (A20). Effect is modest; say so. |
-| W5 single runs / noise | partial | Paired tests everywhere; E14 (seeds) not run. |
+| W5 single runs / noise | partial | E14 (A21): dataset means vary < 0.1% (CVT, ρs), ~2% (capacity, W2), 5–7% (HOT, centroid) between runs; the capacity and ρs gains of the few-step sampler and the gap to GBN hold in every run. One training run per variant: concede. |
 | W6 cross-dataset | strong | Icons→CelebA keeps transport quality and beats GBN on HOT/EMD; CelebA→Icons fails on capacity, stated as a limitation (A8). |
 | W6 near-duplicates in the split | strong | True that 997/1000 test icons have a same-concept training icon, but the learned/teacher ratio does not improve with look-alike similarity (all \|ρ\| <= 0.14; HOT slightly worse on close look-alikes) (A16). The learned/teacher ratios are also the same on training and held-out images (A19). |
 | W6 perfect-square n | concede | Limitation of the OT-grid representation. |
 | W7 anisotropy | partial / concede | A17: Ours-WVS more anisotropic than WVS around the peak, Ours-GBN within ~1 dB of GBN; the new sampler is bluer at low frequency but ~1 dB more anisotropic. |
 | W8 novelty | argument | Ours-BNOT, 78/82 paired rank preservation (A2), full-chain differentiability (A12), the SDEdit start as a quality component (A5). |
-| Q1 implementations | facts | WVS: Rougier NumPy/SciPy, CPU. BNOT: authors' C++ CLI, CPU. **GBN: authors' CUDA binary on an RTX-class GPU.** Our time includes the Smart Init OT (exact network simplex, 0.14 s at 1024, 6.4 s at 6400; 1.07 s at 6400 with bisection-blocks16). |
+| Q1 implementations | facts | WVS: Rougier NumPy/SciPy, CPU. BNOT: the authors' C++ code in our headless port, CPU, 1 thread; the port's linear solver was slow and is fixed (with BNOT's true defaults 6.1 s at 1024, 12.8 s at 6400 instead of 13.6 / 1802 s; same point sets; watch-outs 6 and 7), and Fig. 7 is re-timed for all methods. **GBN: authors' CUDA binary on an RTX-class GPU.** Our time includes the Smart Init OT (exact network simplex, 0.14 s at 1024, 6.4 s at 6400; 1.07 s at 6400 with bisection-blocks16). |
 | Q2 aspect ratio | strong | Not given to the network (condition resized to the grid, per-axis normalization), but not the cause: on already-square images the gap remains 2–4x (A4, E3). |
 | Q4 50–100 steps, deterministic | strong | 50 / 100 steps also beat DDPM-500 (δc −6.4% / −4.4%); deterministic solvers lose 13–17% HOT (A1b, A6). |
 | Minor: EMD is W1 | fact | Our M3 is the 2-Wasserstein distance (sqrt of the OT cost with squared distances, `compute_m3_emd`); rename it "W2" in the revision. |
-| Minor: Fig. 3 strip % | fact | One realization per method (`compare_advance_metrics_stage_1.py` reads one stored point set each). The mean ± std over 25 realizations of ours is being computed (job 24303895_2); state it in the caption. |
-| Minor: refs, Fig. 8 size, training time | concede | Add the four references; enlarge Fig. 8; training 31–95 h per checkpoint (A11), parameter count, code release. |
+| Minor: Fig. 3 strip % | fact + fix | One realization per method. Over 25 realizations Ours-GBN is within 0.8 points on average, Ours-WVS within 1.9 (A22); the paper's "within about one percentage point" must be corrected for Ours-WVS. |
+| Minor: refs, Fig. 8 size, training time | concede | Add the four references; enlarge Fig. 8; training about 2.6 days per model, 44.1 M parameters (A23), code release. |
 
 **Raise-the-score list:** BNOT variant (have it), quality-vs-time over step counts (have it; WVS
 stays the reference implementation), 4K–10K quantitative (decline: visual only, models trained at
@@ -524,28 +677,30 @@ one budget), tone vs iterative feedback with a classical sampler (have it, D1).
 Every planned experiment is done or running. What remains is mostly decisions and writing.
 
 **Running (results land without action):**
-- E14 seed robustness and the Fig. 3 strip averages + parameter counts (jobs above).
+- ~~E14 seed robustness, Fig. 3 strip averages, parameter counts, ablation with the few-step sampler~~ all done 2026-11-21 (A21–A24).
 - The no-Min-SNR fine-tune to epoch 6000 (model study; at most one sentence in the rebuttal). Early
   trend: the gain is complete by epoch 5200 (capacity −15% at 5200, −13% at 5300; ρs +1.5% from 5100).
-- BNOT runtime investigation (another session; watch-out 6). **Blocks** every sentence that uses
-  BNOT's large-budget times and the BNOT curve of the runtime figure.
+- ~~BNOT runtime investigation~~ **done 2026-11-18** (watch-out 6): fixed build, `runtimes_avg.json`
+  and the three runtime graphs rebuilt and checked; this file and REBUTTAL_TEXT.md carry the new
+  numbers. Still open: the paper's Fig. 7 and its text, and REBUTTAL_PLAN.md's "two orders of
+  magnitude" sentence.
 
 **Decisions only the user can make:**
 1. ~~Default sampler in the revision~~ **decided 2026-11-18:** DDIM-25 goes into the supplement as
    a faster sampling variant, with its curve and a paragraph in the paper's runtime section; the
    paper's tables keep DDPM-500.
 2. The title: keep "Capacity-Constrained", or retitle / define the term (W2 is our weakest answer).
-3. When to start editing the paper files (`paper4/*_rebuttal_11.10.tex`): the rule so far was "not
-   before the experiments are done"; they now are.
+3. ~~When to start editing the paper files~~ **started 2026-11-20** (section 3, "Applied").
 4. Whether to mention the low-noise fine-tune result at all.
 
 **Writing that can be prepared now (no compute):**
 - The one-page rebuttal text from section 2 and section 5 (PLAN section 4 has the skeleton); the real
   reviews will reorder it, but the numbered answers can be drafted.
 - Related-work paragraph on tile / lattice methods and the four missing references (W1, minor).
-- Replacement Table 3 (full-chain tone numbers, A12), six-column Table 1 with Ours-BNOT (A3 / A18),
+- ~~Replacement Table 3~~ (done 2026-11-20/21 with its two figures and the gain sweep, A12), six-column Table 1 with Ours-BNOT (A3 / A18),
   Table 2 caption (50-image subset, A7), the gating and KDE rows (A15, A20).
-- Updated runtime figure (our curve is final: `runtime_clean_blocks16-Icons-50`; BNOT curve pending).
+- ~~Updated runtime figure~~ **done 2026-11-20:** all curves re-timed (runtime_v10), median, blocks16
+  from 3136 points (watch-out 7); in `paper4/figures_rebuttal/` and the full tex version.
 - Limitations paragraph: capacity gap (A4, A19), perfect-square n, anisotropy (A17), CelebA→Icons.
 
 **Answers that stay weak (prepare the concession, do not spend compute):**
@@ -553,6 +708,8 @@ Every planned experiment is done or running. What remains is mostly decisions an
 - No comparison with tile / lattice samplers.
 - No quantitative results at 4K–10K points (models trained at one budget; Fig. 4 and runtime only).
 - Training-seed variance: one training run per variant (E14 covers sampling noise only).
-- Break-even, if asked: exemplars + training ≈ 80 h per model against ≈ 7.7 s saved per stipple vs
-  GBN, i.e. tens of thousands of stipples. Do not volunteer it; the case rests on amortized use,
+- Break-even, if asked: exemplars + training ≈ 80 h per model against ≈ 9.1 s saved per stipple vs
+  GBN (9.5 s against 0.42 s at 1024 points, watch-out 7), i.e. tens of thousands of stipples. Do not volunteer it; the case rests on amortized use,
   batching (60 stipples/s) and differentiability.
+
+<!-- bnot-times-fixed-20261118: BNOT runtimes replaced by the fixed-build measurements -->

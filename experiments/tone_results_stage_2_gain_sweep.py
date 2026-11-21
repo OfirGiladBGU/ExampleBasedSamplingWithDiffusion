@@ -40,6 +40,9 @@ STEPS             = 150
 LIMIT             = 12
 CONFIGS           = "none,curve,field"
 CONTROL_CKPT_PATH = "control_v4/train_outputs_Icons-50_1024_GBN_full/checkpoints/dynamic_ep5000.ckpt"
+# Stage-1 gradient path: "onestep" is the submitted sweep; "ddim" back-propagates through the
+# full DDIM-25 chain (rebuttal E16; scored on the real sampler by tone_results_stage_10).
+MODE              = "onestep"
 
 
 def parse_args():
@@ -54,6 +57,7 @@ def parse_args():
     p.add_argument("--configs", default=CONFIGS)
     p.add_argument("--control_ckpt_path",
                    default=CONTROL_CKPT_PATH)
+    p.add_argument("--mode", default=MODE, choices=["onestep", "unrolled", "ddim"])
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
 
@@ -89,7 +93,7 @@ def main():
                "--control_ckpt_path", a.control_ckpt_path,
                "--output", str(run_dir), "--steps", str(a.steps),
                "--limit", str(a.limit), "--configs", a.configs,
-               "--ink-gain", f"{gain:.8f}"]
+               "--ink-gain", f"{gain:.8f}", "--mode", a.mode]
         print("  " + " ".join(cmd[1:]))
         if a.dry_run:
             continue
