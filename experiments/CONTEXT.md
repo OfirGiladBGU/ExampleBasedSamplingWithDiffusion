@@ -1534,3 +1534,20 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
 - `paper_rebuttal/UPLOAD_TO_OVERLEAF.md` rewritten (what is new, changed, or an unchanged copy).
   Checks: `python3 logs/refs_check_paper.py paper_rebuttal`, `python3 logs/bib_check_paper.py`.
 - Nothing of this is in git (`paper*/` is ignored); only this note is committed.
+
+### 2026-11-22: new references cited in the full version; bib file is `base_rebuttal.bib`
+
+- User request: the bib file with the new references is **`paper_rebuttal/base_rebuttal.bib`**
+  (Overleaf's `base.bib`, 62 entries byte for byte, plus six appended). Overleaf's `base.bib` is not
+  touched; the non-full version still uses it and cites nothing new.
+- **Full version only** (`*_rebuttal_full_11.10.tex`, originals in `logs/paper_rebuttal_bak_20261122/`):
+  - main: four sentences in Related Work citing `Deussen2017WLBG`, `Martin2017StipplingSurvey`,
+    `Kim2009StipplingByExample`, `Huang2023Patternshop`; `\bibliography{base_rebuttal}`.
+  - supplement: `\cite{song2021ddim}` and `\cite{lu2022dpmsolverpp}` replace the plain-text
+    mentions; it now ends with `\bibliographystyle{eg-alpha-doi}` and `\bibliography{base_rebuttal}`
+    (it had no reference list before).
+- Checked: every cited key resolves (`logs/bib_check_paper.py`), every referenced file exists
+  (`logs/refs_check_paper.py`). Bibliographic data from Crossref / arXiv; the WLBG and Patternshop
+  sentences were checked against the papers' abstracts; **the Stippling by Example sentence could not
+  be checked** (publisher pages refused the fetch) and is flagged in `UPLOAD_TO_OVERLEAF.md`.
+- Not compiled here (no LaTeX on the server side of this session).
