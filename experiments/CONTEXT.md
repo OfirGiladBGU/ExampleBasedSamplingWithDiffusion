@@ -1517,3 +1517,20 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
   rebuttal notes on this branch (this file, REBUTTAL_DRAFT.md, REBUTTAL_TEXT.md, the mock review)
   are public too. Whether that is acceptable is the user's decision.
 - Anyone who had fetched the old `rebuttal` must reset to `origin/rebuttal`, not merge.
+
+### 2026-11-22: `paper_rebuttal/` completed after a compile error; bib file with the new references
+
+- **Mistake corrected.** Removing the two tables that were identical to Overleaf's
+  (`tables_rebuttal/quantitative_comparison_table.tex`, `..._full_table.tex`) broke the user's
+  compile ("File not found"): uploading the `tables_rebuttal/` folder as a whole replaces the folder.
+  Both are back in `paper_rebuttal/tables_rebuttal/` (unchanged copies). **Rule: every sub-folder of
+  `paper_rebuttal/` must be complete for the tex files that use it, even if a file is unchanged.**
+- **New `paper_rebuttal/base.bib`** = the Overleaf `base.bib` (62 entries, byte for byte) with six
+  entries appended: `song2021ddim`, `lu2022dpmsolverpp` (the two sampler papers the supplement names
+  in plain text), `Deussen2017WLBG`, `Kim2009StipplingByExample`, `Martin2017StipplingSurvey`,
+  `Huang2023Patternshop` (the four references the mock review calls missing). Metadata checked
+  against Crossref / arXiv. **No tex file cites them yet**: the four tex files cite the same 51 keys
+  as the submitted paper, and the supplement has no `\bibliography`.
+- `paper_rebuttal/UPLOAD_TO_OVERLEAF.md` rewritten (what is new, changed, or an unchanged copy).
+  Checks: `python3 logs/refs_check_paper.py paper_rebuttal`, `python3 logs/bib_check_paper.py`.
+- Nothing of this is in git (`paper*/` is ignored); only this note is committed.
