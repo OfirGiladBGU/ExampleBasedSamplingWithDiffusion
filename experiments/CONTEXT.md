@@ -1606,3 +1606,16 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
   `logs/paper_rebuttal_bak_20261122_before_bnot_figures/`. `UPLOAD_TO_OVERLEAF.md` updated.
 - **Still open in that paragraph:** "within about one percentage point" (see A22: over 25
   realizations Ours-WVS is off by 1.9 points on average).
+
+### 2026-11-22: push rule (user decision): scripts only
+
+- **Only commits with scripts / code are pushed. Notes commits stay local on the server**
+  (`experiments/CONTEXT.md`, `REBUTTAL_DRAFT.md`, `REBUTTAL_PLAN.md`, `REBUTTAL_TEXT.md`, review
+  files). The user confirmed this holds for every future push.
+- How: commit scripts and notes separately, scripts first; push an explicit commit with
+  `git push origin <scripts-commit>:refs/heads/rebuttal`. **Never a plain `git push`**: the branch
+  is ahead of `origin/rebuttal` by local notes commits (the first is 67946d5). If a scripts commit
+  ends up on top of local notes commits, reorder so it comes directly after `origin/rebuttal`
+  before pushing. A push still needs the user's go-ahead each time.
+- Applied today: 773c0f4 was split into a677ddd (four scripts, pushed) and 67946d5 (notes, local).
+  Notes pushed before today are already on GitHub; nothing was removed.
