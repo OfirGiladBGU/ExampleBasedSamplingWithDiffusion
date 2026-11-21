@@ -476,6 +476,9 @@ noise seeds), DDPM-500: **Ours-GBN 1.4 ± 0.2 / 10.7 ± 0.4 / 30.4 ± 0.4 / 57.4
 of the mean 0.8 points; worst single realization 2.0); **Ours-WVS 1.2 ± 0.3 / 12.7 ± 0.7 /
 30.4 ± 0.6 / 55.7 ± 1.0** (1.9 points; worst 3.7). DDIM-25 is the same within 0.2 points. Stored
 single realizations: BNOT and GBN within 0.2 points, WVS 3.6.
+**Ours-BNOT** (added to the figure on 2026-11-22; one stored realization, default seeds, no
+realizations study): 0.5 / 11.0 / 29.8 / 58.7, largest error 1.2 points, in the sparsest strip
+(0.5% where 1.7% is due, about 5 points instead of 17).
 - **The paper's "within about one percentage point" (twice in the Fig. 3 paragraph, both paper
   versions) holds for Ours-GBN only.** For Ours-WVS it is about two points on average. Fix the
   sentence; Ours-WVS is still closer than WVS itself (3.6 points in its stored realization).

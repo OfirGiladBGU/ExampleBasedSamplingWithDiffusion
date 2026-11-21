@@ -1570,3 +1570,39 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
 - Unmarked copies from before: `logs/paper_rebuttal_unmarked_20261122/`.
 - Limits to tell the user about: figures cannot be coloured (only their captions), removed text is
   not shown, reference-list entries are not coloured.
+
+### 2026-11-22: qualitative figures with an Ours-BNOT column (user request)
+
+- **Request (user):** the "visual examples" figures must also show our model trained on BNOT.
+- **Figures** (job 24390060, `experiments/qualitative_ours_bnot.sbatch` →
+  `outputs/qualitative_showcase_full_bnot/`, copied to `paper_rebuttal/figures_rebuttal/`):
+  `qualitative_comparison_full_bnot.pdf` (main), `qualitative_comparison_appendix_left_bnot.pdf` and
+  `qualitative_comparison_appendix_right_bnot.pdf` (supplement). Same rows as the submitted figures
+  (checked side by side), columns `Target || BNOT WVS GBN || Ours-BNOT Ours-WVS Ours-GBN`, the
+  order of Table 1. Row selections: main = the showcase default (icons 40, faces 6, shapenet2d 5,
+  chibi 234); appendix left = icons 102, 104, 106, 110 + faces 102, 106, 204, 210; appendix right =
+  shapenet2d 27, 103, 162, 308 + chibi 60, 167, 248, 255.
+- **Where the new column comes from:** the test-set rows read the stored
+  `z_validation_data/<dataset>/target_CN-BNOT_<N>/` point sets (2026-10-06, the ones Table 1
+  scores); nothing was re-sampled. The gradient row did not exist and was sampled once, with the
+  pipeline and defaults of the stored Ours-WVS / Ours-GBN cells (`control_data_gen.py`, Icons-50
+  BNOT checkpoint epoch 5000, Smart Init seed 42, start at t=500, 500 DDPM steps) →
+  `outputs/images_results_metrics/quadratic/target_CN-BNOT_1024/`. One realization, not selected.
+- **Gradient strip shares, Ours-BNOT:** 0.5 / 11.0 / 29.8 / 58.7% against 1.7 / 11.0 / 29.7 / 57.6%
+  (largest error 1.2 points; about 5 points in the sparsest strip where 17 are due). It under-fills
+  the sparsest strip more than Ours-WVS (1.0%) and Ours-GBN (1.3%). No realizations study exists
+  for Ours-BNOT (A22 covers Ours-GBN and Ours-WVS only), so whether 0.5% is typical is not known.
+  `outputs/fig3_strip_realizations/summary.md` now lists it among the stored point sets.
+- **Scripts:** `qualitative_comparison_showcase.py` knows the `Ours-BNOT` column (its default
+  columns are still those of the submitted figure; the new layout is passed with `--columns`),
+  `compare_advance_metrics_stage_1.py` lists the Ours-BNOT gradient point set,
+  `fig3_strip_realizations.py` reports it.
+- **Paper files (`paper_rebuttal/`, not in git):** all four tex files include the new figures; in
+  both main files the caption, the sentence introducing the figure and two sentences of the
+  gradient paragraph mention Ours-BNOT; in both supplements "our two variants" → "our three
+  variants". The main figure is included at `\linewidth` (was `0.9\linewidth`). Blue marks re-run
+  (idempotent), referenced files and citations checked, all four compile locally (placeholder
+  graphics, 0 errors, 0 undefined, page counts unchanged). Copies from before:
+  `logs/paper_rebuttal_bak_20261122_before_bnot_figures/`. `UPLOAD_TO_OVERLEAF.md` updated.
+- **Still open in that paragraph:** "within about one percentage point" (see A22: over 25
+  realizations Ours-WVS is off by 1.9 points on average).
