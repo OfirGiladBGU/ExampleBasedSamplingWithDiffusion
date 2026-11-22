@@ -351,6 +351,18 @@ elsewhere. The new sampler (E15, job 24174335) lowers the low-frequency power (b
 0.0035 for Ours-GBN, 0.0114 → 0.0097 for Ours-WVS, both below WVS's 0.0209) but is ~1 dB more
 anisotropic around the peak. Concede the anisotropy with numbers; do not claim isotropy.
 
+**Ours-BNOT in this analysis (added 2026-11-22, paper sampler, job 24390607) — a weak spot.**
+Anisotropy -12.30 / -14.86 / -24.32 dB (low / peak / high band): as isotropic as BNOT around the
+peak (-15.18) and far better than Ours-WVS (-9.66) and Ours-GBN (-8.43); low-frequency power
+0.0097. But it is the least regular method of the six: spectral peak at rho = 1.00 is 2.28
+(BNOT 3.64, WVS 3.53, GBN 2.79, Ours-WVS 4.15, Ours-GBN 3.97), the second ring is faint, and on
+quad4 its pair-correlation peak is 1.73-1.96 (BNOT 3.75-4.00) with a non-zero exclusion leak
+(up to 0.0013; 0.0097 on checker q0) and almost no second peak. So on synthetic uniform /
+piecewise-constant targets Ours-BNOT does not reproduce its exemplar's regularity, although on
+the test sets its spatial measure is close to BNOT's (Icons-50 0.508 vs 0.525). Not explained;
+no DDIM-25 run exists for Ours-BNOT here. The paper text states the weaker peak (both versions).
+If a reviewer asks about W7 for Ours-BNOT: concede the weaker peak, point to the isotropy.
+
 ### A18. E13: the new variant on all 4 test sets — FINAL
 
 `outputs/e13_ddim25_summary.md` (`e13_summary.py`; ddim-25-eta1, SDEdit start, exact OT; all 12

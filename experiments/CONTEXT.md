@@ -1619,3 +1619,36 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
   before pushing. A push still needs the user's go-ahead each time.
 - Applied today: 773c0f4 was split into a677ddd (four scripts, pushed) and 67946d5 (notes, local).
   Notes pushed before today are already on GitHub; nothing was removed.
+
+### 2026-11-22: spectral analysis with Ours-BNOT (user request)
+
+- **Request (user):** the spectral analysis needs Ours-BNOT too.
+- **Run:** job 24390607 (`experiments/spectral_ours_bnot.sbatch`, 26 min). Ours-BNOT on the 150
+  spectral sources with the pipeline and defaults of the stored Ours-WVS / Ours-GBN sets
+  (`control_data_gen.py`, Icons-50 BNOT checkpoint epoch 5000, 500 DDPM steps from t=500) →
+  `outputs/spectral_analysis/target_CN-BNOT_1024/` (150 point sets) and `..._spectral/`; figures
+  with the columns `BNOT WVS GBN || Ours-BNOT Ours-WVS Ours-GBN` → `outputs/spectral_analysis/
+  plots_full_bnot/` (`plots_full/`, the submitted figures, untouched); `anisotropy_summary.md` has a
+  CN-BNOT row. First attempt 24390595 died in 2 s: node `ise-pheno-07` has no module system
+  (`modulecmd.tcl` missing) → submit with `--exclude=ise-pheno-07` if it shows up again.
+- **Result: Ours-BNOT is the least regular of the six methods here.** Uniform target, rho = 1.00:
+  spectral peak 2.28 (BNOT 3.64, WVS 3.53, GBN 2.79, Ours-WVS 4.15, Ours-GBN 3.97), faint second
+  ring, low-frequency power 0.0099 (BNOT 0.0011, GBN 0.0017, Ours-GBN 0.0068, Ours-WVS 0.0111,
+  WVS 0.0205). quad4: pair-correlation peak 1.73-1.96 (BNOT 3.75-4.00), exclusion leak up to
+  0.0013, almost no second peak, curves coincide across densities. Anisotropy -12.30 / -14.86 /
+  -24.32 dB: around the peak as isotropic as BNOT and much more than Ours-WVS / Ours-GBN, i.e. far
+  less of the four-fold grid modulation. Why it is weaker on these synthetic targets while its
+  test-set spatial measure is close to BNOT's is not investigated.
+- **Paper files (`paper_rebuttal/`, not in git), all four tex files:** figures
+  `figures_rebuttal/spectral_comparison_g000_bnot.pdf` (main) and `pcf_quad4_by_method_bnot.pdf`
+  (supplement). Text changed where the old sentence would be false with Ours-BNOT shown: main
+  caption, three sentences of the Spectral Analysis paragraph, and the supplement paragraph
+  ("empty exclusion zone" → "exclusion zone", one new sentence). Blue marks re-run (idempotent),
+  references and citations checked, all four compile locally (0 errors, 0 undefined, page counts
+  unchanged with placeholder graphics). Copies from before:
+  `logs/paper_rebuttal_bak_20261122_before_bnot_spectral/`. `UPLOAD_TO_OVERLEAF.md` updated.
+- **Open, for the user:** (1) the main spectral figure is one column wide; with six panels the axis
+  numbers are very small (a `figure*` would fix it, at the cost of space). (2) Already in the
+  submitted text and still there: "The optimization-based samplers achieve lower low-frequency
+  floors" holds for BNOT and GBN only, WVS has the highest floor of all. (3) Whether to show
+  Ours-BNOT in this figure at all is the user's call; it is in, with its weakness stated.
