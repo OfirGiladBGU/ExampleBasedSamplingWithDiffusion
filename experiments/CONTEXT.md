@@ -1782,3 +1782,28 @@ exemplars use the paper's published criterion"): the constants are the same, the
   iterations for BNOT" (submitted text is not edited in that version).
 - **Not done, user's call:** fixing the port's density scale (it would change every future BNOT
   run), re-running Table 1's BNOT at port epsilon 0.063, a disclosure sentence in the paper.
+
+### 2026-11-22 (late night): two versions, two spectral figures (user decision)
+
+After the port finding above the user decided:
+- **Non-full version** (`main_EG_rebuttal_11.10.tex`, `supplemental_EG_rebuttal_11.10.tex`): keeps
+  the spectral comparison with BNOT in the **submitted** configuration (`target_BNOT_1024`, port
+  epsilon 0.01, 25-iteration budget) plus the Ours-BNOT column, and explains why Ours-BNOT differs
+  from that BNOT. Figures: `figures_rebuttal/spectral_comparison_g000_bnot_submitted_cfg.pdf`,
+  `pcf_quad4_by_method_bnot_submitted_cfg.pdf` (from `plots_full_bnot/`; identical to the files
+  used before the epsilon 1.0 switch). Text: peak "at approximately 1.05"; "Ours-BNOT has a lower
+  peak than BNOT (2.3 against 3.6) and a faint secondary ring. This difference is expected: in
+  this analysis BNOT is run with a tighter stopping tolerance than the one used elsewhere in this
+  paper, including for the exemplars of Ours-BNOT, and with that exemplar tolerance BNOT itself
+  has a peak of 1.5 and a faint secondary ring."; "BNOT and GBN achieve the lowest low-frequency
+  floors"; supplement: first peak 1.9 against 3.9, "with the exemplar tolerance its first peak is
+  about 1.7".
+- **Full version** (`*_full_11.10.tex`): unchanged from the entries above. BNOT in the exemplar
+  configuration (port epsilon 1.0), figures `spectral_comparison_g000_bnot.pdf` and
+  `pcf_quad4_by_method_bnot.pdf`, "each learned variant follows the sampler it was trained on".
+- Both versions keep Ours-BNOT in the figures. Applied with `logs/tex_bnot_two_versions_20261122.py`
+  (backup `logs/paper_rebuttal_bak_20261122_before_bnot_two_versions/`); blue marks re-run, checks
+  pass, all four files compile. `paper_rebuttal/UPLOAD_TO_OVERLEAF.md` lists which file uses which
+  figure.
+- Still open: the non-full main keeps the submitted runtime sentence "published default stopping
+  criteria ... up to 25 Newton iterations for BNOT".
