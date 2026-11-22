@@ -351,17 +351,32 @@ elsewhere. The new sampler (E15, job 24174335) lowers the low-frequency power (b
 0.0035 for Ours-GBN, 0.0114 → 0.0097 for Ours-WVS, both below WVS's 0.0209) but is ~1 dB more
 anisotropic around the peak. Concede the anisotropy with numbers; do not claim isotropy.
 
-**Ours-BNOT in this analysis (added 2026-11-22, paper sampler, job 24390607) — a weak spot.**
-Anisotropy -12.30 / -14.86 / -24.32 dB (low / peak / high band): as isotropic as BNOT around the
-peak (-15.18) and far better than Ours-WVS (-9.66) and Ours-GBN (-8.43); low-frequency power
-0.0097. But it is the least regular method of the six: spectral peak at rho = 1.00 is 2.28
-(BNOT 3.64, WVS 3.53, GBN 2.79, Ours-WVS 4.15, Ours-GBN 3.97), the second ring is faint, and on
-quad4 its pair-correlation peak is 1.73-1.96 (BNOT 3.75-4.00) with a non-zero exclusion leak
-(up to 0.0013; 0.0097 on checker q0) and almost no second peak. So on synthetic uniform /
-piecewise-constant targets Ours-BNOT does not reproduce its exemplar's regularity, although on
-the test sets its spatial measure is close to BNOT's (Icons-50 0.508 vs 0.525). Not explained;
-no DDIM-25 run exists for Ours-BNOT here. The paper text states the weaker peak (both versions).
-If a reviewer asks about W7 for Ours-BNOT: concede the weaker peak, point to the isotropy.
+**Ours-BNOT in this analysis (added 2026-11-22, paper sampler, job 24390607), and the BNOT column
+at epsilon 1.0 (user decision, same day).**
+- *What was wrong:* the BNOT column of the submitted spectral figures is `target_BNOT_1024`,
+  generated at epsilon 0.01 (`outputs/spectral_analysis/FINDINGS.md`), while Table 1's BNOT and
+  the Ours-BNOT training exemplars use the default epsilon 1.0. Against that column Ours-BNOT
+  looked as if it had not learned BNOT (spectral peak 2.28 vs 3.64, PCF peak 1.7-2.0 vs 3.8-4.0).
+- *Now:* both paper figures use `target_BNOT_1024_eps1p0` (150 sources, 25 distinct realizations
+  per case, 2-4 iterations) → `plots_full_bnot_eps1/`. BNOT (eps 1.0) vs Ours-BNOT at rho = 1.00:
+  spectral peak 1.54 vs 2.28, peak frequency 1.14 vs 1.02, low-frequency power 0.0101 vs 0.0099,
+  tail deviation 0.032 vs 0.066; quad4 PCF peak 1.68-1.75 vs 1.73-1.96, exclusion leak up to
+  0.0005 vs 0.0013. Anisotropy (dB, low / peak / high band): BNOT eps 1.0 -15.96 / -22.04 /
+  -25.62, Ours-BNOT -12.30 / -14.86 / -24.32. So Ours-BNOT reproduces its exemplar sampler, with
+  a somewhat stronger ring, and has far less four-fold grid modulation than Ours-WVS / Ours-GBN.
+- *Exposure:* BNOT at epsilon 1.0 is now the least structured spectrum in the figure, and the
+  paper calls BNOT the reference on the transport metrics. If a reviewer asks why BNOT's ring is
+  weak: (1) it is BNOT with its default stopping criteria, the setting used for every BNOT
+  result in the paper and for the exemplars; (2) the tighter runs exist and can be reported:
+  epsilon 0.01 gives peak 3.64 and low-frequency power 0.0011 (`target_BNOT_1024`, 25-iteration
+  budget; converged: `target_BNOT_1024_eps0p01`), i.e. BNOT's spectrum depends strongly on the
+  tolerance (epsilon sweep in FINDINGS.md section 2); (3) user's note: the same was checked for
+  GBN, whose own unconstrained sampler gives a different spectrum from the image-conditioned
+  one: peak 1.55 (bounded) / 1.64 (toroidal) against 2.91, tail deviation 0.057 / 0.063 against
+  0.191 (`outputs/spectral_analysis_unconstrained/plots_gbn_variants/spectral_summary.csv`), so
+  a low peak is not by itself a sign of a failed sampler.
+- Not done: no DDIM-25 spectral run for Ours-BNOT; Table 1 and the other figures were not
+  re-checked for the BNOT tolerance (CONTEXT.md, 2026-11-18, records them as epsilon 1.0).
 
 ### A18. E13: the new variant on all 4 test sets — FINAL
 

@@ -1668,3 +1668,37 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
 - `spectral_ours_bnot.sbatch` now asks for 6 cores / 24 GB (cluster limit per GPU; it ran with
   8 / 32 GB). Its CPU-only stages (stage 1, stage 2, summary) ran inside that GPU job; if it is run
   again, they belong in a CPU job.
+
+### 2026-11-22: spectral figures use BNOT at epsilon 1.0 (user decision)
+
+- **Decision (user):** the spectral analysis was forcing BNOT with a tight tolerance, which made
+  Ours-BNOT (trained on epsilon 1.0 exemplars) look as if it had not learned BNOT. The BNOT column
+  of the spectral figures is now the **epsilon 1.0** run. This supersedes "Ours-BNOT is the least
+  regular of the six methods" in the entry above: that was measured against the wrong BNOT.
+- **Fact behind it:** `outputs/spectral_analysis/target_BNOT_1024` (the submitted figures' BNOT) was
+  generated at epsilon 0.01, 25-iteration budget (FINDINGS.md there, 2026-09-05); Table 1's BNOT
+  and the Ours-BNOT exemplars are epsilon 1.0 (entry of 2026-11-18). `target_BNOT_1024_eps1p0`
+  already existed: 150 sources, 25 distinct realizations per case, 2-4 iterations, stage 1 done.
+- **Run:** job 24403911 (`experiments/spectral_bnot_eps1_figures.sbatch`, CPU partition, 46 s),
+  plots only → `outputs/spectral_analysis/plots_full_bnot_eps1/`; `anisotropy_summary.md` has a
+  `BNOT_1024_eps1p0` row. `plots_full/` (submitted) and `plots_full_bnot/` (epsilon 0.01 BNOT +
+  Ours-BNOT) are kept.
+- **Result:** BNOT (eps 1.0) and Ours-BNOT look alike. rho = 1.00: spectral peak 1.54 vs 2.28,
+  low-frequency power 0.0101 vs 0.0099, tail deviation 0.032 vs 0.066; quad4 PCF peak 1.68-1.75 vs
+  1.73-1.96. Low-frequency order at rho = 1.00: GBN 0.0017, Ours-GBN 0.0068, Ours-BNOT 0.0099,
+  BNOT 0.0101, Ours-WVS 0.0111, WVS 0.0205.
+- **Paper files (`paper_rebuttal/`, all four tex files):** the two PDFs
+  `figures_rebuttal/spectral_comparison_g000_bnot.pdf` and `pcf_quad4_by_method_bnot.pdf` were
+  replaced under the same names (re-upload both); caption and Spectral Analysis paragraph in both
+  main files and the pair-correlation paragraph in both supplements rewritten for the new column
+  (peak range 1.0-1.15, "each learned variant follows the sampler it was trained on", BNOT 1.5 /
+  Ours-BNOT 2.3, "GBN achieves the lowest low-frequency floor ... BNOT and the learned variants
+  follow, and WVS has the highest floor"). Blue marks re-run, checks pass, all four compile.
+  Copies from before (tex and the two epsilon 0.01 PDFs):
+  `logs/paper_rebuttal_bak_20261122_before_bnot_eps1/`.
+- **For reviewers (user's note):** BNOT at epsilon 1.0 is now the least structured spectrum in the
+  figure. Prepared answer in REBUTTAL_DRAFT.md A17: default stopping criteria used throughout; the
+  epsilon 0.01 results exist (peak 3.64); and the same was checked for GBN, whose unconstrained
+  sampler also gives a different, lower-peak spectrum (peak 1.55 / 1.64 against 2.91;
+  `outputs/spectral_analysis_unconstrained/plots_gbn_variants/`).
+- Still open: the main spectral figure is one column wide with six panels (small axis numbers).
