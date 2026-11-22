@@ -17,7 +17,7 @@ import numpy as np
 
 BASE = Path("experiments/outputs/spectral_analysis")
 METHODS = ["BNOT_1024", "GBN_1024", "WVS_1024", "CN-GBN_1024", "CN-GBN-DDIM25_1024", "CN-WVS_1024",
-           "CN-WVS-DDIM25_1024"]
+           "CN-WVS-DDIM25_1024", "CN-BNOT_1024"]
 GREYS = ["000", "064", "128", "192"]
 BANDS = [("low (< 0.75)", 0.0, 0.75), ("peak (0.75-1.5)", 0.75, 1.5), ("high (1.5-3)", 1.5, 3.0)]
 
