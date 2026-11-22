@@ -1732,3 +1732,53 @@ Checked against the paper (de Goes et al. 2012, the user's PDF) and the released
   would concern every BNOT result, not only the spectral figure.
 - Paper, Fig. 5: a strict threshold (`<= 1e-5`) produces regular patches; the authors stop at
   shallow minima on purpose. A tighter tolerance is therefore not "more correct BNOT".
+
+### 2026-11-22 (night): our BNOT tolerance is 16x looser than the released program's (test result)
+
+**This corrects the entry above** ("ibnot at epsilon 1.0 is exactly that ... Table 1's BNOT and the
+exemplars use the paper's published criterion"): the constants are the same, the density is not.
+
+- **Cause.** The released image program reads the image through Qt and divides by 255 (density in
+  [0, 1]). Our port (`BNOT_new/ibnot_cli/domain.h`) reads a PGM and uses the raw 0-255 values. The
+  position threshold is `0.1*epsilon*sqrt(A^3)/N` and the gradient is proportional to A, so a
+  density 255 times larger makes the stopping test sqrt(255) = 16 times looser. Evidence: the
+  stored stats of `uniform_g000` give `mean_capacity` 0.2471 for 1024 sites, i.e. A = 253 on a
+  domain of area 1. The weight (capacity) threshold is not affected.
+- **So "epsilon 1.0" in our port equals epsilon 16 in the released image program.** It stops after
+  2 iterations on the uniform target (the minimum the loop can do) and 3 on the icons. The
+  released default corresponds to port epsilon 0.063; the BNOT paper's own spectral program
+  (`pbnot`, constant 0.03) to port epsilon 0.019. Our submitted spectral figure (port epsilon
+  0.01) was therefore close to the BNOT paper's setting.
+- **Test (job 24406640):** the original `pbnot` source built headless in
+  `/groups/asharf_group/ofirgila/BNOT_V2/pbnot_cli/` (solver files unchanged; three CGAL edits and
+  Qt stubs; `prepare.py`, `main_cli.cpp`, `build_run.sbatch`, `spectrum.py`, `results.md`,
+  `radial_curves.png`). 1024 points, 25 seeds, spectrum measured with stage 1's functions:
+
+  | run | Lloyd + gradient iterations | peak | second peak | low-freq. power |
+  |---|---|---|---|---|
+  | BNOT paper, Fig. 8 (read off the plot) | "typically 5 + 10" | about 3.0 | about 1.4 | |
+  | original pbnot, default (constant 0.03) | 4-5 + 4-7 | 2.85 | 1.42 | 0.0015 |
+  | original pbnot, constant 0.1 (= released image program) | 2 + 1 | 1.76 | 1.14 | 0.0049 |
+  | original pbnot, constant 0.003 | 47-70 + 47-152 | 6.63 | 2.32 | 0.0005 |
+  | our port, epsilon 1.0 (the paper's BNOT) | 2 in total | 1.54 | 1.07 | 0.0101 |
+  | our port, epsilon 0.1 (from FINDINGS.md) | 3 in total | 1.75 | | 0.0053 |
+  | our port, epsilon 0.01 converged | 16-54 | 3.59 | 1.60 | 0.0011 |
+
+  The original program at its default reproduces the BNOT paper's figure. Regularity breaking
+  found no aliased site in any of the 25 runs, so it plays no part here.
+- **What it means.** Every BNOT result in the paper (Table 1, qualitative and spectral figures,
+  runtimes) and the Ours-BNOT exemplars come from a BNOT that stops about one iteration earlier
+  than the released image program would, and far earlier than the BNOT paper's spectral runs.
+  Capacities are still enforced to the usual precision. How much Table 1 would move at port
+  epsilon 0.063 was not measured.
+- **User's position (2026-11-22):** if reviewers ask, the answer is that BNOT was evaluated in the
+  configuration used to generate the training exemplars, not the one of the BNOT paper.
+- **Paper files:** nothing may call this configuration "default" or "original" criteria. Changed in
+  `paper_rebuttal/` (backup `logs/paper_rebuttal_bak_20261122_before_bnot_config/`): the BNOT
+  clause of the Spectral Analysis paragraph (both mains), of the pair-correlation paragraph (both
+  supplements) and of the runtime paragraph (full main: "BNOT uses the convergence test of its
+  released code with the tolerance used to generate our exemplars"). **Still there:** the non-full
+  main keeps the submitted sentence "published default stopping criteria ... up to 25 Newton
+  iterations for BNOT" (submitted text is not edited in that version).
+- **Not done, user's call:** fixing the port's density scale (it would change every future BNOT
+  run), re-running Table 1's BNOT at port epsilon 0.063, a disclosure sentence in the paper.

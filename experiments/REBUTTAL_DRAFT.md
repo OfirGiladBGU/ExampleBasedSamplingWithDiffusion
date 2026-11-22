@@ -366,8 +366,8 @@ at epsilon 1.0 (user decision, same day).**
   a somewhat stronger ring, and has far less four-fold grid modulation than Ours-WVS / Ours-GBN.
 - *Exposure:* BNOT at epsilon 1.0 is now the least structured spectrum in the figure, and the
   paper calls BNOT the reference on the transport metrics. If a reviewer asks why BNOT's ring is
-  weak: (1) it is BNOT with its default stopping criteria, the setting used for every BNOT
-  result in the paper and for the exemplars; (2) the tighter runs exist and can be reported:
+  weak: (1) it is BNOT in the configuration used for every BNOT result in the paper and for
+  the exemplars (do NOT call it the default criteria, see the correction below); (2) the tighter runs exist and can be reported:
   epsilon 0.01 gives peak 3.64 and low-frequency power 0.0011 (`target_BNOT_1024`, 25-iteration
   budget; converged: `target_BNOT_1024_eps0p01`), i.e. BNOT's spectrum depends strongly on the
   tolerance (epsilon sweep in FINDINGS.md section 2); (3) user's note: the same was checked for
@@ -377,6 +377,21 @@ at epsilon 1.0 (user decision, same day).**
   a low peak is not by itself a sign of a failed sampler.
 - Not done: no DDIM-25 spectral run for Ours-BNOT; Table 1 and the other figures were not
   re-checked for the BNOT tolerance (CONTEXT.md, 2026-11-18, records them as epsilon 1.0).
+
+**Correction and reviewer answer (2026-11-22 night, job 24406640).**
+- *Fact:* our BNOT port uses pixel values 0-255 where the released program uses 0-1, which
+  makes its stopping test 16 times looser at the same epsilon. Our "epsilon 1.0" is the
+  released image program at epsilon 16 (2-3 iterations); the released default would be port
+  epsilon 0.063; the BNOT paper's spectral figure (periodic program, tighter constant) port
+  epsilon 0.019. The original periodic program, built and run at its default, gives peak 2.85
+  (the BNOT paper's Fig. 8 shows about 3.0); ours gives 1.54. Details: CONTEXT.md, same date.
+- *Answer if a reviewer asks why our BNOT spectrum is weaker than the published one (user's
+  position):* BNOT is evaluated here in the configuration used to generate the training
+  exemplars of Ours-BNOT, not in the configuration of the BNOT paper's spectral analysis; the
+  comparison that matters for our claim is Ours-BNOT against the sampler it was trained on.
+  Available on request: BNOT with a tight tolerance on the same targets (peak 3.6, low-frequency
+  power 0.0011), which matches the published spectrum.
+- *Do not write* "default" or "original" stopping criteria for BNOT anywhere.
 
 ### A18. E13: the new variant on all 4 test sets — FINAL
 
