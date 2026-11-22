@@ -88,13 +88,12 @@ Part 2); corrected BNOT-cost and capacity wording; the missing references; code 
 ## Part 2. Shorter answers, to use only if the point is raised
 
 **Implementations and what is timed (Q1).** WVS is Rougier's NumPy / SciPy reference implementation
-(CPU), BNOT the authors' C++ code (CPU), GBN the authors' CUDA binary. Our time includes the
+(CPU), BNOT a headless build of the authors' C++ code (CPU), GBN the authors' CUDA binary. Our time includes the
 initialization: rejection sampling plus an exact assignment of the points to the grid, 0.14 s at
 1024 points. *We will state the implementations and the breakdown in the paper.*
 The BNOT times in the submission were inflated by our own build: our headless port had replaced
-the original's sparse QR solver by a slower one. With the original solver and BNOT's default convergence
-criteria it takes 6.1 s at 1024 points and 12.8 s at 6400 (median over 10 targets; submitted:
-13.6 s and 1802 s). The point sets agree with the earlier ones to within 10⁻⁵ of a point spacing,
+the original's sparse QR solver by a slower one. With the original solver it takes 6.1 s at 1024 points and 12.8 s at 6400 (median over 10
+targets, in the configuration that generated our exemplars; submitted: 13.6 s and 1802 s). The point sets agree with the earlier ones to within 10⁻⁵ of a point spacing,
 so every BNOT exemplar and quality number is unchanged. *We re-timed all four methods on one
 protocol and will replace Fig. 7 and the text built on it.*
 
@@ -122,9 +121,17 @@ not the cause of the capacity gap (see Capacity).
 
 **Spectral anisotropy (W7).** Measured as the angular variance of the power spectrum around the
 blue-noise peak (25 realizations, lower is more isotropic): GBN −9.6 dB, Ours-GBN −8.4 dB; WVS
-−14.2 dB, Ours-WVS −9.7 dB; BNOT −15.2 dB. Ours-GBN is close to its teacher, Ours-WVS is clearly
-more anisotropic. *We will report these numbers next to the radial averages and state the
+−14.2 dB, Ours-WVS −9.7 dB; BNOT −15.2 dB (with the tight tolerance of the submitted figure;
+−22.0 dB in the exemplar configuration), Ours-BNOT −14.9 dB. Ours-GBN is close to its teacher,
+Ours-WVS is clearly more anisotropic. *We will report these numbers next to the radial averages and state the
 limitation.*
+
+**BNOT configuration; why BNOT's spectrum is weaker than the published one (only if asked).**
+BNOT is evaluated in the configuration that generated the training exemplars of Ours-BNOT. It
+stops earlier than the configuration behind the spectra in the BNOT paper, so its spectral peak
+is lower (1.5 against about 3 there). The claim we make is that Ours-BNOT follows the sampler it
+was trained on (peak 2.3). With a tight tolerance on the same targets BNOT reaches a peak of 3.6,
+in line with the published spectrum. *We will state the BNOT configuration in the paper.*
 
 **Does the model memorize? (W6)** Its metrics are the same on training and held-out images (for
 example CVT 1.035× against 1.041× the teacher's). It does reproduce training exemplars more closely
@@ -172,7 +179,8 @@ the revision, not as a new method.
 2. **Title.** Choose one of the two bracketed endings of the Capacity paragraph.
 3. **BNOT runtime: resolved 2026-11-18.** The submitted times came from a slow solver in our BNOT
    port. **Updated 2026-11-20:** all methods re-timed (runtime_v10, medians over 10 new targets,
-   BNOT at its true defaults; REBUTTAL_DRAFT.md watch-out 7). The new times (BNOT 6.1 / 5.8 s at
+   BNOT with the released iteration limits and epsilon 1.0 in our port, which is NOT the released
+   tolerance, see item 7; REBUTTAL_DRAFT.md watch-out 7). The new times (BNOT 6.1 / 5.8 s at
    1024 / 1600 points) are in the Speed paragraph, the exemplar cost in the BNOT paragraph, and the
    correction itself in Part 2 (Q1). **Decide whether the correction moves to Part 1:** Fig. 7
    changes visibly (BNOT no longer climbs to 1802 s), and the paper's 500-step sampler is then on
@@ -184,5 +192,16 @@ the revision, not as a new method.
 5. **Length.** Part 1 is about 790 words; cut the paragraphs no reviewer asks about.
 6. **Check against the real reviews** that no answer promises something a reviewer did not ask for
    (EG: large unrequested changes are risky).
+7. **BNOT configuration (found 2026-11-22; REBUTTAL_DRAFT.md A17, CONTEXT.md).** Our BNOT port uses
+   pixel values 0-255 where the released program uses 0-1, which makes its stopping test 16 times
+   looser at the same epsilon: every BNOT result, runtime and exemplar comes from a BNOT that
+   stops after 2-4 iterations. Never write "default" or "original" criteria for BNOT. What rests on
+   it in Part 1: "comes close to BNOT" (HOT 2.42 against 2.85) compares with BNOT in this
+   configuration, and a converged BNOT was not scored on the test sets; "about 6 s per image" is
+   the cost of the exemplars as they were made, which is the relevant number. User's position: if
+   asked, answer that BNOT was evaluated in the configuration used for training, not the BNOT
+   paper's (Part 2). The two paper versions differ in the spectral figures: the non-full one keeps
+   BNOT with the submitted tight tolerance and explains the difference, the full one shows BNOT
+   in the exemplar configuration.
 
 <!-- bnot-times-fixed-20261118: BNOT runtimes replaced by the fixed-build measurements -->

@@ -60,8 +60,8 @@ tables keep the submitted configuration (DDPM-500).
      the stored measurements from the original, unrecorded machine.
    See the resolved TODO in CONTEXT.md and `BNOT_V2/CONTEXT.md`.
 7. **Runtimes of record (2026-11-20): `runtime_v10`, all four methods re-timed; quote only these.**
-   10 Icons-50 validation images (the first 10, sorted; the old pinned images made BNOT at its true
-   defaults blow up), BNOT at its true defaults (500 / 500 iterations, epsilon 1.0, fixed build).
+   10 Icons-50 validation images (the first 10, sorted; the old pinned images made BNOT at its released iteration
+   limits blow up), BNOT with the released iteration limits (500 / 500), epsilon 1.0, fixed build (NOT the released tolerance: the port's density scale makes the test 16x looser, see A17).
    BNOT / WVS: one CPU-only EPYC 7702P node, 1 thread. GBN / ours: one job on a dedicated RTX 6000
    Ada with 16 reserved EPYC 7343 cores (node shared with other users' jobs, our runs never
    overlapping). Ours: median of 3 repetitions per image; exact OT below 3136 points,
@@ -234,7 +234,7 @@ DDPM-500, current metric code.
 - BNOT per image, fixed build: 7.1 s at 1024 points, 8.5 s at 1600 (paper driver caps, old images).
   Exemplar generation at that speed ≈ 20 h (Icons), 10 h (CelebA), 9 h (ShapeNet2D), 6 h (Chibi) of
   single-image BNOT time, about the same as GBN's cost (8.1 / 8.2 s per image). With the runtimes of
-  record (watch-out 7, true defaults): 6.1 / 5.8 s per image against GBN 9.5 / 9.5 s, so in the
+  record (watch-out 7, released iteration limits): 6.1 / 5.8 s per image against GBN 9.5 / 9.5 s, so in the
   paper write "a few seconds per image on one CPU thread, comparable to GBN". **This contradicts the paper's
   "impractical" wording.**
 - Our exemplars were generated with the slow build (13.6 / 25.5 s per image: 38 / 19 / 28 / 19 h).
@@ -674,7 +674,7 @@ and describe the protocol exactly.*
 | E18 | OT-assignment bug | **found and fixed** (A10) |
 | D1 | Gradient-free fixed point (tone) | **done** (A12) |
 | Runtime, new variant | clean 3-rep re-timing | **superseded** by runtime_v10 (watch-out 7) |
-| Runtime, all methods | runtime_v10: all four methods re-timed on 10 new images, BNOT true defaults | **done 2026-11-20** (watch-out 7): `outputs/runtime_v10/` |
+| Runtime, all methods | runtime_v10: all four methods re-timed on 10 new images, BNOT released iteration limits | **done 2026-11-20** (watch-out 7): `outputs/runtime_v10/` |
 
 ---
 
@@ -685,7 +685,7 @@ The full review text is in `experiments/reviews/mock_review_R1.md`. Strength of 
 
 | Point | Strength | Answer (evidence) |
 |---|---|---|
-| W1 speed "≈ WVS at 1024–1600" | strong | 25-step stochastic DDIM: 0.42 s at 1024, 0.60 s at 1600 incl. exact OT Smart Init, vs WVS 6.8 / 11.0, GBN 9.5 / 9.5 (GPU), BNOT 6.1 / 5.8 s (true defaults; medians, watch-out 7); equal or better on all 7 metrics than our DDPM-500 (A1, A1b). 60 stipples/s batched. |
+| W1 speed "≈ WVS at 1024–1600" | strong | 25-step stochastic DDIM: 0.42 s at 1024, 0.60 s at 1600 incl. exact OT Smart Init, vs WVS 6.8 / 11.0, GBN 9.5 / 9.5 (GPU), BNOT 6.1 / 5.8 s (released iteration limits; medians, watch-out 7); equal or better on all 7 metrics than our DDPM-500 (A1, A1b). 60 stipples/s batched. |
 | W1 "unoptimized WVS" | partial | It is Rougier's NumPy/SciPy reference implementation; say so. Even a 10x faster WVS only ties us at 1024 and grows with N (50.8 s at 6400 vs our 1.33 s). All methods were re-timed on one protocol (watch-out 7); WVS is still the reference implementation. |
 | W1 tiles / lattices | none | Related-work paragraph: not example-based, not differentiable. |
 | W1 mottling at 4096 | partial | The large-budget panels used a truncated OT solver (A10); Fig. 4 is regenerated with the exact assignment. Budgets stay visual only (A9). |
@@ -704,7 +704,7 @@ The full review text is in `experiments/reviews/mock_review_R1.md`. Strength of 
 | W6 perfect-square n | concede | Limitation of the OT-grid representation. |
 | W7 anisotropy | partial / concede | A17: Ours-WVS more anisotropic than WVS around the peak, Ours-GBN within ~1 dB of GBN; the new sampler is bluer at low frequency but ~1 dB more anisotropic. |
 | W8 novelty | argument | Ours-BNOT, 78/82 paired rank preservation (A2), full-chain differentiability (A12), the SDEdit start as a quality component (A5). |
-| Q1 implementations | facts | WVS: Rougier NumPy/SciPy, CPU. BNOT: the authors' C++ code in our headless port, CPU, 1 thread; the port's linear solver was slow and is fixed (with BNOT's true defaults 6.1 s at 1024, 12.8 s at 6400 instead of 13.6 / 1802 s; same point sets; watch-outs 6 and 7), and Fig. 7 is re-timed for all methods. **GBN: authors' CUDA binary on an RTX-class GPU.** Our time includes the Smart Init OT (exact network simplex, 0.14 s at 1024, 6.4 s at 6400; 1.07 s at 6400 with bisection-blocks16). |
+| Q1 implementations | facts | WVS: Rougier NumPy/SciPy, CPU. BNOT: the authors' C++ code in our headless port, CPU, 1 thread; the port's linear solver was slow and is fixed (with BNOT's released iteration limits 6.1 s at 1024, 12.8 s at 6400 instead of 13.6 / 1802 s; same point sets; watch-outs 6 and 7), and Fig. 7 is re-timed for all methods. **GBN: authors' CUDA binary on an RTX-class GPU.** Our time includes the Smart Init OT (exact network simplex, 0.14 s at 1024, 6.4 s at 6400; 1.07 s at 6400 with bisection-blocks16). |
 | Q2 aspect ratio | strong | Not given to the network (condition resized to the grid, per-axis normalization), but not the cause: on already-square images the gap remains 2–4x (A4, E3). |
 | Q4 50–100 steps, deterministic | strong | 50 / 100 steps also beat DDPM-500 (δc −6.4% / −4.4%); deterministic solvers lose 13–17% HOT (A1b, A6). |
 | Minor: EMD is W1 | fact | Our M3 is the 2-Wasserstein distance (sqrt of the OT cost with squared distances, `compute_m3_emd`); rename it "W2" in the revision. |

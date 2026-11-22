@@ -1818,3 +1818,22 @@ After the port finding above the user decided:
   13 budgets x 10 images): iterations 2 (7 runs), 3 (107), 4 (14), 5 (1), 6 (1); none at 25.
   So raising the cap to 500 would change no runtime and no re-run is needed.
 - Backup: `logs/paper_rebuttal_bak_20261122_before_bnot_runtime_wording/`.
+
+### 2026-11-22 (late night, 3): BNOT iteration limit in the full version, rebuttal text checked
+
+- **Correction of the entry above:** the full version's runtime figure
+  (`runtime_scaling_by_points_full.pdf`) is `runtime_v10`, where BNOT ran with the released
+  iteration limits (max_iters 500, max_newton_iters 500), not with the cap of 25 of the submitted
+  measurement. Its 90 runs (`outputs/runtime_v10_bnot_defaults500/`, 9 budgets x 10 images) need
+  2 (13 runs), 3 (76) or 4 (1) iterations. The full main now reads "... it needs 2 to 4
+  iterations, far below the limit of 500." The non-full main keeps the submitted sentence (cap 25,
+  submitted measurement). Backup: `logs/paper_rebuttal_bak_20261122_before_bnot_limit500/`.
+- **REBUTTAL_TEXT.md:** "BNOT's default convergence criteria" removed from Part 2 (Q1); the
+  anisotropy answer now says which BNOT the -15.2 dB belongs to (tight tolerance; -22.0 dB in the
+  exemplar configuration) and gives Ours-BNOT (-14.9 dB); new Part 2 answer on the BNOT
+  configuration (user's position); Part 3 item 3 corrected and item 7 added (what in Part 1 rests
+  on the BNOT configuration). Part 1 itself needed no change.
+- **REBUTTAL_DRAFT.md:** "true defaults" replaced by "released iteration limits" (6 places), with
+  the pointer to A17 in watch-out 7.
+- Left: `experiments/runtime_v10_stage_3.py` and `runtime_v10_cpu.sbatch` still print "true
+  defaults" in a comment and a summary line (scripts, not edited).
