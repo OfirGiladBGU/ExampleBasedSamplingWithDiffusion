@@ -16,8 +16,8 @@
 #SBATCH --job-name spectral-ours-bnot
 #SBATCH --output logs/spectral-ours-bnot-%j.out
 #SBATCH --gpus=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=6
+#SBATCH --mem=24G
 
 set -eo pipefail
 ROOT=/groups/asharf_group/ofirgila/ExampleBasedSamplingWithDiffusion
