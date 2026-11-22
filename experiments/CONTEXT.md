@@ -1702,3 +1702,33 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
   sampler also gives a different, lower-peak spectrum (peak 1.55 / 1.64 against 2.91;
   `outputs/spectral_analysis_unconstrained/plots_gbn_variants/`).
 - Still open: the main spectral figure is one column wide with six panels (small axis numbers).
+
+### 2026-11-22 (evening): what the BNOT paper says about the stopping tolerance
+
+Checked against the paper (de Goes et al. 2012, the user's PDF) and the released code
+(`/groups/asharf_group/ofirgila/BNOT_V2/bnot-src`). Nothing was changed.
+
+- **The paper names no epsilon.** Its criteria (Sec. 4.7, Fig. 6): weights until
+  `|grad_w F| <= 0.1 m`; positions by Lloyd steps until `|grad_X F| <= 0.2 sqrt(n m^3)`, then
+  gradient descent until `0.1 sqrt(n m^3)`; then detect and break regularities and restart.
+- **`ibnot` (images) at epsilon 1.0 is exactly that:** `energy.cpp` returns
+  `0.1*epsilon*sqrt(A^3)/N` and `0.1*epsilon*A/N`, and with m = A/N, `sqrt(n m^3) = sqrt(A^3)/N`;
+  the coarse loop uses twice the threshold. Epsilon 1.0 is the GUI default in all three programs.
+  Our port (`BNOT_new/ibnot_cli/energy.cpp`) has the same constants. So Table 1's BNOT and the
+  exemplars use the paper's published criterion for images.
+- **The paper's own spectral analysis used another program:** `pbnot` (periodic domain, constant
+  density; MANUAL: "used for spectral / spatial analyses"), whose constant is `0.03`, not `0.1`
+  (also `bbnot`, used for timing). In `ibnot` terms that is epsilon 0.3.
+- **The paper's published BNOT spectrum is stronger than ours at epsilon 1.0.** Fig. 8, 1024 points,
+  mean of 10 sets: radial peak about 3.0, second peak about 1.4 (read off the plot). Ours on
+  `uniform_g000`: 1.53 at epsilon 1.0, 1.75 at 0.1, 3.62 at 0.01 (sweep in
+  `outputs/spectral_analysis/FINDINGS.md`). The paper's curve lies between our 0.1 and 0.01.
+- **Not explained:** the paper reports "typically" 5 Lloyd and 10 gradient-descent iterations; our
+  port stops after 2 + 1 at epsilon 1.0. The 3.3x tighter `pbnot` constant alone does not close
+  the gap (our epsilon 0.1 still gives 1.75). Other differences: periodic against bounded domain;
+  the regularity-breaking step, which is a separate menu action in the released GUI and is not
+  called by our `main_cli.cpp`. Whether the original code, run on a uniform target, reaches the
+  paper's peak at epsilon 1.0 was **not tested**; if it does, the port stops too early and that
+  would concern every BNOT result, not only the spectral figure.
+- Paper, Fig. 5: a strict threshold (`<= 1e-5`) produces regular patches; the authors stop at
+  shallow minima on purpose. A tighter tolerance is therefore not "more correct BNOT".
