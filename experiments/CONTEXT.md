@@ -1807,3 +1807,14 @@ After the port finding above the user decided:
   figure.
 - Still open: the non-full main keeps the submitted runtime sentence "published default stopping
   criteria ... up to 25 Newton iterations for BNOT".
+
+### 2026-11-22 (late night, 2): runtime sentence about BNOT's stopping rule (user decision)
+
+- **Non-full main:** keeps the submitted sentence ("... up to 25 Newton iterations for BNOT"): the
+  submitted experiment did run with a cap of 25 (driver `max_iters = 25`, `max_newton_iters = 50`).
+- **Full main:** "BNOT stops by the convergence test of its released code, with the tolerance used
+  to generate our exemplars; it needs 2 to 6 iterations, so the cap of 25 iterations is never
+  reached." Checked on the stored runtime runs (`outputs/icons_results_runtimes_bnot/`, 130 runs,
+  13 budgets x 10 images): iterations 2 (7 runs), 3 (107), 4 (14), 5 (1), 6 (1); none at 25.
+  So raising the cap to 500 would change no runtime and no re-run is needed.
+- Backup: `logs/paper_rebuttal_bak_20261122_before_bnot_runtime_wording/`.
