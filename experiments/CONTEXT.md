@@ -1652,3 +1652,19 @@ Checked by the first rebuttal session. Backups of the three docs: `*.bak_2026112
   submitted text and still there: "The optimization-based samplers achieve lower low-frequency
   floors" holds for BNOT and GBN only, WVS has the highest floor of all. (3) Whether to show
   Ours-BNOT in this figure at all is the user's call; it is in, with its weakness stated.
+
+### 2026-11-22: user decisions on the spectral analysis
+
+- **Ours-BNOT stays in both spectral figures** (user), with its weaker peak stated in the text.
+- **Low-frequency-floor sentence fixed (user), both main files of `paper_rebuttal/`:** "The
+  optimization-based samplers achieve lower low-frequency floors" → "BNOT and GBN achieve the
+  lowest low-frequency floors, indicating the strongest suppression of low-frequency energy; the
+  learned variants follow, and WVS has the highest floor." Low-frequency power at rho = 1.00:
+  BNOT 0.0011, GBN 0.0017, Ours-GBN 0.0068, Ours-BNOT 0.0099, Ours-WVS 0.0111, WVS 0.0205; same
+  order at all four grey levels (`plots_full_bnot/spectral_summary.csv`). Blue marks re-run,
+  checks pass, both files compile. Copies from before:
+  `logs/paper_rebuttal_bak_20261122_before_wvs_floor/`.
+- Still open: the main spectral figure is one column wide with six panels (small axis numbers).
+- `spectral_ours_bnot.sbatch` now asks for 6 cores / 24 GB (cluster limit per GPU; it ran with
+  8 / 32 GB). Its CPU-only stages (stage 1, stage 2, summary) ran inside that GPU job; if it is run
+  again, they belong in a CPU job.
